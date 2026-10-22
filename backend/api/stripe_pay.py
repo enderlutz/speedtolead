@@ -387,6 +387,31 @@ def _edited(link: PayLink, message: str | None) -> str | None:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/pay-links/sample")
+def sample_pay_link(lead_id: str = "", user: dict = Depends(require_staff)):
+    """Staff. One open link to show the finished pay page with (the mockup
+    page's "Pay page" peek, Alan 2026-10-22): the lead's newest open link
+    when a lead is given, else the newest open deposit, else the newest open
+    link of any kind. Nothing is made and nothing is sent."""
+    del user
+    db = get_db()
+    try:
+        q = db.query(PayLink).filter(PayLink.status == "open")
+        link = None
+        if lead_id:
+            link = q.filter(PayLink.lead_id == lead_id).order_by(PayLink.created_at.desc()).first()
+        if link is None:
+            link = q.filter(PayLink.kind == "deposit").order_by(PayLink.created_at.desc()).first()
+        if link is None:
+            link = q.order_by(PayLink.created_at.desc()).first()
+        if link is None or hooks.deposit_link_expired(link):
+            raise HTTPException(status_code=404, detail="No open payment link to show. Make a deposit link on any lead first.")
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        return {**link_dict(link), "name": ((lead.contact_name or "").strip() if lead else "")}
+    finally:
+        db.close()
+
+
 @router.get("/pay-links/{token}/message")
 def pay_link_message(token: str, name: str = "", other: int = 0, user: dict = Depends(require_staff)):
     """The preset text, to edit before sending. other=1 is the version for
@@ -820,9 +845,38 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             # the card fields right here (Alan, 2026-10-17: a bare Pay
             # button "looks scammy").
             "publishable_key": (getattr(get_settings(), "stripe_publishable_key", "") or "").strip(),
+            # The in-page form needs an email for the receipt; when the lead
+            # has none, the page asks for one.
+            "has_email": bool(lead and (lead.contact_email or "").strip()),
         }
     finally:
         db.close()
+
+
+# Apple Pay (and Link) in the in-page form only show on a domain registered
+# with Stripe; Checkout's hosted page did that on its own. Registered once
+# per process for the customer pages' domain, re-checked hourly, never fatal.
+_domain_ok_at = 0.0
+DOMAIN_REFRESH_S = 3600
+
+
+def _ensure_domain(s) -> None:
+    global _domain_ok_at
+    if time.monotonic() - _domain_ok_at < DOMAIN_REFRESH_S:
+        return
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(_base()).hostname or "").lower()
+        if not host or host in ("localhost", "127.0.0.1"):
+            return
+        have = {(_field(d, "domain_name") or "").lower() for d in s.PaymentMethodDomain.list(limit=100).data
+                if _field(d, "enabled") is not False}
+        if host not in have:
+            s.PaymentMethodDomain.create(domain_name=host)
+            log_event(None, "stripe_domain_registered", host)
+        _domain_ok_at = time.monotonic()
+    except Exception as e:  # noqa: BLE001 - the card fields still work without it
+        logger.warning("Stripe payment method domain check failed: %s", e)
 
 
 class SessionBody(BaseModel):
@@ -833,6 +887,11 @@ class SessionBody(BaseModel):
     # The form on our page (Stripe's embedded Checkout) instead of a jump
     # to Stripe's page. The page falls back to the jump if it can't load.
     embedded: bool = False
+    # Stripe's Payment Element on our page, drawn in Sterling's colours with
+    # our own Pay button (Alan, 2026-10-22: the hosted page "looks tacky" and
+    # some customers never got through it). Same session, same webhook,
+    # same after page as the hosted jump.
+    elements: bool = False
     # Staff looking at their own link: no event, no "tapped Pay" alert.
     preview: bool = False
 
@@ -844,7 +903,8 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
     db = get_db()
     try:
         link = _live_link(db, token)
-        embedded = bool(body is not None and body.embedded)
+        elements = bool(body is not None and body.elements)
+        embedded = elements or bool(body is not None and body.embedded)
         if link.status == "paid":
             return {"url": f"{_base()}/after/{link.token}", "paid": True}
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
@@ -935,9 +995,13 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             # the same after-page the hosted version does.
             # Stripe renamed this (2026-10-17: "`embedded` is no longer
             # supported. Use `embedded_page` instead.").
-            params["ui_mode"] = "embedded_page"
+            params["ui_mode"] = "elements" if elements else "embedded_page"
             params["return_url"] = params.pop("success_url")
             params.pop("cancel_url", None)
+        if elements:
+            # Our page draws the Pay button and the terms line itself.
+            params.pop("custom_text", None)
+            _ensure_domain(s)
         try:
             try:
                 session = s.checkout.Session.create(**params)
@@ -977,6 +1041,39 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             log_event(link.lead_id, "stripe_checkout_opened", f"{link.kind} {link.token[:6]} · {ua}")
         db.commit()
         return _out(session)
+    finally:
+        db.close()
+
+
+class TappedBody(BaseModel):
+    preview: bool = False
+    # Typed on the pay page when the lead had no email: kept on the lead so
+    # the receipt and the next text have somewhere to go.
+    email: str = ""
+
+
+@router.post("/pay/{token}/tapped")
+def pay_tapped(token: str, body: TappedBody | None = None, request: Request = None):
+    """Public. The customer tapped Pay on the in-page form. That is the
+    moment the hosted page used to count as "went to Stripe", so the
+    NOT PAID YET alert (stuck_payments) still fires if nothing lands."""
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status == "paid":
+            return {"ok": True, "paid": True}
+        email = (body.email if body is not None else "").strip()
+        if email and "@" in email:
+            lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+            if lead and not (lead.contact_email or "").strip():
+                lead.contact_email = email[:200]
+                log_event(link.lead_id, "email_from_pay_page", email[:200])
+        if not (body is not None and body.preview):
+            link.checkout_started_at = datetime.now(timezone.utc).isoformat()
+            ua = request.headers.get("user-agent", "")[:300] if request is not None else ""
+            log_event(link.lead_id, "stripe_pay_tapped", f"{link.kind} {link.token[:6]} · {ua}")
+        db.commit()
+        return {"ok": True, "paid": False}
     finally:
         db.close()
 
@@ -1208,9 +1305,21 @@ def stripe_health(user: dict = Depends(require_staff)):
     Railway."""
     del user
     if not configured():
-        return {"configured": False, "webhooks": [], "methods": [], "events": [], "errors": ["STRIPE_SECRET_KEY isn't set in Railway."], "webhook_ok": False}
+        return {"configured": False, "webhooks": [], "methods": [], "events": [], "domains": [], "errors": ["STRIPE_SECRET_KEY isn't set in Railway."], "webhook_ok": False}
     s = _stripe()
-    out: dict = {"configured": True, "webhooks": [], "methods": [], "events": [], "errors": []}
+    out: dict = {"configured": True, "webhooks": [], "methods": [], "events": [], "domains": [], "errors": []}
+    try:
+        # Where Apple Pay, Google Pay and Link may show in the in-page form.
+        for d in s.PaymentMethodDomain.list(limit=100).data:
+            out["domains"].append({
+                "domain": _field(d, "domain_name") or "",
+                "enabled": _field(d, "enabled") is not False,
+                "apple_pay": _field(_field(d, "apple_pay"), "status") or "",
+                "google_pay": _field(_field(d, "google_pay"), "status") or "",
+                "link": _field(_field(d, "link"), "status") or "",
+            })
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"Domains: {e}")
     try:
         for ep in s.WebhookEndpoint.list(limit=20).data:
             events = list(getattr(ep, "enabled_events", None) or [])

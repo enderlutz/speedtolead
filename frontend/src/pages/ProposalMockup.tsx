@@ -19,6 +19,7 @@ import {
   Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight, Share2, Link2, Wrench,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { PayPageMock } from "@/components/proposal/PayPageMock";
 import { api } from "@/lib/api";
 import { sidesInWords } from "@/lib/fenceSides";
 import { klarnaLine, monthlyFrom } from "@/lib/klarna";
@@ -664,6 +665,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // The Stripe Checkout page, as the customer sees it: the deposit, or the
   // whole job with Klarna and Affirm on it (Alan, 2026-10-10).
   const [checkout, setCheckout] = useState<null | PayFlow>(null);
+  // The pay page mock: the new look (Stripe's form on our page, Alan
+  // 2026-10-22) by default, the old hosted-page mock a tap away to compare.
+  const [payLook, setPayLook] = useState<"page" | "stripe">("page");
   // The screens after a payment (Alan's spec, 2026-10-10). "balance" is the
   // link texted after the job; paidUpFront is the financed customer who
   // owes nothing then and only gets the after-the-job screens.
@@ -760,6 +764,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold text-[#15130F] hover:opacity-90" style={{ background: GOLD }}>
             <Calendar className="h-3.5 w-3.5" /> Booking invite
           </button>
+          <button type="button" onClick={() => { setPayLook("page"); setCheckout("deposit"); }} title="The new pay page: Stripe's form on our own page, in Sterling's colours"
+            className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Pay page</button>
           <span className="ml-1 text-[11px] text-ivory/60">After the job:</span>
           <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
             className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
@@ -1394,7 +1400,19 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         );
       })() : null}
 
-      {checkout ? (
+      {checkout && payLook === "page" ? (
+        <PayPageMock
+          mode={checkout}
+          pkgName={chosen?.name || packages[1].name}
+          total={total || packages[1].price}
+          firstName={customer.name.split(" ")[0]}
+          address={customer.address}
+          onClose={() => setCheckout(null)}
+          onPaid={(method) => { const flow = checkout; setCheckout(null); setAfterPay({ flow, method }); }}
+          onTerms={() => setTerms(true)}
+          onOldLook={() => setPayLook("stripe")}
+        />
+      ) : checkout ? (
         <CheckoutMock
           mode={checkout}
           pkgName={chosen?.name || packages[1].name}
@@ -1402,6 +1420,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           repairs={repairs}
           onClose={() => setCheckout(null)}
           onPaid={(method) => { const flow = checkout; setCheckout(null); setAfterPay({ flow, method }); }}
+          onNewLook={() => setPayLook("page")}
         />
       ) : null}
       {afterPay ? (
@@ -1547,8 +1566,8 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
  *  Pay), or the whole job with Klarna on it. The real page is
  *  Stripe's; this is its shape. What comes after a payment is a stub
  *  until Alan's post-payment flow arrives. */
-function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid }: {
-  mode: PayFlow; pkgName: string; total: number; repairs: number; onClose: () => void; onPaid: (method: PayMethod) => void;
+function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid, onNewLook }: {
+  mode: PayFlow; pkgName: string; total: number; repairs: number; onClose: () => void; onPaid: (method: PayMethod) => void; onNewLook?: () => void;
 }) {
   type Method = PayMethod;
   const [method, setMethod] = useState<Method>("card");
@@ -1568,7 +1587,10 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid }: {
             <div className="bg-[#15130F] px-5 pb-5 pt-4 text-white">
               <div className="flex items-center justify-between">
                 <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-white/85"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
-                <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">Mockup</span>
+                <span className="flex items-center gap-2">
+                  {onNewLook ? <button type="button" onClick={onNewLook} className="whitespace-nowrap rounded-md bg-white/10 px-2 py-1 text-[11px] font-bold text-white/85">New look</button> : null}
+                  <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">Mockup · old</span>
+                </span>
               </div>
               <div className="mt-3 flex items-center gap-3">
                 <img src="/sterling-logo-dark.png" alt="" className="h-7 w-auto" draggable={false} />

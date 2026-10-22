@@ -270,11 +270,13 @@ def test_stripe_health_reports_our_webhook_the_methods_and_the_events(db, monkey
                           klarna=SimpleNamespace(available=True, display_preference=pref_on),
                           affirm=SimpleNamespace(available=True, display_preference=pref_off))
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **kw: SimpleNamespace(data=[cfg]))
+    monkeypatch.setattr(sp.stripe.PaymentMethodDomain, "list", lambda **kw: SimpleNamespace(data=[SimpleNamespace(domain_name="estimate.test", enabled=True, apple_pay=SimpleNamespace(status="active"), google_pay=SimpleNamespace(status="active"), link=SimpleNamespace(status="active"))]), raising=False)
     ev = _event({"id": "evt_1", "object": "event", "type": "checkout.session.completed", "created": 1760000000, "pending_webhooks": 1, "livemode": True,
                  "data": {"object": {"object": "checkout.session", "metadata": {"pay_link": "tok"}, "payment_status": "paid", "amount_total": 100}}})
     monkeypatch.setattr(sp.stripe.Event, "list", lambda **kw: SimpleNamespace(data=[ev]))
     out = sp.stripe_health(STAFF)
     assert out["configured"] is True and out["webhook_ok"] is True and out["errors"] == []
+    assert out["domains"] == [{"domain": "estimate.test", "enabled": True, "apple_pay": "active", "google_pay": "active", "link": "active"}]
     assert [w["ours"] for w in out["webhooks"]] == [True, False]
     assert {m["name"]: m["on"] for m in out["methods"]} == {"card": True, "klarna": True, "affirm": False}
     assert out["events"][0]["pending_webhooks"] == 1 and out["events"][0]["pay_link"] == "tok" and out["events"][0]["amount"] == 1.0
@@ -664,3 +666,77 @@ def test_embedded_session_stays_on_our_page(db, monkeypatch):
     db.expire_all()
     link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
     assert link.checkout_started_at
+
+
+def test_the_in_page_form_uses_an_elements_session_and_registers_the_domain(db, monkeypatch):
+    """Alan, 2026-10-22: Stripe's Payment Element on our page, drawn in our
+    colours, instead of the hosted page. The session is made in `elements`
+    mode with the after page as its return address, no terms line (ours is
+    on the page), the customer pages' domain is registered for Apple Pay,
+    and loading the form is not a tap on Pay."""
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen, domains = [], []
+    monkeypatch.setattr(sp, "_domain_ok_at", 0.0)
+    monkeypatch.setattr(sp.stripe.PaymentMethodDomain, "list", lambda **k: SimpleNamespace(data=[]), raising=False)
+    monkeypatch.setattr(sp.stripe.PaymentMethodDomain, "create", lambda **k: domains.append(k) or SimpleNamespace(id="pmd_1"), raising=False)
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create",
+                        lambda **p: seen.append(p) or SimpleNamespace(id="cs_el", url=None, client_secret="cs_el_secret_x"))
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    got = sp.start_session(out["token"], sp.SessionBody(elements=True))
+    assert got == {"client_secret": "cs_el_secret_x", "paid": False}
+    p = seen[-1]
+    assert p["ui_mode"] == "elements" and p["return_url"] == f"https://estimate.test/after/{out['token']}?s={{CHECKOUT_SESSION_ID}}"
+    assert "custom_text" not in p and "success_url" not in p and "cancel_url" not in p
+    assert p["payment_method_configuration"] == "pmc_deposit"  # still no lender on a deposit
+    assert domains == [{"domain_name": "estimate.test"}]
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert link.stripe_session_id == "cs_el" and not link.checkout_started_at
+    # Registered once per process, not on every form load.
+    sp.start_session(out["token"], sp.SessionBody(elements=True))
+    assert len(domains) == 1
+    # A Stripe hiccup on the domain never stops the payment.
+    monkeypatch.setattr(sp, "_domain_ok_at", 0.0)
+    monkeypatch.setattr(sp.stripe.PaymentMethodDomain, "list", lambda **k: (_ for _ in ()).throw(RuntimeError("down")), raising=False)
+    assert sp.start_session(out["token"], sp.SessionBody(elements=True))["client_secret"] == "cs_el_secret_x"
+
+
+def test_tapping_pay_on_the_form_counts_as_going_to_stripe_and_keeps_the_email(db, monkeypatch):
+    _settings(monkeypatch)
+    from database import Lead
+    lead = _lead(db)
+    lead.contact_email = ""
+    db.commit()
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    assert sp.pay_info(out["token"])["has_email"] is False
+    # Staff preview: nothing recorded.
+    assert sp.pay_tapped(out["token"], sp.TappedBody(preview=True)) == {"ok": True, "paid": False}
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert not link.checkout_started_at
+    # The customer: the moment the NOT PAID YET clock starts, and her email kept.
+    assert sp.pay_tapped(out["token"], sp.TappedBody(email=" Her@Example.com ")) == {"ok": True, "paid": False}
+    db.expire_all()
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert link.checkout_started_at
+    assert db.query(Lead).filter(Lead.id == lead.id).first().contact_email == "Her@Example.com"
+    assert sp.pay_info(out["token"])["has_email"] is True
+    # An email already on the lead is never overwritten from the pay page.
+    sp.pay_tapped(out["token"], sp.TappedBody(email="other@example.com"))
+    db.expire_all()
+    assert db.query(Lead).filter(Lead.id == lead.id).first().contact_email == "Her@Example.com"
+
+
+def test_the_sample_link_for_the_pay_page_peek_prefers_the_lead_then_the_newest_deposit(db, monkeypatch):
+    _settings(monkeypatch)
+    with pytest.raises(HTTPException) as e:
+        sp.sample_pay_link("", STAFF)
+    assert e.value.status_code == 404
+    a, b = _lead(db), _lead(db)
+    bal = sp.create_pay_link(a.id, sp.CreateLinkBody(kind="balance", amount=900), STAFF)
+    assert sp.sample_pay_link("", STAFF)["token"] == bal["token"]  # any open link beats nothing
+    dep = sp.create_pay_link(b.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    out = sp.sample_pay_link("", STAFF)
+    assert out["token"] == dep["token"] and out["name"] == "Test Customer" and out["url"].endswith(f"/pay/{dep['token']}")
+    assert sp.sample_pay_link(a.id, STAFF)["token"] == bal["token"]  # the lead asked for wins
+    sp.void_pay_link(dep["token"], STAFF)
+    assert sp.sample_pay_link("", STAFF)["token"] == bal["token"]
