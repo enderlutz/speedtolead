@@ -2003,10 +2003,22 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
                   <span className="truncate font-semibold">{n.label}</span>
                   <Input value={draft[n.key] ?? n.note} maxLength={300} placeholder={tr("Note for the crew (optional)")}
                          onChange={(e) => setDraft((d) => ({ ...d, [n.key]: e.target.value }))}
-                         onBlur={() => { if ((draft[n.key] ?? n.note) !== n.note) send(picked, { [n.key]: draft[n.key] ?? "" }); }}
                          className="h-11 text-base" />
                 </label>
               ))}
+              {/* One clear Save for the notes (Alan, 2026-10-21: "make the button saveable"). */}
+              {(() => {
+                const dirty = names.some((n) => (draft[n.key] ?? n.note) !== n.note);
+                return (
+                  <div className="flex items-center justify-end gap-3 pt-1">
+                    {dirty ? <span className="text-sm font-semibold text-bronze">{tr("Notes not saved yet")}</span> : null}
+                    <Button type="button" disabled={!dirty} onClick={() => send(picked)}
+                            className="h-11 bg-ink px-5 text-gold-light hover:bg-ink/90 disabled:opacity-40">
+                      {dirty ? tr("Save notes") : tr("Notes saved")}
+                    </Button>
+                  </div>
+                );
+              })()}
             </div>
           ) : null}
         </div>
