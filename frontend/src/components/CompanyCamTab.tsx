@@ -1657,6 +1657,21 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         </RoleGroup>
       )}
       <RoleGroup who="stainer">
+        {/* What the cleaner cleaned, first thing the stainer sees, so they
+            stain exactly that (Chris, 2026-10-22). Tap one to see it big. */}
+        {!job.no_cleaning && (photos["clean_after"] || []).length ? (
+          <div className="rounded-2xl bg-white/70 p-2.5 ring-1 ring-cedar/30">
+            <p className="text-sm font-bold uppercase tracking-wide text-walnut">{tr("What the cleaner cleaned")}</p>
+            <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
+              {(photos["clean_after"] || []).map((p, i) => (
+                <button key={p.id} type="button" onClick={() => setViewer({ key: "clean_after", i, title: tr("After cleaning") })}
+                        className="h-20 w-24 shrink-0 overflow-hidden rounded-lg bg-muted">
+                  {p.from_storage ? <img src={p.url} alt="" className="h-full w-full object-cover" loading="lazy" /> : <Camera className="m-auto h-6 w-6 text-muted-foreground" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {renderStep("stain_before")}
         {renderStep("stain_after")}
 
