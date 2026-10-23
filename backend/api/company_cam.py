@@ -360,15 +360,22 @@ REPAIR_KEYS = ("pickets", "rotboard", "cap", "rail", "posts")
 
 
 def _repairs(job: CompanyCamJob, raw: str | None = None) -> dict:
-    """{"counts": {...}, "picket_type": "pine", "post_type": "post6"}"""
+    """{"counts": {...}, "picket_type": "pine", "post_type": "post6",
+    "prices": {"pickets": 10, ...}, "mode": "final" | ""}. `prices` is the
+    price each that was agreed (none = the price list); `mode` "final" on
+    the crew's count means it replaces the office's plan (Alan and Chris,
+    2026-10-22: the phone call is a starting point, the fence is the count)."""
     try:
         v = json.loads((job.repairs_json if raw is None else raw) or "{}") or {}
     except (ValueError, TypeError):
         v = {}
     counts = v.get("counts") if isinstance(v.get("counts"), dict) else {}
+    prices = v.get("prices") if isinstance(v.get("prices"), dict) else {}
     return {"counts": {k: int(counts.get(k) or 0) for k in REPAIR_KEYS},
             "picket_type": v.get("picket_type") if v.get("picket_type") in ("pine", "cedar") else "pine",
-            "post_type": v.get("post_type") if v.get("post_type") in ("post6", "post7", "post8") else "post6"}
+            "post_type": v.get("post_type") if v.get("post_type") in ("post6", "post7", "post8") else "post6",
+            "prices": {k: float(prices[k]) for k in REPAIR_KEYS if isinstance(prices.get(k), (int, float)) and prices[k] > 0},
+            "mode": "final" if v.get("mode") == "final" else ""}
 
 
 _MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?k?", re.I)
@@ -776,11 +783,27 @@ def update_company_cam(
                 if n < 0 or n > 2000:
                     raise HTTPException(400, f"{k} has to be between 0 and 2000")
                 clean[k] = n
-            return json.dumps({
+            prices = raw.get("prices") if isinstance(raw.get("prices"), dict) else {}
+            clean_prices = {}
+            for k in REPAIR_KEYS:
+                try:
+                    p = round(float(prices.get(k)), 2) if prices.get(k) not in (None, "") else 0
+                except (TypeError, ValueError):
+                    p = 0
+                if p < 0 or p > 5000:
+                    raise HTTPException(400, f"The price for {k} has to be between $0 and $5,000")
+                if p:
+                    clean_prices[k] = p
+            out = {
                 "counts": clean,
                 "picket_type": raw.get("picket_type") if raw.get("picket_type") in ("pine", "cedar") else "pine",
                 "post_type": raw.get("post_type") if raw.get("post_type") in ("post6", "post7", "post8") else "post6",
-            })
+            }
+            if clean_prices:
+                out["prices"] = clean_prices
+            if raw.get("mode") == "final":
+                out["mode"] = "final"
+            return json.dumps(out)
         newly_confirmed = False
         if body.extras is not None:
             v = clean_repairs(body.extras or {})
@@ -790,7 +813,10 @@ def update_company_cam(
                 job.extras_confirmed_by = ""
         if body.extras_confirmed is not None:
             if body.extras_confirmed:
-                if not any(_repairs(job, job.extras_json or "")["counts"].values()):
+                ex = _repairs(job, job.extras_json or "")
+                # A final count of zero is real ("nothing needed after all");
+                # an add-on with nothing in it isn't.
+                if ex["mode"] != "final" and not any(ex["counts"].values()):
                     raise HTTPException(400, "Count the extra repairs first")
                 newly_confirmed = not job.extras_confirmed_at
                 job.extras_confirmed_at = _now()
@@ -1308,7 +1334,8 @@ def _extras_confirmed(db, lead: Lead, job: CompanyCamJob) -> None:
     ex = site_extras(job)
     if not ex["lines"]:
         return
-    what = "; ".join(f"{l['qty']} × {l['name']} @ {money(l['unit_cents'] / 100)}" for l in ex["lines"])
+    counted = [l for l in ex["lines"] if l["qty"] > 0 and l["unit_cents"] > 0]
+    what = "; ".join(f"{l['qty']} × {l['name']} @ {money(l['unit_cents'] / 100)}" for l in counted) or "no repairs needed"
     try:
         from api.booking import _active, sync_calendar
         b = _active(db, lead.id)
@@ -1317,8 +1344,17 @@ def _extras_confirmed(db, lead: Lead, job: CompanyCamJob) -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("extras: calendar update failed for %s: %s", lead.id, e)
     try:
-        alert_alan(f"{lead.contact_name or 'A customer'} agreed on site to {what} = {money(ex['total_cents'] / 100)}. "
-                   f"Confirmed by {job.extras_confirmed_by or 'the crew'}. It's ready to add on their invoice (Payment links).")
+        if ex.get("final"):
+            diff = ex["total_cents"]
+            change = ("no change to their bill" if not diff else
+                      f"their bill goes UP {money(diff / 100)}" if diff > 0 else f"their bill goes DOWN {money(-diff / 100)}")
+            low = f" ⚠ Priced below what was agreed: {', '.join(ex['below'])}." if ex.get("below") else ""
+            alert_alan(f"{lead.contact_name or 'A customer'}: {job.extras_confirmed_by or 'the crew'} counted the repairs on site "
+                       f"with the customer: {what} = {money(ex['final_cents'] / 100)}. Agreed on the phone: {money(ex['planned_cents'] / 100)}, "
+                       f"so {change}.{low} It's ready on their invoice (Payment links).")
+        else:
+            alert_alan(f"{lead.contact_name or 'A customer'} agreed on site to {what} = {money(ex['total_cents'] / 100)}. "
+                       f"Confirmed by {job.extras_confirmed_by or 'the crew'}. It's ready to add on their invoice (Payment links).")
     except Exception as e:  # noqa: BLE001
         logger.warning("extras: alert failed for %s: %s", lead.id, e)
 

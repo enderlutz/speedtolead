@@ -751,31 +751,76 @@ REPAIR_PRICE_CENTS = {"pine": 1200, "cedar": 1400, "rotboard": 5000, "cap": 8500
 POST_LABELS = {"post6": "6 ft fence", "post7": "7 ft fence", "post8": "8 ft fence"}
 
 
-def repair_lines(counts: dict, picket_type: str, post_type: str) -> list[dict]:
-    """[{"name": "Picket replacement (Pine)", "qty": 5, "unit_cents": 1200}, ...]"""
+def list_cents(key: str, picket_type: str = "pine", post_type: str = "post6") -> int:
+    """The price list for one repair, by its count key."""
+    if key == "pickets":
+        return REPAIR_PRICE_CENTS.get(picket_type, 1200)
+    if key == "posts":
+        return REPAIR_PRICE_CENTS.get(post_type, 22500)
+    return REPAIR_PRICE_CENTS.get(key, 0)
+
+
+def repair_lines(counts: dict, picket_type: str, post_type: str, prices: dict | None = None) -> list[dict]:
+    """[{"name": "Picket replacement (Pine)", "qty": 5, "unit_cents": 1200, "key": "pickets"}, ...]
+    `prices` (dollars each, by key) is what was agreed; the list otherwise."""
+    prices = prices or {}
+    each = lambda k: int(round(float(prices[k]) * 100)) if prices.get(k) else list_cents(k, picket_type, post_type)  # noqa: E731
     out = []
     if counts.get("pickets"):
         out.append({"name": f"Picket replacement ({picket_type.title()})", "qty": int(counts["pickets"]),
-                    "unit_cents": REPAIR_PRICE_CENTS.get(picket_type, 1200)})
+                    "unit_cents": each("pickets"), "key": "pickets"})
     for key, label in (("rotboard", "Rot board"), ("cap", "Cap"), ("rail", "Rail")):
         if counts.get(key):
-            out.append({"name": f"{label} replacement", "qty": int(counts[key]), "unit_cents": REPAIR_PRICE_CENTS[key]})
+            out.append({"name": f"{label} replacement", "qty": int(counts[key]), "unit_cents": each(key), "key": key})
     if counts.get("posts"):
         out.append({"name": f"Post replacement ({POST_LABELS.get(post_type, '6 ft fence')})", "qty": int(counts["posts"]),
-                    "unit_cents": REPAIR_PRICE_CENTS.get(post_type, 22500)})
+                    "unit_cents": each("posts"), "key": "posts"})
     return out
 
 
-def site_extras(job) -> dict:
-    """The confirmed on-site extras: their lines and total, or empty."""
-    if not job or not (job.extras_confirmed_at or ""):
-        return {"lines": [], "total_cents": 0, "confirmed_at": ""}
+def _load(raw: str) -> dict:
     try:
-        v = json.loads(job.extras_json or "{}") or {}
+        v = json.loads(raw or "{}") or {}
     except (ValueError, TypeError):
         v = {}
-    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6")
-    return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}
+    return v if isinstance(v, dict) else {}
+
+
+def planned_repairs(job) -> dict:
+    """What the office agreed with the customer on the phone: lines at the
+    agreed price each, and the total. Already in the job's price."""
+    v = _load(getattr(job, "repairs_json", "") or "")
+    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6", v.get("prices"))
+    return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines)}
+
+
+def site_extras(job) -> dict:
+    """The confirmed on-site repairs: the lines to put on the invoice and
+    their total, or empty.
+
+    Two kinds. An add-on (the old way): extras on top of the plan, at the
+    price list. A final count (Alan and Chris, 2026-10-22): the crew counted
+    what the fence really needs with the customer, at the price each that
+    was agreed (they can change it on the spot), and it replaces the plan.
+    The plan is already in the job's price, so a final count comes back as
+    its lines plus one minus line for the plan: the total is the change to
+    the bill, up or down."""
+    if not job or not (job.extras_confirmed_at or ""):
+        return {"lines": [], "total_cents": 0, "confirmed_at": ""}
+    v = _load(job.extras_json or "")
+    pt, po = v.get("picket_type") or "pine", v.get("post_type") or "post6"
+    lines = repair_lines(v.get("counts") or {}, pt, po, v.get("prices"))
+    if v.get("mode") != "final":
+        return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}
+    plan = planned_repairs(job)
+    final_cents = sum(l["qty"] * l["unit_cents"] for l in lines)
+    agreed = {l["key"]: l["unit_cents"] for l in plan["lines"]}
+    below = [l["name"] for l in lines if l["unit_cents"] < agreed.get(l["key"], list_cents(l["key"], pt, po))]
+    out = list(lines)
+    if plan["total_cents"]:
+        out.append({"name": "Repairs agreed before (already in your price)", "qty": 1, "unit_cents": -plan["total_cents"], "key": "plan"})
+    return {"lines": out, "total_cents": final_cents - plan["total_cents"], "confirmed_at": job.extras_confirmed_at,
+            "final": True, "final_cents": final_cents, "planned_cents": plan["total_cents"], "below": below}
 
 
 def sqft_per_gallon(db, job) -> float:

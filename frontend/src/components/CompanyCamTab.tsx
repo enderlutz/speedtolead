@@ -2532,12 +2532,41 @@ function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
   );
 }
 
-type Repairs = { counts: Record<string, number>; picket_type: string; post_type: string };
+type Repairs = { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
 const NO_REPAIRS: Repairs = { counts: {}, picket_type: "pine", post_type: "post6" };
+const REPAIR_KEYS = ["pickets", "rotboard", "cap", "rail", "posts"] as const;
 
 function hasRepairs(job: CompanyCamJob) {
   return Object.values(job.repairs?.counts || {}).some((n) => n > 0) || !!(job.repair_notes || "").trim();
 }
+
+/** The price list for one repair, by its count key. */
+function listPrice(key: string, r: Repairs): number {
+  if (key === "pickets") return (PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).price;
+  if (key === "posts") return (POSTS.find((p) => p.key === r.post_type) || POSTS[0]).price;
+  return PARTS.find((p) => p.key === key)?.price ?? 0;
+}
+/** The price each that was agreed, or the list. */
+const priceOf = (key: string, r: Repairs) => r.prices?.[key] || listPrice(key, r);
+
+/** Each counted repair as a line with its price each (agreed or list). */
+function priceLines(r: Repairs): { key: string; n: number; what: string; price: number }[] {
+  const picket = PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0];
+  const post = POSTS.find((p) => p.key === r.post_type) || POSTS[0];
+  const c = r.counts || {};
+  const es = isSpanish();
+  return [
+    { key: "pickets", n: c.pickets || 0, what: es ? `tabla de ${tr(picket.label).toLowerCase()}` : `${picket.label.toLowerCase()} picket` },
+    ...PARTS.map((p) => ({ key: p.key, n: c[p.key] || 0, what: tr(p.label).toLowerCase() })),
+    { key: "posts", n: c.posts || 0, what: es ? `poste (${tr(post.label)})` : `post (${tr(post.label)})` },
+  ].filter((l) => l.n > 0).map((l) => ({ ...l, price: priceOf(l.key, r) }));
+}
+const linesTotal = (lines: { n: number; price: number }[]) => Math.round(lines.reduce((t, l) => t + l.n * l.price, 0) * 100) / 100;
+const usd = (n: number) => formatCurrency(n).replace(".00", "");
+
+/** The crew's count replaces the office's plan once the customer says yes. */
+const finalCount = (job: CompanyCamJob): Repairs | null =>
+  job.extras_confirmed_at && job.extras?.mode === "final" ? job.extras : null;
 
 /** "15 pine pickets", "2 rot boards", "1 post (7 ft fence)": the crew's
  *  words, no prices. */
@@ -2562,8 +2591,9 @@ function repairWords(r: Repairs): string[] {
  *  to mark. The stainer: stain, every picket (planned + agreed on site), four
  *  screw nails a picket, a saw, and the office's repair note. */
 function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; stain: string; noCleaning?: boolean }) {
-  const planned = job.repairs || NO_REPAIRS;
-  const extras: Repairs = job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
+  const fin = finalCount(job);
+  const planned = fin || job.repairs || NO_REPAIRS;
+  const extras: Repairs = !fin && job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
   const sum: Repairs = { ...planned, counts: Object.fromEntries(["pickets", "rotboard", "cap", "rail", "posts"].map((k) => [k, (planned.counts[k] || 0) + (extras.counts[k] || 0)])) };
   const pickets = sum.counts.pickets || 0;
   const cleaner = noCleaning ? [] : [
@@ -2601,6 +2631,13 @@ function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; s
   );
 }
 
+/** Repairs (Alan and Chris, 2026-10-22). The office writes what was agreed
+ *  with the customer on the phone, with the price each (a phone deal can be
+ *  $10 a picket, not $12). That is a starting point, not a count: on site the
+ *  crew counts what the fence really needs with the customer, starting from
+ *  zero, the agreed price already filled in and changeable on the spot, and
+ *  "Confirm with the customer" makes their count the job's repairs. Alan is
+ *  texted the change to the bill, and anything priced under what was agreed. */
 function RepairsPanel({ job, manager, onPatch, fold }: {
   job: CompanyCamJob; manager: boolean; fold?: { collapsed: boolean; onToggle: () => void };
   onPatch: (p: Partial<CompanyCamJob> & { pickets_marked?: boolean; extras_confirmed?: boolean }) => void;
@@ -2609,25 +2646,39 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
   const planned = hasRepairs(job);
   const set = (patch: Partial<Repairs>) => onPatch({ repairs: { ...r, ...patch, counts: { ...r.counts, ...(patch.counts || {}) } } });
   const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (r.counts[key] || 0) + d) } });
-  const words = repairWords(r);
-  const pickets = r.counts.pickets || 0;
+  const setPrice = (key: string, p: number) => set({ prices: { ...(r.prices || {}), [key]: p } });
+  const agreed = priceLines(r);
+  const agreedTotal = linesTotal(agreed);
+  const fin = finalCount(job);
+  const pickets = (fin || r).counts.pickets || 0;
+  const priceNote = (key: string) => (r.prices?.[key] && r.prices[key] !== listPrice(key, r)
+    ? `${tr("List")} ${usd(listPrice(key, r))} · ${tr("agreed")} ${usd(r.prices[key])}` : undefined);
   return (
     <Panel icon={Hammer} accent={ACCENT.bronze} {...(fold || {})} title={tr("Repairs")}
-           sub={manager ? tr("Fill in what we're fixing. The crew sees it only if something's here.") : planned ? tr("What we're fixing on this job") : tr("No repairs planned. Add any the customer asks for below.")}>
+           sub={manager ? tr("What you agreed with the customer on the phone, and the price each. The crew counts it for real on site.")
+             : planned ? tr("What the office agreed on the phone. Count it with the customer.") : tr("No repairs planned. Add any the customer asks for below.")}>
       {manager ? (
         <div className="space-y-2">
-          <Counter stack label={tr("Pickets")} what={tr("The upright boards")} unit={tr("picket")} price={(PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).price}
-                   art={<FencePart part="picket" />} n={pickets} onChange={(d) => bump("pickets", d)}>
+          <Counter stack label={tr("Pickets")} what={tr("The upright boards")} unit={tr("picket")} price={priceOf("pickets", r)}
+                   onPrice={(p) => setPrice("pickets", p)} priceNote={priceNote("pickets")}
+                   art={<FencePart part="picket" />} n={r.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
             <Chips options={PICKETS} value={r.picket_type} onChange={(k) => set({ picket_type: k })} />
           </Counter>
           {PARTS.map((part) => (
-            <Counter stack key={part.key} label={tr(part.label)} what={tr(part.what)} unit={part.unit} price={part.price}
+            <Counter stack key={part.key} label={tr(part.label)} what={tr(part.what)} unit={part.unit} price={priceOf(part.key, r)}
+                     onPrice={(p) => setPrice(part.key, p)} priceNote={priceNote(part.key)}
                      art={<FencePart part={part.key as FencePartKey} />} n={r.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
           ))}
-          <Counter stack label={tr("Post replacement")} what={tr("The thick posts set in the ground")} unit={tr("post")} price={(POSTS.find((p) => p.key === r.post_type) || POSTS[0]).price}
+          <Counter stack label={tr("Post replacement")} what={tr("The thick posts set in the ground")} unit={tr("post")} price={priceOf("posts", r)}
+                   onPrice={(p) => setPrice("posts", p)} priceNote={priceNote("posts")}
                    art={<FencePart part="post" />} n={r.counts.posts || 0} onChange={(d) => bump("posts", d)}>
             <Chips options={POSTS} value={r.post_type} onChange={(k) => set({ post_type: k })} />
           </Counter>
+          {agreed.length ? (
+            <p className="rounded-xl bg-[#15130F] px-3 py-2.5 text-base font-bold text-white tabular-nums">
+              {tr("Agreed on the phone")}: {usd(agreedTotal)} <span className="text-sm font-medium text-white/70">· {tr("already in their price")}</span>
+            </p>
+          ) : null}
           <Field label={tr("Additional notes for the crew")} hint={tr("Only shows to the crew when you write something. e.g. a 2x4 on the back needs screwing back in.")}>
             <BlurText rows={3} value={job.repair_notes || ""} placeholder={tr("Anything else to fix, and how…")}
                       onSave={(v) => onPatch({ repair_notes: v })} />
@@ -2635,11 +2686,19 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
         </div>
       ) : (
         <div className="space-y-2">
-          {words.length ? (
-            <ul className="space-y-1 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
-              <li className="text-sm font-bold uppercase tracking-wide text-amber-900">{tr("Planned by the office")}</li>
-              {words.map((w) => <li key={w} className="text-base font-bold">{w}</li>)}
-            </ul>
+          {agreed.length ? (
+            <div className="rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
+              <p className="text-sm font-bold uppercase tracking-wide text-amber-900">{tr("Agreed on the phone")}</p>
+              {agreed.map((l) => (
+                <p key={l.key} className="flex justify-between gap-2 text-base font-bold tabular-nums">
+                  <span>{l.n} {tr(l.what)}{l.n === 1 ? "" : "s"} × {usd(l.price)}</span><span>{usd(l.n * l.price)}</span>
+                </p>
+              ))}
+              <p className="mt-1 flex justify-between gap-2 border-t border-amber-200 pt-1 text-base font-bold tabular-nums">
+                <span>{tr("Already in their price")}</span><span>{usd(agreedTotal)}</span>
+              </p>
+              <p className="mt-1 text-sm text-amber-900">{tr("A starting point. Count what the fence really needs with the customer below.")}</p>
+            </div>
           ) : null}
           {(job.repair_notes || "").trim() ? (
             <div className="rounded-xl bg-muted/50 px-3 py-2.5">
@@ -2654,8 +2713,8 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
           <p className="text-sm font-bold">{isSpanish() ? `Limpiador: marca las ${pickets} tablas con el cliente` : `Cleaner: mark the ${pickets} pickets with the customer`}</p>
           <p className="mt-0.5 text-sm leading-relaxed">
             {isSpanish()
-              ? `Camina la cerca con el cliente y pónganse de acuerdo en exactamente cuáles ${pickets} tablas se cambian. Marca cada una con pintura en spray, para que el pintor cambie las correctas. Si quieren más de ${pickets}, avísale a la oficina antes de irte.`
-              : `Walk the fence with the customer and agree on exactly which ${pickets} pickets get replaced. Put a quick spray-paint mark on each one, so the stainer replaces the right ones. If they want more than ${pickets}, tell the office before you leave.`}
+              ? `Camina la cerca con el cliente y marca cada tabla que se cambia con pintura en spray, para que el pintor cambie las correctas.`
+              : `Walk the fence with the customer and put a quick spray-paint mark on each picket that gets replaced, so the stainer replaces the right ones.`}
           </p>
           <Button size="lg" variant={job.pickets_marked_at ? "default" : "outline"}
                   className={cn("mt-2 h-auto min-h-11 w-full whitespace-normal py-2 text-sm font-semibold leading-tight", job.pickets_marked_at && "bg-emerald-600 hover:bg-emerald-600")}
@@ -2666,83 +2725,123 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
           </Button>
         </div>
       ) : null}
-      <SiteExtras job={job} onPatch={onPatch} afterPlanned={pickets > 0 && !job.pickets_marked_at} />
+      <SiteCount job={job} onPatch={onPatch} />
     </Panel>
   );
 }
 
-/** The customer wants more fixed (Alan, 2026-10-15): the cleaner counts it
- *  with them at the fence, the price list does the math out loud, and
- *  "Customer agreed" adds it to the job, the calendar and Alan's invoice. */
-function SiteExtras({ job, onPatch, afterPlanned }: {
-  job: CompanyCamJob; afterPlanned: boolean;
+/** The count on site: from zero, with the customer, at the agreed price
+ *  each (changeable), against what was agreed on the phone. */
+function SiteCount({ job, onPatch }: {
+  job: CompanyCamJob;
   onPatch: (p: Partial<CompanyCamJob> & { extras_confirmed?: boolean }) => void;
 }) {
-  const e = job.extras || NO_REPAIRS;
+  const plan = job.repairs || NO_REPAIRS;
+  const planLines = priceLines(plan);
+  const planTotal = linesTotal(planLines);
   const confirmed = !!job.extras_confirmed_at;
-  const set = (patch: Partial<Repairs>) => onPatch({ extras: { ...e, ...patch, counts: { ...e.counts, ...(patch.counts || {}) } } });
+  const stored = job.extras || NO_REPAIRS;
+  const isFinal = stored.mode === "final";
+  // A new count starts at zero, with the plan's wood, post height and prices.
+  const start: Repairs = { counts: {}, picket_type: plan.picket_type, post_type: plan.post_type, prices: { ...(plan.prices || {}) }, mode: "final" };
+  const e: Repairs = isFinal ? stored : start;
+  const save = (next: Repairs) => onPatch({ extras: { ...next, mode: "final" } });
+  const set = (patch: Partial<Repairs>) => save({ ...e, ...patch, counts: { ...e.counts, ...(patch.counts || {}) } });
   const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (e.counts[key] || 0) + d) } });
-  const picket = PICKETS.find((p) => p.key === e.picket_type) || PICKETS[0];
-  const post = POSTS.find((p) => p.key === e.post_type) || POSTS[0];
-  const lines = [
-    { n: e.counts.pickets || 0, what: isSpanish() ? `tabla de ${tr(picket.label).toLowerCase()}` : `${picket.label.toLowerCase()} picket`, price: picket.price },
-    ...PARTS.map((p) => ({ n: e.counts[p.key] || 0, what: tr(p.label).toLowerCase(), price: p.price })),
-    { n: e.counts.posts || 0, what: isSpanish() ? `poste (${tr(post.label)})` : `post (${tr(post.label)})`, price: post.price },
-  ].filter((l) => l.n > 0);
-  const total = lines.reduce((t, l) => t + l.n * l.price, 0);
-  const [open, setOpen] = useState(lines.length > 0);
+  const setPrice = (key: string, p: number) => set({ prices: { ...(e.prices || {}), [key]: p } });
+  const lines = priceLines(e);
+  const total = linesTotal(lines);
+  const diff = Math.round((total - planTotal) * 100) / 100;
+  const counted = isFinal && Object.values(e.counts || {}).some((n) => n > 0);
+  const agreedEach = (key: string) => priceOf(key, { ...plan, picket_type: e.picket_type, post_type: e.post_type });
+  const below = REPAIR_KEYS.filter((k) => (e.counts[k] || 0) > 0 && priceOf(k, e) < agreedEach(k));
+  const note = (key: string) => {
+    const was = agreedEach(key), now = priceOf(key, e);
+    if (now < was) return `${tr("Under the agreed")} ${usd(was)}. ${tr("Alan gets told.")}`;
+    return plan.prices?.[key] ? `${tr("Agreed on the phone")}: ${usd(plan.prices[key])}` : undefined;
+  };
+  const [open, setOpen] = useState(planLines.length > 0 || confirmed || counted);
   const [editing, setEditing] = useState(false);
   if (!open) {
     return (
       <Button variant="outline" size="lg" className="h-11 w-full border-dashed" onClick={() => setOpen(true)}>
-        <Plus className="mr-1.5 h-4 w-4" /> {tr("The customer wants more fixed")}
+        <Plus className="mr-1.5 h-4 w-4" /> {tr("The customer wants repairs")}
       </Button>
     );
   }
+  // Confirmed the old way (extras on top of the plan): show it as it was.
+  if (confirmed && !isFinal && !editing) {
+    const old = priceLines(stored);
+    return (
+      <div className="space-y-2 rounded-xl border border-emerald-300 bg-emerald-50/60 p-2.5">
+        <p className="text-sm font-bold">{tr("Extra repairs the customer agreed to")}</p>
+        {old.map((l) => <p key={l.key} className="text-sm tabular-nums">{l.n} {tr(l.what)}{l.n === 1 ? "" : "s"} × {usd(l.price)}</p>)}
+        <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(true)}>{tr("Count it again")}</Button>
+      </div>
+    );
+  }
+  const showCounters = !confirmed || editing;
   return (
-    <div className={cn("space-y-2 rounded-xl border p-2.5", confirmed ? "border-emerald-300 bg-emerald-50/60" : "border-border bg-background")}>
-      <p className="text-sm font-bold">{tr("Extra repairs the customer wants")}</p>
-      {afterPlanned ? <p className="text-sm text-amber-800">{tr("Mark the planned pickets with the customer first, then add any extras.")}</p> : null}
-      {!confirmed || editing ? (<>
-      <p className="text-sm text-muted-foreground">{tr("Show them the price as you count. Tap + once for each one.")}</p>
-        <Counter stack label={tr("Pickets")} what={tr("The upright boards")} unit={tr("picket")} price={picket.price}
+    <div className={cn("space-y-2 rounded-xl border p-2.5", confirmed && !editing ? "border-emerald-300 bg-emerald-50/60" : "border-border bg-background")}>
+      <p className="text-base font-bold">{tr("Count it on site, with the customer")}</p>
+      {showCounters ? (<>
+        <p className="text-sm text-muted-foreground">
+          {planLines.length ? tr("Start from zero. Tap + once for each one the fence really needs. The agreed price is filled in; change it only if the office said so.")
+            : tr("Tap + once for each one. Show them the price as you count.")}
+        </p>
+        <Counter stack label={tr("Pickets")} what={tr("The upright boards")} unit={tr("picket")} price={priceOf("pickets", e)}
+                 onPrice={(p) => setPrice("pickets", p)} priceNote={note("pickets")}
                  art={<FencePart part="picket" />} n={e.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
           <Chips options={PICKETS} value={e.picket_type} onChange={(k) => set({ picket_type: k })} />
         </Counter>
         {PARTS.map((part) => (
-          <Counter stack key={part.key} label={tr(part.label)} what={tr(part.what)} unit={part.unit} price={part.price}
+          <Counter stack key={part.key} label={tr(part.label)} what={tr(part.what)} unit={part.unit} price={priceOf(part.key, e)}
+                   onPrice={(p) => setPrice(part.key, p)} priceNote={note(part.key)}
                    art={<FencePart part={part.key as FencePartKey} />} n={e.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
         ))}
-        <Counter stack label={tr("Post replacement")} what={tr("The thick posts set in the ground")} unit={tr("post")} price={post.price}
+        <Counter stack label={tr("Post replacement")} what={tr("The thick posts set in the ground")} unit={tr("post")} price={priceOf("posts", e)}
+                 onPrice={(p) => setPrice("posts", p)} priceNote={note("posts")}
                  art={<FencePart part="post" />} n={e.counts.posts || 0} onChange={(d) => bump("posts", d)}>
           <Chips options={POSTS} value={e.post_type} onChange={(k) => set({ post_type: k })} />
         </Counter>
       </>) : null}
-      {lines.length ? (
+      {lines.length || planLines.length ? (
         <div className="rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
           {lines.map((l) => (
-            <p key={tr(l.what)} className="flex justify-between gap-2 text-sm tabular-nums">
-              <span>{l.n} {tr(l.what)}{l.n === 1 ? "" : "s"} × {formatCurrency(l.price).replace(".00", "")}</span>
-              <span>{formatCurrency(l.n * l.price).replace(".00", "")}</span>
+            <p key={l.key} className="flex justify-between gap-2 text-sm tabular-nums">
+              <span>{l.n} {tr(l.what)}{l.n === 1 ? "" : "s"} × {usd(l.price)}</span><span>{usd(l.n * l.price)}</span>
             </p>
           ))}
           <p className="mt-1 flex justify-between border-t border-white/20 pt-1 text-lg font-bold tabular-nums">
-            <span>{tr("Added to their total")}</span><span>{formatCurrency(total).replace(".00", "")}</span>
+            <span>{tr("Repairs total")}</span><span>{usd(total)}</span>
           </p>
+          {planLines.length ? (<>
+            <p className="flex justify-between text-sm text-white/75 tabular-nums"><span>{tr("Agreed on the phone")}</span><span>{usd(planTotal)}</span></p>
+            <p className={cn("flex justify-between text-base font-bold tabular-nums", diff > 0 ? "text-[#E3BE63]" : diff < 0 ? "text-emerald-300" : "text-white")}>
+              <span>{diff > 0 ? tr("Their bill goes up") : diff < 0 ? tr("Their bill goes down") : tr("No change to their bill")}</span>
+              <span>{diff ? usd(Math.abs(diff)) : ""}</span>
+            </p>
+          </>) : null}
         </div>
       ) : null}
-      {lines.length && !confirmed ? (
+      {below.length && showCounters ? <p className="text-sm font-semibold text-amber-800">{tr("Priced under what was agreed. Alan gets a text about it.")}</p> : null}
+      {showCounters && (counted || (planLines.length && isFinal)) ? (
         <Button size="lg" className="h-auto min-h-12 w-full whitespace-normal py-2 text-base font-semibold"
                 onClick={() => { onPatch({ extras_confirmed: true }); setEditing(false); }}>
-          {tr("The customer agreed: add")} {formatCurrency(total).replace(".00", "")}
+          {tr("Confirm with the customer")}: {usd(total)}
         </Button>
       ) : null}
-      {confirmed ? (
+      {showCounters && planLines.length && !counted ? (
+        <Button variant="outline" size="lg" className="h-11 w-full" onClick={() => save({ ...start, counts: { ...plan.counts } })}>
+          {tr("Same as agreed: fill it in")}
+        </Button>
+      ) : null}
+      {confirmed && !editing ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-emerald-800">
-            <CheckCircle2 className="h-4 w-4 shrink-0" /> {tr("Customer agreed")}{job.extras_confirmed_by ? ` · ${job.extras_confirmed_by}` : ""}. {tr("Added to the job. Mark the extra pickets too.")}
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> {tr("Confirmed with the customer")}{job.extras_confirmed_by ? ` · ${job.extras_confirmed_by}` : ""}. {tr("This is the job's repairs now.")}
           </p>
-          {!editing ? <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(true)}>{tr("Change")}</Button> : null}
+          <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(true)}>{tr("Change")}</Button>
         </div>
       ) : null}
       {confirmed && editing ? <p className="text-sm text-muted-foreground">{tr("Changing a count needs the customer's yes again.")}</p> : null}

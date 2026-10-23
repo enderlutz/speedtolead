@@ -808,7 +808,7 @@ def test_repairs_and_the_crew_note_save_and_the_cleaner_marks_the_pickets(db):
         repairs={"counts": {"pickets": 15, "bogus": 3}, "picket_type": "pine", "post_type": "nope"},
         repair_notes="A 2x4 needs screwing in on the back"), user=USER)
     assert r["job"]["repairs"] == {"counts": {"pickets": 15, "rotboard": 0, "cap": 0, "rail": 0, "posts": 0},
-                                   "picket_type": "pine", "post_type": "post6"}
+                                   "picket_type": "pine", "post_type": "post6", "prices": {}, "mode": ""}
     assert r["job"]["repair_notes"] == "A 2x4 needs screwing in on the back"
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(pickets_marked=True), user=USER)
     assert r["job"]["pickets_marked_at"] and r["job"]["pickets_marked_by"]

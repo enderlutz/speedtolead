@@ -25,10 +25,15 @@ export function Chips({ options, value, onChange }: {
   );
 }
 
-export function Counter({ label, what, unit, price, n, onChange, art, children, stack }: {
+export function Counter({ label, what, unit, price, n, onChange, art, children, stack, onPrice, priceNote }: {
   label: string; what?: string; unit: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
   /** Narrow places (the lead page): the − / + row sits under the words. */
   stack?: boolean;
+  /** The price each can be changed right here (the office's agreed price,
+   *  the crew on site): "$ [10] per picket". */
+  onPrice?: (price: number) => void;
+  /** A line under the price, e.g. "List $12 · agreed $10". */
+  priceNote?: string;
 }) {
   return (
     <div className={cn("flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-3", stack && "flex-wrap")}>
@@ -36,7 +41,16 @@ export function Counter({ label, what, unit, price, n, onChange, art, children, 
       <div className="min-w-0 flex-1">
         <p className="text-base font-bold leading-tight">{label}</p>
         {what ? <p className="text-[15px] leading-snug text-[#15130F]/75">{what}</p> : null}
-        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price).replace(".00", "")} per {unit}</p>
+        {onPrice ? (
+          <label className="mt-1 flex items-center gap-1.5 text-[15px] font-semibold text-[#15130F]/75">
+            <span>$</span>
+            <input type="number" inputMode="decimal" min={0} step="0.5" value={Number.isFinite(price) ? price : ""}
+                   onChange={(e) => onPrice(Math.max(0, Number(e.target.value) || 0))}
+                   className="h-11 w-20 rounded-lg border border-[#15130F]/20 bg-white px-2 text-base font-bold text-[#15130F] tabular-nums outline-none focus:border-[#C9972F]" />
+            <span>per {unit}</span>
+          </label>
+        ) : <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price).replace(".00", "")} per {unit}</p>}
+        {priceNote ? <p className="text-[14px] leading-snug text-[#8C6224]">{priceNote}</p> : null}
         {children ? <div className="mt-1">{children}</div> : null}
       </div>
       <div className={cn("flex items-center gap-1", stack && "ml-auto w-full justify-end")}>

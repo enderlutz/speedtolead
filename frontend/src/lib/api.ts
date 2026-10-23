@@ -4082,13 +4082,13 @@ export interface CompanyCamJob {
   /** Crew on this job, each with a day and a task; the crew sees only jobs they're on. */
   crew?: CrewEntry[];
   /** Repairs set by the office: counts per part, picket wood, post height. */
-  repairs?: { counts: Record<string, number>; picket_type: string; post_type: string };
+  repairs?: { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
   /** The office's note to the crew about the repairs. */
   repair_notes?: string;
   /** The cleaner agreed the exact pickets with the customer and marked them. */
   pickets_marked_at?: string; pickets_marked_by?: string;
   /** Extra repairs the customer agreed to on site, and when they said yes. */
-  extras?: { counts: Record<string, number>; picket_type: string; post_type: string };
+  extras?: { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
   extras_confirmed_at?: string; extras_confirmed_by?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
