@@ -326,9 +326,11 @@ def _line(name: str, price: float, qty: int = 1, description: str = "", discount
 
 
 def _fence_line(tier: str, color: str, price: float, **kw) -> dict:
+    """"Signature Finish- Fence Staining", as on Alan's saved quick-add
+    lines (2026-10-23: never a bare "Fence staining")."""
     t = TIER_NAMES.get((tier or "").lower())
-    bits = [f"{t} package" if t else "", color.strip()]
-    return _line("Fence staining", price, description=" · ".join(b for b in bits if b), **kw)
+    name = f"{t} Finish- Fence Staining" if t else "Fence Staining"
+    return _line(name, price, description=" · ".join(b for b in ["Cleaning & staining of the fence", color.strip()] if b), **kw)
 
 
 def suggest_invoice(db, lead_id: str) -> dict:
@@ -360,7 +362,10 @@ def suggest_invoice(db, lead_id: str) -> dict:
     else:
         total = next((l.job_total_cents for l in sorted(links, key=lambda l: l.created_at or "", reverse=True)
                       if l.kind in ("deposit", "full") and l.job_total_cents), 0) / 100
-        tier = next((l.job_tier for l in links if l.kind in ("deposit", "full") and l.job_tier), "") or (job.package if job else "")
+        tier = next((l.job_tier for l in links if l.kind in ("deposit", "full") and l.job_tier and l.job_tier != "custom"), "") or (job.package if job else "")
+        if (tier or "").lower() not in TIER_NAMES:
+            c = color.lower()
+            tier = "legacy" if "solid" in c else "signature" if ("semi" in c or "oil" in c or "transparent" in c) else tier
         try:
             draft = _json.loads(lead.form_data or "{}").get("booking_draft") or {} if lead else {}
         except (TypeError, ValueError):

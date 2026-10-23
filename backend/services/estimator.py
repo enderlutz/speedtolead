@@ -25,6 +25,7 @@ BLUE_ZONE_ZIPS = {
     # Added 2026-10-19 (Alan): north Houston / 1960 / Spring Branch, Waller,
     # Brookshire, Alief. Leads came in from these with no zone at all.
     "77014", "77073", "77088", "77090", "77091", "77018", "77055", "77484", "77423", "77083",
+    "77092",  # Oak Forest (2026-10-23)
 }
 
 PURPLE_ZONE_ZIPS = {
@@ -38,6 +39,8 @@ PURPLE_ZONE_ZIPS = {
     # and the closer south/east Houston zips (~35 min).
     "77365", "77357", "77005", "77401", "77002",
     "77047", "77048", "77033", "77051", "77530",
+    # Added 2026-10-23 (Alan): Upper Kirby, Kashmere, Sheldon, Hiram Clarke, Fresno.
+    "77098", "77028", "77049", "77045", "77053",
 }
 
 # Far zone (Alan, 2026-10-19): 50–75+ min out, south and east. We still take
@@ -45,6 +48,8 @@ PURPLE_ZONE_ZIPS = {
 FAR_ZONE_ZIPS = {
     "77535", "77515", "77523", "77539", "77573", "77583", "77521",
     "77578", "77581", "77584", "77536", "77532", "77545",
+    # Added 2026-10-23 (Alan): Plantersville, Splendora, Cleveland, Wharton.
+    "77363", "77372", "77327", "77488",
 }
 
 ZONE_SURCHARGES: dict[str, float | None] = {

@@ -254,6 +254,12 @@ def _invoice_lines(items: list["InvoiceItem"], credit: float | None) -> tuple[st
             line["discount_cents"] = d
             line["discount_label"] = (it.discount_label or "").strip()[:80] or "Discount"
         lines.append(line)
+    # A fence staining line has to say which package (Alan, 2026-10-23:
+    # "no invoice can be sent out unless it has a package"). Washing and
+    # repairs lines don't need one.
+    names = " ".join(i["name"] for i in lines).lower()
+    if "fence stain" in names and not any(t in names for t in ("essential", "signature", "legacy")):
+        raise HTTPException(status_code=400, detail="Name the package on the fence staining line, like \"Signature Finish- Fence Staining\"")
     credit_cents = max(0, int(round((credit or 0) * 100)))
     items_total = sum(i["amount_cents"] - i.get("discount_cents", 0) for i in lines)
     if items_total <= 0:

@@ -142,8 +142,8 @@ def test_a_fence_sold_on_the_deposit_link_bills_the_package(db):
     db.add(CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, final_color="Pecan"))
     db.commit()
     s = iq.suggest_invoice(db, lead.id)
-    assert s["items"][0]["name"] == "Fence staining" and s["items"][0]["unit_price"] == 1734.0
-    assert s["items"][0]["description"] == "Signature package · Pecan"
+    assert s["items"][0]["name"] == "Signature Finish- Fence Staining" and s["items"][0]["unit_price"] == 1734.0
+    assert s["items"][0]["description"] == "Cleaning & staining of the fence · Pecan"
 
 
 def test_paid_another_way_marks_the_open_bill_paid_and_closes_the_job(db, monkeypatch):
@@ -183,5 +183,33 @@ def test_a_fence_sale_with_a_service_on_the_draft_bills_both(db):
     l.job_tier = "signature"
     db.commit()
     s = iq.suggest_invoice(db, lead.id)
-    assert [i["name"] for i in s["items"]] == ["Fence staining", "House soft wash"]
+    assert [i["name"] for i in s["items"]] == ["Signature Finish- Fence Staining", "House soft wash"]
     assert s["items"][0]["unit_price"] == 1200.0 and s["items"][1]["unit_price"] == 350.0
+
+
+def test_the_fence_line_names_its_package_from_the_job_or_the_stain(db):
+    from database import CompanyCamJob
+    lead = _lead(db, "Christopher")
+    db.add(CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, package="signature", final_price_cents=128011,
+                         final_color="Cedar Natural Tone · Valspar · Semi-transparent"))
+    db.commit()
+    line = iq.suggest_invoice(db, lead.id)["items"][0]
+    assert line["name"] == "Signature Finish- Fence Staining" and line["unit_price"] == 1280.11
+
+
+def test_no_fence_staining_invoice_without_a_package():
+    import pytest
+    from fastapi import HTTPException
+    from api.stripe_pay import InvoiceItem, _invoice_lines
+    with pytest.raises(HTTPException):
+        _invoice_lines([InvoiceItem(name="Fence staining", amount=1280)], None)
+    _invoice_lines([InvoiceItem(name="Signature Finish- Fence Staining", amount=1280)], None)
+    _invoice_lines([InvoiceItem(name="House soft wash", amount=590)], 250)
+
+
+def test_a_house_number_is_never_read_as_the_zip():
+    from services.geocoder import zip_in_address
+    assert zip_in_address("16027 Westward Ho St, Stagecoach, TX, USA") == ""
+    assert zip_in_address("25611 Cedar Shadows Ct, Park Row, TX, USA") == ""
+    assert zip_in_address("2245 W Main St Houston, TX  77098 United States") == "77098"
+    assert zip_in_address("12345 Cypress Creek Dr, Cypress, TX 77429") == "77429"

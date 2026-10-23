@@ -54,9 +54,7 @@ def geocode_address(address: str, zip_code: str = "", api_key: str | None = None
     # one separately — same logic extract_zip uses below, inlined here
     # so we can pass it as a hard components constraint to Google.
     if not z:
-        m = re.search(r"\b(\d{5})(?:-\d{4})?\b", address)
-        if m:
-            z = m.group(1)
+        z = zip_in_address(address)
     z = z[:5] if len(z) >= 5 else ""
 
     # Give Google every signal we have: the street address, the home state
@@ -65,7 +63,7 @@ def geocode_address(address: str, zip_code: str = "", api_key: str | None = None
     address_q = address
     if not re.search(r"\bTX\b", address_q, re.I) and "texas" not in address_q.lower():
         address_q = f"{address_q}, {_HOME_STATE}"
-    if z and not re.search(r"\b\d{5}(?:-\d{4})?\b", address):
+    if z and not zip_in_address(address):
         address_q = f"{address_q} {z}"
 
     def _query(components: str) -> dict | None:
@@ -119,11 +117,23 @@ def geocode_address(address: str, zip_code: str = "", api_key: str | None = None
     }
 
 
+def zip_in_address(address: str) -> str:
+    """The ZIP written in an address, or "". Never the house number: Google's
+    "16027 Westward Ho St, Stagecoach, TX, USA" has no ZIP, and its 16027 was
+    being read as one (Alan, 2026-10-23: Stephen Bowden and Justin got no
+    zone). The last 5-digit run that isn't the leading number wins."""
+    s = address or ""
+    lead = re.match(r"\s*\d+", s)
+    start = lead.end() if lead else 0
+    found = re.findall(r"\b(\d{5})(?:-\d{4})?\b", s[start:])
+    return found[-1] if found else ""
+
+
 def extract_zip(address: str) -> str:
     """Try to extract a ZIP code from an address string, using geocoder as fallback."""
-    match = re.search(r"\b(\d{5})(?:-\d{4})?\b", address)
-    if match:
-        return match.group(1)
+    z = zip_in_address(address)
+    if z:
+        return z
 
     result = geocode_address(address)
     return result["zip_code"] if result else ""
