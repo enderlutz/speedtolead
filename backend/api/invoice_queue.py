@@ -70,6 +70,21 @@ def _extras_cents(job: CompanyCamJob | None) -> int:
         return 0
 
 
+def qb_paid_cents(db, lead_ids) -> dict[str, int]:
+    """Money paid on QuickBooks invoices, per lead: the $250 deposits taken
+    before Stripe (Christopher's #1111, Oct 6). QuickBooks never holds a copy
+    of a Stripe payment, so the two add up without counting anything twice."""
+    from database import QuickbooksInvoice
+    ids = [i for i in lead_ids if i]
+    if not ids:
+        return {}
+    out: dict[str, int] = {}
+    for q in (db.query(QuickbooksInvoice)
+              .filter(QuickbooksInvoice.lead_id.in_(ids), QuickbooksInvoice.status.in_(("paid", "partial"))).all()):
+        out[q.lead_id] = out.get(q.lead_id, 0) + int(round(float(q.amount_paid or 0) * 100))
+    return out
+
+
 def _link(l: PayLink) -> dict:
     return {
         "token": l.token, "kind": l.kind, "status": l.status,
@@ -103,6 +118,7 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
     pays: dict[str, list[CustomerPayment]] = {}
     for p in db.query(CustomerPayment).filter(CustomerPayment.lead_id.in_(lead_ids)).all():
         pays.setdefault(p.lead_id, []).append(p)
+    qb = qb_paid_cents(db, lead_ids)
     bookings: dict[str, Booking] = {}
     for b in (db.query(Booking).filter(Booking.lead_id.in_(lead_ids), Booking.status != "cancelled")
               .order_by(Booking.created_at.asc()).all()):
@@ -118,10 +134,10 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
         b = bookings.get(lid)
         done_at = (job.completed_at if job else "") or ""
         closed_at = (job.closed_at if job else "") or ""
-        paid_cents = sum(p.amount_cents or 0 for p in pays.get(lid, []))
+        paid_cents = sum(p.amount_cents or 0 for p in pays.get(lid, [])) + qb.get(lid, 0)
         deposits = [l for l in ls if l.kind == "deposit"]
         dep_paid = next((l for l in reversed(deposits) if l.status == "paid"), None)
-        dep_paid_any = dep_paid is not None or any(p.kind == "deposit" for p in pays.get(lid, []))
+        dep_paid_any = dep_paid is not None or any(p.kind == "deposit" for p in pays.get(lid, [])) or qb.get(lid, 0) > 0
         dep_open = next((l for l in reversed(deposits) if l.status == "open"), None)
         bills = [l for l in ls if l.kind in BILL_KINDS]
         # A "pay in full" link the customer made from the proposal and never
@@ -343,7 +359,8 @@ def suggest_invoice(db, lead_id: str) -> dict:
     job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
     b = _active(db, lead_id)
     links = db.query(PayLink).filter(PayLink.lead_id == lead_id, PayLink.status != "void").all()
-    credit = sum(p.amount_cents or 0 for p in db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).all()) / 100
+    credit = (sum(p.amount_cents or 0 for p in db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).all())
+              + qb_paid_cents(db, [lead_id]).get(lead_id, 0)) / 100
     color = ((job.final_color or job.color) if job else "") or ((b.color or "") if b else "")
     ex = site_extras(job) if job else {"lines": []}
     counted = bool(ex.get("final"))

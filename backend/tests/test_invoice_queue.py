@@ -213,3 +213,16 @@ def test_a_house_number_is_never_read_as_the_zip():
     assert zip_in_address("25611 Cedar Shadows Ct, Park Row, TX, USA") == ""
     assert zip_in_address("2245 W Main St Houston, TX  77098 United States") == "77098"
     assert zip_in_address("12345 Cypress Creek Dr, Cypress, TX 77429") == "77429"
+
+
+def test_a_250_paid_on_quickbooks_counts_as_the_deposit(db):
+    from database import CompanyCamJob, QuickbooksInvoice
+    lead = _lead(db, "Christopher")
+    db.add(CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, package="signature", final_price_cents=128011,
+                         completed_at="2026-10-21T22:02:00+00:00"))
+    db.add(QuickbooksInvoice(id=str(uuid.uuid4()), qb_invoice_id="1111", customer_name="Christopher", total_amount=250,
+                             balance=0, amount_paid=250, status="paid", lead_id=lead.id, txn_type="invoice"))
+    db.commit()
+    r = _stage(db, lead)
+    assert r["stage"] == "ready" and r["deposit"] == "paid" and r["paid"] == 250 and r["due"] == 1030.11
+    assert iq.suggest_invoice(db, lead.id)["credit"] == 250
