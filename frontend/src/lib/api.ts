@@ -6146,6 +6146,13 @@ export interface PayLinksResponse {
   site_extras?: { name: string; qty: number; unit_price: number }[];
   /** Other services on the booking, to add to the final invoice. */
   booked_services?: { name: string; qty: number; unit_price: number; description?: string }[];
+  /** The itemized invoice filled in from what was sold, counted and paid. */
+  suggested_invoice?: SuggestedInvoice;
+}
+export interface SuggestedInvoice {
+  items: { name: string; description: string; qty: number; unit_price: number; discount?: number; discount_label?: string }[];
+  credit: number;
+  whole_discount: { label: string; amount: number } | null;
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 

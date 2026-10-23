@@ -188,7 +188,7 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
 
       {open ? (
         <div className="border-t border-[#E4DCCB] p-3">
-          <StripeLinksCard leadId={r.lead_id} />
+          <StripeLinksCard leadId={r.lead_id} startInvoice />
         </div>
       ) : null}
     </div>

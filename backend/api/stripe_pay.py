@@ -350,6 +350,15 @@ def _booked_services(db, lead_id: str) -> list[dict]:
     return [{"name": sv["name"], "qty": 1, "unit_price": sv["price"], "description": sv["description"]} for sv in _services(b)] if b else []
 
 
+def _suggested(db, lead_id: str) -> dict:
+    try:
+        from api.invoice_queue import suggest_invoice
+        return suggest_invoice(db, lead_id)
+    except Exception as e:  # noqa: BLE001 — the builder still opens blank
+        logger.warning("suggested invoice failed for %s: %s", lead_id, e)
+        return {"items": [], "credit": 0, "whole_discount": None}
+
+
 @router.get("/leads/{lead_id}/pay-links")
 def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
     del user
@@ -370,6 +379,9 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
             "site_extras": _site_extras(db, lead_id),
             # Other services booked with the fence (house wash, driveway…).
             "booked_services": _booked_services(db, lead_id),
+            # The itemized invoice filled in from what was sold, counted and
+            # paid (Alan, 2026-10-23).
+            "suggested_invoice": _suggested(db, lead_id),
         }
     finally:
         db.close()

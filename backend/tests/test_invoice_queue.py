@@ -119,3 +119,28 @@ def test_an_unpaid_pay_in_full_offer_from_the_proposal_is_not_a_sent_bill(db):
     _done(db, lead)
     assert _stage(db, lead)["stage"] == "ready"
     assert db.query(PayLink).count() >= 2
+
+
+def test_the_bill_fills_itself_in_from_what_was_sold_and_paid(db):
+    # Teila: a $590 house soft wash on the booking draft, $250 paid.
+    import json
+    lead = _lead(db, "Teila")
+    lead.form_data = json.dumps({"booking_draft": {"services": [{"name": "House soft wash", "price": 590.0}]}})
+    db.commit()
+    _link(db, lead, status="paid", total=59000)
+    _paid(db, lead, "deposit", 25000)
+    s = iq.suggest_invoice(db, lead.id)
+    assert s["items"] == [{"name": "House soft wash", "description": "", "qty": 1, "unit_price": 590.0}]
+    assert s["credit"] == 250
+
+
+def test_a_fence_sold_on_the_deposit_link_bills_the_package(db):
+    from database import CompanyCamJob
+    lead = _lead(db, "Fence Only")
+    l = _link(db, lead, status="paid", total=173400)
+    l.job_tier = "signature"
+    db.add(CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, final_color="Pecan"))
+    db.commit()
+    s = iq.suggest_invoice(db, lead.id)
+    assert s["items"][0]["name"] == "Fence staining" and s["items"][0]["unit_price"] == 1734.0
+    assert s["items"][0]["description"] == "Signature package · Pecan"

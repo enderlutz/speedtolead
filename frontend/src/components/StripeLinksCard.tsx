@@ -6,22 +6,24 @@
 // its kind; it refuses a do-not-contact lead. The switch at the bottom lets
 // the crew's "job complete" text the balance link on its own.
 // (Alan's post-payment spec, 2026-10-10.)
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Copy, Ban, Pencil, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
-import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type StripeHealth, type StripeSettings } from "@/lib/api";
+import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type SuggestedInvoice, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceDoc } from "@/pages/PayLink";
 import { dueText } from "@/lib/due";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
   { kind: "deposit", label: "Deposit $250", hint: "Books their dates. Card and wallets only.", needsAmount: false },
-  { kind: "balance", label: "Balance", hint: "After the job. Card or Klarna.", needsAmount: true },
   { kind: "extra", label: "Extra work", hint: "More repairs added on the job.", needsAmount: true },
   { kind: "done", label: "Job done, nothing owed", hint: "Paid up front. Sends only the after-job screens.", needsAmount: false },
 ];
 
-export function StripeLinksCard({ leadId }: { leadId: string }) {
+/** `startInvoice`: open straight on the itemized invoice, filled in (the
+ *  Invoice Queue's Make the bill). A balance always goes as an itemized
+ *  invoice (Alan, 2026-10-23). */
+export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: string; startInvoice?: boolean }) {
   const [data, setData] = useState<PayLinksResponse | null>(null);
   const [amount, setAmount] = useState("");
   // The deposit books the sale (Alan, 2026-10-11): which package, and the
@@ -153,7 +155,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
         </span>
         <ReviewPicture on={askReview} />
       </label>
-      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} siteExtras={data?.site_extras} bookedServices={data?.booked_services} onStopEditing={() => setEditing(null)}
+      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} siteExtras={data?.site_extras} bookedServices={data?.booked_services} suggested={data?.suggested_invoice} startOpen={startInvoice} onStopEditing={() => setEditing(null)}
         onMade={async (l) => { if (editing) { toast.success("Invoice updated. Same link, so a text already sent shows the new lines."); setEditing(null); } else await copy(l); load(); setOther(null); setComposing(l.token); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
@@ -354,22 +356,26 @@ const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
 const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
 
-function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [], bookedServices = [] }: {
+function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [], bookedServices = [], suggested, startOpen = false }: {
   leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean;
   /** An unpaid invoice to load back in and change (Alan, 2026-10-15). */
   editing?: PayLinkEntry | null; onStopEditing?: () => void;
   /** Extra repairs the customer agreed to on site (Company Cam), to add as lines. */
   siteExtras?: { name: string; qty: number; unit_price: number }[];
   bookedServices?: { name: string; qty: number; unit_price: number; description?: string }[];
+  /** The lines as they should read, from what was sold, counted and paid. */
+  suggested?: SuggestedInvoice;
+  startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [preview, setPreview] = useState(false);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
   // A discount on the whole invoice: null until "Discount on the total" is tapped.
   const [whole, setWhole] = useState<{ label: string; amount: string } | null>(null);
   const [credit, setCredit] = useState("");
-  // Klarna costs ~3%; Alan turns it off when nobody asked to finance.
-  const [klarna, setKlarna] = useState(true);
+  // Klarna costs ~3%: off unless Alan turns it on for this one (2026-10-23:
+  // "something we can add later", not a preset).
+  const [klarna, setKlarna] = useState(false);
   // When it's due: null = upon receipt, else the day picked (YYYY-MM-DD).
   const [dueOn, setDueOn] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -394,7 +400,20 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
     setDueOn(editing.due_date || null);
     setOpen(true);
   }, [editing]);
-  const reset = () => { setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setDueOn(null); setOpen(false); onStopEditing?.(); };
+  const reset = () => { setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(false); setDueOn(null); setOpen(false); filled.current = false; onStopEditing?.(); };
+  // Opened fresh: start from the invoice as it should read (Alan, 2026-10-23:
+  // "already itemize it"). Once, and only onto a blank invoice.
+  const filled = useRef(false);
+  useEffect(() => {
+    if (!open || editing || filled.current || !suggested || !suggested.items.length) return;
+    filled.current = true;
+    setRows((rs) => rs.some((r) => r.name.trim() || num(r.amount)) ? rs : suggested.items.map((i) => ({
+      ...blankRow(), name: i.name, description: i.description || "", qty: String(i.qty || 1), amount: String(i.unit_price),
+      discount: i.discount ? String(i.discount) : null, discountLabel: i.discount_label || "",
+    })));
+    setCredit((c) => c || (suggested.credit ? String(suggested.credit) : ""));
+    setWhole((w) => w || (suggested.whole_discount ? { label: suggested.whole_discount.label, amount: String(suggested.whole_discount.amount) } : null));
+  }, [open, editing, suggested]);
 
   const lineTotal = (r: Row) => Math.round(qtyOf(r) * num(r.amount) * 100) / 100;
   const subtotal = rows.reduce((t, r) => t + lineTotal(r), 0);

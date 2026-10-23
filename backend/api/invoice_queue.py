@@ -303,3 +303,89 @@ def alert_ready(lead_id: str, note: str = "", what: str = "fence", db=None) -> N
         except Exception as e:  # noqa: BLE001
             logger.warning("ready alert to Olga failed: %s", e)
 
+
+
+# ── The bill, filled in (Alan, 2026-10-23) ───────────────────────────────
+# "I click Itemized invoice and it's already itemized": the lines come from
+# what was sold (the booking, else the $250 link's job total and what the
+# crew did), the repairs counted on site, and what they already paid.
+
+TIER_NAMES = {"essential": "Essential", "signature": "Signature", "legacy": "Legacy"}
+
+
+def _line(name: str, price: float, qty: int = 1, description: str = "", discount: float = 0, discount_label: str = "") -> dict:
+    out = {"name": name, "description": description, "qty": max(1, int(qty or 1)), "unit_price": round(float(price), 2)}
+    if discount > 0:
+        out.update(discount=round(discount, 2), discount_label=discount_label or "Discount")
+    return out
+
+
+def _fence_line(tier: str, color: str, price: float, **kw) -> dict:
+    t = TIER_NAMES.get((tier or "").lower())
+    bits = [f"{t} package" if t else "", color.strip()]
+    return _line("Fence staining", price, description=" · ".join(b for b in bits if b), **kw)
+
+
+def suggest_invoice(db, lead_id: str) -> dict:
+    """{items, credit, whole_discount}: the itemized invoice as it should
+    read, for the builder to start from. Empty items = nothing to go on."""
+    import json as _json
+    from api.booking import _active, _repairs, _services, services_only
+    from services.company_cam import PW_SERVICE_LABELS, site_extras
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+    b = _active(db, lead_id)
+    links = db.query(PayLink).filter(PayLink.lead_id == lead_id, PayLink.status != "void").all()
+    credit = sum(p.amount_cents or 0 for p in db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).all()) / 100
+    color = ((job.final_color or job.color) if job else "") or ((b.color or "") if b else "")
+    ex = site_extras(job) if job else {"lines": []}
+    counted = bool(ex.get("final"))
+    items: list[dict] = []
+    whole = None
+
+    if b is not None:
+        if not services_only(b) and (b.price_cents or b.total_cents):
+            items.append(_fence_line(b.tier, color, (b.price_cents or b.total_cents) / 100,
+                                     discount=(b.discount_cents or 0) / 100, discount_label=b.discount_label or ""))
+        if not counted:
+            items += [_line(r["name"], r["unit_price"], r["qty"]) for r in _repairs(b) if r["qty"] and r["unit_price"]]
+            if b.repairs_discount_cents:
+                whole = {"label": b.repairs_discount_label or "Repairs discount", "amount": b.repairs_discount_cents / 100}
+        items += [_line(s["name"], s["price"], description=s["description"]) for s in _services(b) if s["price"]]
+    else:
+        total = next((l.job_total_cents for l in sorted(links, key=lambda l: l.created_at or "", reverse=True)
+                      if l.kind in ("deposit", "full") and l.job_total_cents), 0) / 100
+        tier = next((l.job_tier for l in links if l.kind in ("deposit", "full") and l.job_tier), "") or (job.package if job else "")
+        try:
+            draft = _json.loads(lead.form_data or "{}").get("booking_draft") or {} if lead else {}
+        except (TypeError, ValueError):
+            draft = {}
+        draft_services = [s for s in draft.get("services") or [] if isinstance(s, dict) and s.get("name") and s.get("price")]
+        try:
+            pw = [PW_SERVICE_LABELS.get(k, k) for k in _json.loads(job.pw_services_json or "[]")] if job else []
+        except (TypeError, ValueError):
+            pw = []
+        if draft_services and (not total or abs(sum(float(s["price"]) for s in draft_services) - total) < 0.01):
+            items += [_line(s["name"], float(s["price"]), description=s.get("description") or "") for s in draft_services]
+        elif total and pw:
+            items.append(_line(pw[0] if len(pw) == 1 else "Pressure washing", total, description="" if len(pw) == 1 else ", ".join(pw)))
+        elif total:
+            items.append(_fence_line(tier, color, total))
+        elif job and job.final_price_cents:
+            items.append(_fence_line(tier, color, job.final_price_cents / 100))
+        else:
+            # Nothing booked or paid (Harold): the sent estimate's price for
+            # the package, read from the stain when no package was set.
+            t = (tier or "").lower()
+            if t not in TIER_NAMES:
+                c = color.lower()
+                t = "legacy" if "solid" in c else "signature" if c else ""
+            price = hooks.tier_price(db, lead_id, t) if t else None
+            if price:
+                items.append(_fence_line(t, color, float(price)))
+
+    # What the crew counted with the customer replaces the repairs on the
+    # booking; the old add-on way adds on top.
+    items += [_line(l["name"], l["unit_cents"] / 100, l["qty"], "Counted on site with you" if counted else "Agreed on site")
+              for l in ex.get("lines", []) if l.get("unit_cents", 0) > 0]
+    return {"items": items, "credit": round(credit, 2), "whole_discount": whole}
