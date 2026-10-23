@@ -1,256 +1,268 @@
-import { useEffect, useState, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { api, type ReadyToInvoiceJob } from "@/lib/api";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+// The Invoice Queue (Alan, 2026-10-23): every customer with money in motion,
+// in five stages. A job moves on its own: the $250 gets paid, the crew taps
+// "I'm finished" (the main trigger: a finished job is Ready for invoice even
+// when the $250 never came in), the bill goes out, the bill gets paid. The
+// bill is made with the same invoice builder as the lead page, opened right
+// here on the card; anything paid another way is closed out by hand.
+import { useCallback, useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { RefreshCw, MapPin, Clock, ExternalLink, FileText, Send, AlertCircle } from "lucide-react";
-import { formatCurrency, errMessage } from "@/lib/utils";
+import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet } from "lucide-react";
+import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
+import { StripeLinksCard } from "@/components/StripeLinksCard";
+import { cn, errMessage, formatCurrency } from "@/lib/utils";
 
-// Admin queue of jobs ready for QuickBooks invoicing. Surfaces every
-// in_progress / completed job that hasn't been invoiced yet. Sourced
-// from the worker-driven start/complete events on the My Day view —
-// when a worker hits Start Job, this is where Alan/Olga prep the bill.
+const STAGES: { key: InvoiceStageKey; label: string; short: string; money: string; empty: string; icon: React.ElementType }[] = [
+  { key: "deposit_sent", label: "Deposit sent, not paid", short: "Deposit sent", money: "in jobs", empty: "No $250 links waiting.", icon: Send },
+  { key: "deposit_paid", label: "Deposit paid, waiting on the job", short: "Waiting on job", money: "still to collect", empty: "Nobody paid and waiting.", icon: Hammer },
+  { key: "ready", label: "Ready for invoice", short: "Ready for invoice", money: "to bill", empty: "No finished jobs waiting on a bill.", icon: ReceiptText },
+  { key: "invoice_sent", label: "Invoice sent, waiting on money", short: "Invoice sent", money: "out", empty: "No bills waiting to be paid.", icon: Wallet },
+  { key: "closed", label: "Paid & closed (last 60 days)", short: "Paid & closed", money: "collected", empty: "Nothing closed in the last 60 days.", icon: CheckCircle2 },
+];
 
-function relativeTime(iso: string | null): string {
-  if (!iso) return "—";
+const usd = (n: number) => formatCurrency(Math.round(n));
+
+function ago(iso: string): string {
   const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "—";
-  const mins = Math.floor((Date.now() - t) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  if (!iso || !Number.isFinite(t)) return "";
+  const d = Math.floor((Date.now() - t) / 86_400_000);
+  if (d <= 0) {
+    const h = Math.floor((Date.now() - t) / 3_600_000);
+    return h <= 0 ? "just now" : `${h}h ago`;
+  }
+  return d === 1 ? "yesterday" : `${d} days ago`;
 }
 
-function statusChip(status: ReadyToInvoiceJob["status"]) {
-  if (status === "in_progress") {
-    return <Badge className="bg-blue-500 text-white">In progress</Badge>;
-  }
-  return <Badge className="bg-green-600 text-white">Complete</Badge>;
+function day(ymd: string): string {
+  if (!ymd) return "";
+  const d = new Date(`${ymd.slice(0, 10)}T12:00:00`);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : ymd;
+}
+
+function Chip({ tone, children }: { tone: "ink" | "gold" | "green" | "red" | "muted"; children: React.ReactNode }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-semibold",
+      tone === "ink" && "bg-[#1F1A14] text-white",
+      tone === "gold" && "bg-[#C9972F]/15 text-[#8C6224]",
+      tone === "green" && "bg-emerald-50 text-emerald-800",
+      tone === "red" && "bg-red-50 text-red-700",
+      tone === "muted" && "bg-[#F3EEE4] text-[#6B6052]")}>
+      {children}
+    </span>
+  );
+}
+
+function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: string; label: string }[]; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [busy, setBusy] = useState("");
+  const street = r.address.split(",")[0];
+
+  const close = async (how: string) => {
+    setBusy(how);
+    try {
+      await api.invoiceQueueClose(r.lead_id, how);
+      toast.success(`${r.name} moved to Paid & closed`);
+      onChanged();
+    } catch (e) { toast.error(errMessage(e, "Couldn't close it out")); } finally { setBusy(""); setClosing(false); }
+  };
+  const reopen = async () => {
+    setBusy("reopen");
+    try { await api.invoiceQueueReopen(r.lead_id); onChanged(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't reopen it")); } finally { setBusy(""); }
+  };
+  const markDone = async () => {
+    if (!window.confirm(`Mark ${r.name}'s job as finished? It moves to Ready for invoice and Alan and Olga get the text.`)) return;
+    setBusy("done");
+    try { await api.markCompanyCamDone(r.lead_id); onChanged(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't mark it finished")); } finally { setBusy(""); }
+  };
+
+  // The big number on the right and what it means for this stage.
+  const [amount, amountLabel] =
+    r.stage === "deposit_sent" ? [r.total, "job total"]
+    : r.stage === "closed" ? [r.paid, "collected"]
+    : r.stage === "invoice_sent" ? [r.due, "on the bill"]
+    : [r.due, r.stage === "ready" ? "left to bill" : "left after the job"];
+
+  const views = (n: number) => n ? <Chip tone="gold"><Eye className="h-3.5 w-3.5" /> Opened {n}×</Chip> : <Chip tone="muted">Not opened yet</Chip>;
+  const btn = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-4 text-[15px] font-bold transition-colors disabled:opacity-50";
+
+  return (
+    <div className={cn("rounded-2xl border bg-white shadow-sm", r.stage === "ready" ? "border-[#C9972F]/60" : "border-[#E4DCCB]")}>
+      <div className="flex items-start gap-3 p-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Link to={`/leads/${r.lead_id}`} className="block truncate text-[17px] font-bold text-[#1F1A14] hover:underline">{r.name}</Link>
+          {street ? <p className="truncate text-[15px] text-[#6B6052]">{street}</p> : null}
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {r.stage === "deposit_sent" && r.deposit_link ? (
+              <>
+                <Chip tone={r.deposit_link.expired ? "red" : "muted"}>
+                  {r.deposit_link.expired ? "Link expired" : r.deposit_link.sent_at ? `Texted ${ago(r.deposit_link.sent_at)}` : `Made ${ago(r.deposit_link.created_at)}`}
+                </Chip>
+                {views(r.deposit_link.view_count)}
+                {r.booked_date ? <Chip tone="muted">Aiming for {day(r.booked_date)}</Chip> : null}
+              </>
+            ) : null}
+            {r.stage === "deposit_paid" ? (
+              <>
+                <Chip tone="green">{r.paid_in_full_up_front ? "Paid in full" : `$250 paid`}</Chip>
+                {r.booked_date ? <Chip tone="ink">Job {day(r.booked_date)}</Chip> : <Chip tone="muted">No date yet</Chip>}
+              </>
+            ) : null}
+            {r.stage === "ready" ? (
+              <>
+                <Chip tone="ink">Finished {ago(r.done_at)}{r.done_by ? ` · ${r.done_by}` : ""}</Chip>
+                {r.deposit === "paid" ? <Chip tone="green">$250 paid</Chip> : <Chip tone="red">No deposit paid</Chip>}
+                {r.extras ? <Chip tone="gold">Extras {r.extras > 0 ? "+" : "−"}{usd(Math.abs(r.extras))}</Chip> : null}
+              </>
+            ) : null}
+            {r.stage === "invoice_sent" && r.bill ? (
+              <>
+                <Chip tone="muted">{r.bill.sent_at ? `Texted ${ago(r.bill.sent_at)}` : `Made ${ago(r.bill.created_at)}, not texted`}</Chip>
+                {views(r.bill.view_count)}
+              </>
+            ) : null}
+            {r.stage === "closed" ? (
+              <Chip tone="green">
+                {r.closed_at ? `Closed ${ago(r.closed_at)} · ${r.closed_how}` : `Paid ${ago(r.when)} · Stripe`}
+              </Chip>
+            ) : null}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[22px] font-bold tabular-nums text-[#1F1A14]">{amount ? usd(amount) : "—"}</div>
+          <div className="text-[13px] text-[#6B6052]">{amount ? amountLabel : "no price on file"}</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-t border-[#E4DCCB] px-4 py-3">
+        {r.stage === "ready" || r.stage === "invoice_sent" ? (
+          <button type="button" onClick={() => setOpen((v) => !v)}
+                  className={cn(btn, "bg-[#1F1A14] text-white hover:bg-[#3A3128]")}>
+            <ReceiptText className="h-4 w-4" /> {r.stage === "ready" ? "Make the bill" : "See the bill"}
+            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        ) : null}
+        {r.stage === "deposit_paid" ? (
+          <button type="button" onClick={markDone} disabled={!!busy}
+                  className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+            {busy === "done" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />} Job finished
+          </button>
+        ) : null}
+        {r.stage !== "closed" && r.stage !== "deposit_sent" ? (
+          <button type="button" onClick={() => setClosing((v) => !v)} disabled={!!busy}
+                  className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+            <Wallet className="h-4 w-4" /> Paid another way
+          </button>
+        ) : null}
+        {r.stage === "closed" && r.closed_at ? (
+          <button type="button" onClick={reopen} disabled={!!busy}
+                  className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+            {busy === "reopen" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Reopen
+          </button>
+        ) : null}
+        {r.phone ? (
+          <a href={`tel:${r.phone}`} className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+            <Phone className="h-4 w-4" /> Call
+          </a>
+        ) : null}
+        <Link to={`/leads/${r.lead_id}`} className={cn(btn, "text-[#8C6224] hover:bg-[#F8F3E7]")}>
+          <ExternalLink className="h-4 w-4" /> Lead
+        </Link>
+      </div>
+
+      {closing ? (
+        <div className="space-y-2 border-t border-[#E4DCCB] bg-[#FBF8F2] px-4 py-3">
+          <p className="text-[15px] font-semibold text-[#1F1A14]">How did they pay?</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {closeHow.map((h) => (
+              <button key={h.key} type="button" onClick={() => close(h.key)} disabled={!!busy}
+                      className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+                {busy === h.key ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {h.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="border-t border-[#E4DCCB] p-3">
+          <StripeLinksCard leadId={r.lead_id} />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function InvoiceQueue() {
-  const [jobs, setJobs] = useState<ReadyToInvoiceJob[]>([]);
+  const [data, setData] = useState<InvoiceQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [sendingId, setSendingId] = useState<string | null>(null);
-  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [params, setParams] = useSearchParams();
+  const stage = (params.get("stage") as InvoiceStageKey | null) || "ready";
 
   const load = useCallback(async () => {
     try {
-      const res = await api.getReadyToInvoice();
-      setJobs(res.jobs || []);
-      // Seed the per-job amount editor with closed_price as the default.
-      setAmountDrafts((prev) => {
-        const next = { ...prev };
-        for (const j of res.jobs || []) {
-          if (next[j.id] === undefined) next[j.id] = String(j.closed_price || "");
-        }
-        return next;
-      });
+      setData(await api.invoiceQueue());
     } catch (e) {
-      toast.error(errMessage(e, "Failed to load invoice queue"));
+      toast.error(errMessage(e, "Couldn't load the Invoice Queue"));
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     load();
-    // Auto-refresh every 30s so newly-started jobs surface without a
-    // manual reload. Cheap query — no BLOBs touched.
-    const id = setInterval(load, 30000);
+    const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [load]);
 
-  const handleGenerate = async (job: ReadyToInvoiceJob) => {
-    const amountStr = amountDrafts[job.id] ?? String(job.closed_price);
-    const amount = parseFloat(amountStr);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Enter a valid invoice amount");
-      return;
-    }
-    setSendingId(job.id);
-    try {
-      const result = await api.generateInvoice(job.id, {
-        amount,
-        description: `${job.package_tier ? job.package_tier + " — " : ""}Fence staining @ ${job.address}`,
-        due_in_days: 7,
-      });
-      toast.success(`Invoice created${result.invoice_url ? " — link copied" : ""}`);
-      if (result.invoice_url) {
-        try { await navigator.clipboard.writeText(result.invoice_url); } catch { /* clipboard blocked */ }
-      }
-      // Optimistic remove — invoice exists now, so it leaves the queue.
-      setJobs((prev) => prev.filter((j) => j.id !== job.id));
-    } catch (e) {
-      toast.error(errMessage(e, "Failed to generate invoice"));
-    } finally {
-      setSendingId(null);
-    }
-  };
-
-  const handleSendSms = async (job: ReadyToInvoiceJob) => {
-    setSendingId(job.id);
-    try {
-      const res = await api.sendInvoiceSms(job.id);
-      toast.success(`SMS sent to ${res.to_phone}`);
-    } catch (e) {
-      toast.error(errMessage(e, "Failed to SMS invoice link"));
-    } finally {
-      setSendingId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="p-6 text-center text-muted-foreground">Loading queue…</div>
-    );
-  }
-
-  const inProgress = jobs.filter((j) => j.status === "in_progress");
-  const completed = jobs.filter((j) => j.status === "completed");
+  const pick = (k: InvoiceStageKey) => setParams((p) => { const n = new URLSearchParams(p); n.set("stage", k); return n; }, { replace: true });
+  const current = data?.stages.find((s) => s.key === stage);
+  const meta = STAGES.find((s) => s.key === stage) || STAGES[2];
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-5xl space-y-4 bg-[#FBF8F2] px-4 py-5 sm:px-6">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Invoice Queue</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Jobs that started or finished but haven't been invoiced. Auto-refreshes every 30s.
-          </p>
+          <h1 className="text-[24px] font-bold text-[#1F1A14]">Invoice Queue</h1>
+          <p className="text-[15px] text-[#6B6052]">From the $250 to paid in full. A job lands in Ready for invoice the moment the crew taps "I'm finished".</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { setRefreshing(true); load(); }} disabled={refreshing}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <button type="button" onClick={() => { setLoading(true); load(); }} aria-label="Refresh"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]">
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Total queued</div>
-          <div className="text-3xl font-bold mt-1">{jobs.length}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Working now</div>
-          <div className="text-3xl font-bold mt-1 text-blue-600">{inProgress.length}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Done — needs invoice</div>
-          <div className="text-3xl font-bold mt-1 text-green-700">{completed.length}</div>
-        </CardContent></Card>
+      {/* The five stages, left to right; two to a row on a phone. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {STAGES.map((s, i) => {
+          const st = data?.stages.find((x) => x.key === s.key);
+          const on = s.key === stage;
+          return (
+            <button key={s.key} type="button" onClick={() => pick(s.key)}
+                    className={cn("flex min-h-[92px] flex-col items-start justify-between rounded-2xl border p-3 text-left transition-colors",
+                      i === 4 && "col-span-2 sm:col-span-1",
+                      on ? "border-[#1F1A14] bg-[#1F1A14] text-white" : "border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]",
+                      !on && s.key === "ready" && (st?.count || 0) > 0 && "border-[#C9972F] ring-2 ring-[#C9972F]/30")}>
+              <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+                <s.icon className="h-4 w-4 shrink-0" /> {s.short}
+              </span>
+              <span className="text-[26px] font-bold leading-none tabular-nums">{st ? st.count : "–"}</span>
+              <span className={cn("text-[13px]", on ? "text-white/75" : "text-[#6B6052]")}>{st ? `${usd(st.money)} ${s.money}` : " "}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {jobs.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Nothing in the queue. When a worker hits Start or Complete on a job, it appears here.
-          </CardContent>
-        </Card>
+      <h2 className="pt-1 text-[18px] font-bold text-[#1F1A14]">{meta.label}</h2>
+      {loading && !data ? (
+        <p className="flex items-center gap-2 text-[15px] text-[#6B6052]"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
+      ) : !current || current.rows.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-[#E4DCCB] bg-white p-6 text-center text-[15px] text-[#6B6052]">{meta.empty}</p>
       ) : (
         <div className="space-y-3">
-          {[...inProgress, ...completed].map((job) => (
-            <Card key={job.id} className={job.status === "in_progress" ? "border-l-4 border-l-blue-500" : "border-l-4 border-l-green-600"}>
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link to={`/leads/${job.lead_id}`} className="font-semibold text-base hover:underline">
-                        {job.customer_name || "(no name)"}
-                      </Link>
-                      {statusChip(job.status)}
-                      {job.package_tier && (
-                        <Badge variant="outline" className="text-xs">{job.package_tier}</Badge>
-                      )}
-                    </div>
-                    {job.address && (
-                      <a
-                        href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-xs text-blue-600 mt-1 hover:underline"
-                      >
-                        <MapPin className="h-3 w-3" />
-                        {job.address}
-                      </a>
-                    )}
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {job.status === "in_progress"
-                          ? `Started ${relativeTime(job.started_at)}`
-                          : `Completed ${relativeTime(job.completed_at)}`}
-                      </span>
-                      <span>{job.job_date}</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-muted-foreground">Quoted price</div>
-                    <div className="text-xl font-bold">{formatCurrency(job.closed_price)}</div>
-                  </div>
-                </div>
-
-                {!job.qb_invoice_id ? (
-                  <div className="flex flex-wrap gap-2 items-end pt-2 border-t">
-                    <div className="flex-1 min-w-[180px]">
-                      <label className="text-xs text-muted-foreground block mb-1">
-                        Invoice amount
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={amountDrafts[job.id] ?? ""}
-                        onChange={(e) => setAmountDrafts((d) => ({ ...d, [job.id]: e.target.value }))}
-                        className="h-9"
-                      />
-                    </div>
-                    <Button
-                      onClick={() => handleGenerate(job)}
-                      disabled={sendingId === job.id}
-                      className="bg-green-600 hover:bg-green-700 h-9"
-                    >
-                      <FileText className="h-4 w-4 mr-2" />
-                      {sendingId === job.id ? "Creating…" : "Generate Invoice"}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2 pt-2 border-t items-center">
-                    <Badge className="bg-emerald-100 text-emerald-800">Invoice created</Badge>
-                    {job.qb_invoice_url && (
-                      <a
-                        href={job.qb_invoice_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Open in QuickBooks
-                      </a>
-                    )}
-                    {job.customer_phone && (
-                      <Button size="sm" variant="outline" onClick={() => handleSendSms(job)} disabled={sendingId === job.id}>
-                        <Send className="h-3.5 w-3.5 mr-1" />
-                        {sendingId === job.id ? "Sending…" : `SMS link to ${job.customer_phone}`}
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {!job.customer_email && !job.customer_phone && (
-                  <div className="flex items-center gap-2 text-xs text-amber-600">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    No customer email or phone on file — invoice will be created but can't be auto-sent.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+          {current.rows.map((r) => <Row key={r.lead_id} r={r} closeHow={data?.close_how || []} onChanged={load} />)}
         </div>
       )}
     </div>

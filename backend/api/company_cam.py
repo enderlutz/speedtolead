@@ -1452,15 +1452,15 @@ def mark_job_done(lead_id: str, body: DoneBody | None = None, user: dict = Depen
             log_event(lead_id, "company_cam_job_done", f"Job done, marked by {job.completed_by}",
                       {"actor": job.completed_by})
             try:
-                from services.after_pay_hooks import alert_alan
+                # Alan and Olga: it's in the Invoice Queue's Ready for invoice
+                # now, with what's left to collect (Alan, 2026-10-23).
+                from api.invoice_queue import alert_ready
+                note = ""
                 if how:
-                    said = next(c["label"] for c in PW_FINISH_CHOICES if c["key"] == how)
-                    alert_alan(f"{lead.contact_name or 'A customer'}'s pressure washing is done ({job.completed_by or 'the crew'}). "
-                               f"{said}. Time to send the final invoice (Payment links).")
-                else:
-                    used = f" Used {job.stain_gallons_used:g} gallons of stain." if job.stain_gallons_used else ""
-                    alert_alan(f"{lead.contact_name or 'A customer'}'s fence is done ({job.completed_by or 'the crew'}).{used} "
-                               f"Time to send the final invoice (Payment links).")
+                    note = next(c["label"] for c in PW_FINISH_CHOICES if c["key"] == how) + "."
+                elif job.stain_gallons_used:
+                    note = f"Used {job.stain_gallons_used:g} gallons of stain."
+                alert_ready(lead_id, note, "pressure washing" if how else "fence", db=db)
             except Exception as e:  # noqa: BLE001
                 logger.warning("job done: alert failed for %s: %s", lead_id, e)
         photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()

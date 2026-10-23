@@ -3168,6 +3168,14 @@ export const api = {
       jobs: ReadyToInvoiceJob[];
     }>("/api/quickbooks/ready-to-invoice"),
 
+  /** The Invoice Queue's five stages (Alan, 2026-10-23). */
+  invoiceQueue: () => request<InvoiceQueueResponse>("/api/invoice-queue"),
+  /** Paid some other way: moves the customer to Paid & closed. */
+  invoiceQueueClose: (leadId: string, how: string) =>
+    request<{ ok: boolean }>(`/api/invoice-queue/${leadId}/close`, { method: "POST", body: JSON.stringify({ how }) }),
+  invoiceQueueReopen: (leadId: string) =>
+    request<{ ok: boolean }>(`/api/invoice-queue/${leadId}/reopen`, { method: "POST" }),
+
   /** Mock-mode helper: pretend Intuit just told us a payment came in. */
   triggerMockQbPayment: (qbInvoiceId: string, amount: number) =>
     request<{ status: string; marked_paid?: string; reason?: string }>("/api/quickbooks/webhook", {
@@ -5549,6 +5557,27 @@ export interface LeanEmployee {
   pay_type: string;
   pay_rate: number;
   status: string;
+}
+
+export type InvoiceStageKey = "deposit_sent" | "deposit_paid" | "ready" | "invoice_sent" | "closed";
+export interface InvoiceQueueLink {
+  token: string; kind: string; status: string; amount: number;
+  created_at: string; sent_at: string; paid_at: string;
+  view_count: number; last_viewed_at: string; expired: boolean;
+}
+export interface InvoiceQueueRow {
+  lead_id: string; stage: InvoiceStageKey; when: string;
+  name: string; address: string; phone: string;
+  total: number; extras: number; paid: number; due: number;
+  deposit: "paid" | "open" | "none";
+  deposit_link: InvoiceQueueLink | null; bill: InvoiceQueueLink | null;
+  booked_date: string; done_at: string; done_by: string;
+  closed_at: string; closed_by: string; closed_how: string;
+  paid_in_full_up_front: boolean;
+}
+export interface InvoiceQueueResponse {
+  stages: { key: InvoiceStageKey; count: number; money: number; rows: InvoiceQueueRow[] }[];
+  close_how: { key: string; label: string }[];
 }
 
 export interface ReadyToInvoiceJob {

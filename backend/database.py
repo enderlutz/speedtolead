@@ -1958,6 +1958,12 @@ class CompanyCamJob(Base):
     # Bleach used on a washing job: logged, never taken off the stain shelf
     # (Alan, 2026-10-19: "a separate thing, we could log it").
     pw_bleach_gallons = Column(Float, default=0.0)
+    # Paid another way and closed out from the Invoice Queue (Alan,
+    # 2026-10-23): cash, check, Zelle, QuickBooks... A Stripe balance or
+    # paid-in-full link closes a job by itself; this is for everything else.
+    closed_at = Column(Text, default="")
+    closed_by = Column(Text, default="")
+    closed_how = Column(Text, default="")
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -4988,6 +4994,9 @@ def _run_migrations():
             ("pw_finished_how", "TEXT DEFAULT ''"),
             ("pw_bleach_gallons", "DOUBLE PRECISION DEFAULT 0"),
             ("briefing", "TEXT DEFAULT ''"),
+            ("closed_at", "TEXT DEFAULT ''"),
+            ("closed_by", "TEXT DEFAULT ''"),
+            ("closed_how", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl
