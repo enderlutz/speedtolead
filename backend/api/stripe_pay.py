@@ -374,6 +374,7 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
             "links": [link_dict(x) for x in links],
             "payments": [payment_dict(p) for p in pays],
             "paid_total": round(sum(p.amount_cents or 0 for p in pays) / 100, 2),
+            "offline_methods": [{"key": k, "label": v} for k, v in OFFLINE_METHODS.items()],
             "configured": configured(),
             # Extra repairs the customer agreed to on site, to add to the invoice.
             "site_extras": _site_extras(db, lead_id),
@@ -437,7 +438,8 @@ def pay_link_message(token: str, name: str = "", other: int = 0, user: dict = De
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         first = (name or "").split()[0].strip(",.;:") if (name or "").split() else ""
         msg = hooks.message_for_other(link, lead, first) if other else hooks.message_for(link, lead)
-        return {"message": msg, "link": hooks.after_url(link.token) if link.kind == "done" else hooks.pay_url(link.token)}
+        url = hooks.after_url(link.token) if link.kind == "done" else hooks.receipt_url(link.token) if link.status == "paid" else hooks.pay_url(link.token)
+        return {"message": msg, "link": url}
     finally:
         db.close()
 
@@ -451,10 +453,15 @@ def send_pay_link(token: str, body: MessageBody | None = None, user: dict = Depe
         link = db.query(PayLink).filter(PayLink.token == token).first()
         if not link or link.status == "void":
             raise HTTPException(status_code=404, detail="Not found")
-        if link.status == "paid" and link.kind != "done":
-            raise HTTPException(status_code=400, detail="This link was already paid")
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
-        sent, reason = hooks.send_link(db, link, lead, _edited(link, body.message if body else None))
+        if link.status == "paid" and link.kind != "done":
+            # A paid bill: the text carries the receipt (a check or cash, 2026-10-23).
+            msg = ((body.message if body else None) or "").strip() or hooks.message_for(link, lead)
+            if hooks.receipt_url(link.token) not in msg:
+                raise HTTPException(status_code=400, detail="Keep the receipt link in the text")
+            sent, reason = hooks.send_link(db, link, lead, msg)
+        else:
+            sent, reason = hooks.send_link(db, link, lead, _edited(link, body.message if body else None))
         if not sent:
             raise HTTPException(status_code=400, detail=reason)
         log_event(link.lead_id, "pay_link_texted_by", user.get("name") or user.get("sub") or "")
@@ -1201,6 +1208,62 @@ def save_answer(token: str, body: AnswerBody, background: BackgroundTasks):
 
 # ── The webhook: the only thing that marks a link paid ────────────────────
 
+OFFLINE_METHODS = {"cash": "cash", "check": "check", "zelle": "Zelle", "quickbooks": "QuickBooks",
+                   "card": "card in person", "other": "another way"}
+
+
+def _book_paid(db, link: PayLink, amount_cents: int, method: str, *, sid: str | None = None, pi_id: str | None = None,
+               event_id: str | None = None, currency: str = "usd", by: str = "") -> CustomerPayment:
+    """Write the payment, mark the link paid, and run the bookkeeping and the
+    after-payment hooks. Stripe's webhook and "paid by check" both land here."""
+    now = _now()
+    row = CustomerPayment(
+        id=str(uuid.uuid4()), lead_id=link.lead_id, pay_link_token=link.token, kind=link.kind,
+        amount_cents=amount_cents, currency=currency or "usd", method=method,
+        stripe_session_id=sid, stripe_payment_intent_id=pi_id, stripe_event_id=event_id, created_at=now,
+    )
+    db.add(row)
+    link.status = "paid"
+    link.paid_at = now
+    if link.kind == "deposit":
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        if lead:
+            lead.deposit_status = "paid"
+            lead.deposit_paid_at = now
+            lead.deposit_amount = amount_cents / 100
+            lead.deposit_paid_method = f"stripe:{method or 'card'}" if sid else method
+    db.commit()
+    if sid:
+        log_event(link.lead_id, "stripe_payment_received", f"{link.kind} {amount_cents / 100:.2f} {method or ''}".strip())
+    else:
+        log_event(link.lead_id, "payment_marked_paid", f"{link.kind} {amount_cents / 100:.2f} by {OFFLINE_METHODS.get(method, method)}, marked by {by}")
+    try:
+        if link.kind in ("deposit", "full"):
+            hooks.record_sale(link.token)
+        if link.kind in ("balance", "full", "extra"):
+            hooks.record_collected(link.lead_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("sale bookkeeping failed for %s: %s", link.token, e)
+    try:
+        hooks.on_paid(link.lead_id, link.kind, amount_cents / 100, method)
+    except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra
+        logger.warning("after-payment hooks failed for %s: %s", link.token, e)
+    return row
+
+
+def mark_paid_offline(db, link: PayLink, how: str, by: str = "") -> CustomerPayment | None:
+    """Paid by check, cash, Zelle... (Scott, 2026-10-23: a check in an
+    envelope on the barbecue grill). The link reads paid, the receipt page
+    works, and the queue closes the job. Nothing happens twice."""
+    if how not in OFFLINE_METHODS:
+        raise ValueError("Paid how? cash, check, Zelle, QuickBooks, card in person or other")
+    if link.status == "void":
+        raise ValueError("This link was voided")
+    if link.status == "paid":
+        return None
+    return _book_paid(db, link, int(link.amount_cents or 0), how, by=by)
+
+
 def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPayment:
     """Book a paid Checkout session once. Safe to call again for the same
     session: it returns the row already written."""
@@ -1220,36 +1283,7 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
             method = (getattr(pm, "type", "") or "") if pm else ""
         except Exception as e:  # noqa: BLE001 - the method is a nicety
             logger.info("payment method lookup failed for %s: %s", pi_id, e)
-    now = _now()
-    row = CustomerPayment(
-        id=str(uuid.uuid4()), lead_id=link.lead_id, pay_link_token=link.token, kind=link.kind,
-        amount_cents=amount, currency=(g("currency") or "usd"), method=method,
-        stripe_session_id=sid, stripe_payment_intent_id=pi_id, stripe_event_id=event_id, created_at=now,
-    )
-    db.add(row)
-    link.status = "paid"
-    link.paid_at = now
-    if link.kind == "deposit":
-        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
-        if lead:
-            lead.deposit_status = "paid"
-            lead.deposit_paid_at = now
-            lead.deposit_amount = amount / 100
-            lead.deposit_paid_method = f"stripe:{method or 'card'}"
-    db.commit()
-    log_event(link.lead_id, "stripe_payment_received", f"{link.kind} {amount / 100:.2f} {method or ''}".strip())
-    try:
-        if link.kind in ("deposit", "full"):
-            hooks.record_sale(link.token)
-        if link.kind in ("balance", "full", "extra"):
-            hooks.record_collected(link.lead_id)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("sale bookkeeping failed for %s: %s", link.token, e)
-    try:
-        hooks.on_paid(link.lead_id, link.kind, amount / 100, method)
-    except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra
-        logger.warning("after-payment hooks failed for %s: %s", link.token, e)
-    return row
+    return _book_paid(db, link, amount, method, sid=sid, pi_id=pi_id, event_id=event_id, currency=(g("currency") or "usd"))
 
 
 # ── Staff: ask Stripe directly ────────────────────────────────────────────
@@ -1272,6 +1306,30 @@ def _session_info(session, token: str) -> dict:
         "livemode": bool(g("livemode")),
         "matches": _field(meta, "pay_link") == token,
     }
+
+
+class MarkPaidBody(BaseModel):
+    # cash | check | zelle | quickbooks | card | other
+    how: str
+
+
+@router.post("/pay-links/{token}/mark-paid")
+def mark_pay_link_paid(token: str, body: MarkPaidBody, user: dict = Depends(require_staff)):
+    """Staff. The customer paid this link some other way (a check, cash,
+    Zelle...). Books it like a Stripe payment, so the receipt and the
+    Invoice Queue follow."""
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        try:
+            mark_paid_offline(db, link, (body.how or "").strip().lower(), user.get("name") or user.get("sub") or "")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return link_dict(link)
+    finally:
+        db.close()
 
 
 @router.post("/pay-links/{token}/check")

@@ -144,3 +144,44 @@ def test_a_fence_sold_on_the_deposit_link_bills_the_package(db):
     s = iq.suggest_invoice(db, lead.id)
     assert s["items"][0]["name"] == "Fence staining" and s["items"][0]["unit_price"] == 1734.0
     assert s["items"][0]["description"] == "Signature package · Pecan"
+
+
+def test_paid_another_way_marks_the_open_bill_paid_and_closes_the_job(db, monkeypatch):
+    from database import CustomerPayment, PayLink
+    lead = _lead(db, "Check Customer")
+    _done(db, lead)
+    bill = _link(db, lead, kind="balance", cents=171237)
+    monkeypatch.setattr(iq, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    iq.close_out(lead.id, iq.CloseBody(how="check"), user={"name": "Alan", "role": "admin"})
+    assert db.query(PayLink).filter(PayLink.token == bill.token).first().status == "paid"
+    pay = db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead.id).one()
+    assert pay.method == "check" and pay.amount_cents == 171237 and pay.stripe_session_id is None
+    r = _stage(db, lead)
+    assert r["stage"] == "closed" and r["closed_how"] == "Check" and r["paid"] == 1712.37
+
+
+def test_marking_a_link_paid_by_check_happens_once(db):
+    from api.stripe_pay import mark_paid_offline
+    from database import CustomerPayment
+    lead = _lead(db, "Twice")
+    bill = _link(db, lead, kind="balance", cents=5000)
+    assert mark_paid_offline(db, bill, "cash", "Olga") is not None
+    assert mark_paid_offline(db, bill, "cash", "Olga") is None
+    assert db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead.id).count() == 1
+    import pytest
+    with pytest.raises(ValueError):
+        mark_paid_offline(db, _link(db, lead, kind="extra", cents=100), "bitcoin")
+
+
+def test_a_fence_sale_with_a_service_on_the_draft_bills_both(db):
+    import json
+    lead = _lead(db, "Fence Plus Wash")
+    lead.form_data = json.dumps({"booking_draft": {"tier": "signature", "services": [{"name": "House soft wash", "price": 350.0}]}})
+    db.commit()
+    l = _link(db, lead, status="paid", total=120000)
+    l.job_tier = "signature"
+    db.commit()
+    s = iq.suggest_invoice(db, lead.id)
+    assert [i["name"] for i in s["items"]] == ["Fence staining", "House soft wash"]
+    assert s["items"][0]["unit_price"] == 1200.0 and s["items"][1]["unit_price"] == 350.0

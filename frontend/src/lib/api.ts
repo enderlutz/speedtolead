@@ -1420,6 +1420,9 @@ export const api = {
   createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean; ask_review?: boolean; due_date?: string | null }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
+  /** Paid by check, cash, Zelle… : books it like a Stripe payment. */
+  markPayLinkPaid: (token: string, how: string) =>
+    request<PayLinkEntry>(`/api/pay-links/${token}/mark-paid`, { method: "POST", body: JSON.stringify({ how }) }),
   /** Change an unpaid itemized invoice in place; the link stays the same. */
   editInvoice: (token: string, body: { items: InvoiceLine[]; credit?: number; financing: boolean; ask_review: boolean; due_date?: string | null }) =>
     request<PayLinkEntry>(`/api/pay-links/${token}`, { method: "PUT", body: JSON.stringify(body) }),
@@ -6141,6 +6144,7 @@ export interface CustomerPaymentEntry {
 }
 export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
+  offline_methods?: { key: string; label: string }[];
   bill_to?: { name: string; address: string; invoice_number: string };
   /** Extra repairs the customer agreed to on site (Company Cam). */
   site_extras?: { name: string; qty: number; unit_price: number }[];

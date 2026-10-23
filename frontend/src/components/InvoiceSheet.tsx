@@ -24,8 +24,14 @@ export type SheetInfo = {
   amount: number; items?: SheetItem[]; credit?: number;
   name?: string; first_name?: string; address?: string;
   invoice_number?: string; date?: string; due_date?: string | null;
-  /** On a receipt: when it was paid (ISO). */
+  /** On a receipt: when it was paid (ISO) and how. */
   paid_at?: string;
+  method?: string;
+};
+const METHOD: Record<string, string> = {
+  card: "card", link: "card", apple_pay: "Apple Pay", google_pay: "Google Pay", us_bank_account: "bank account",
+  cashapp: "Cash App", klarna: "Klarna", affirm: "Affirm", amazon_pay: "Amazon Pay",
+  check: "check", cash: "cash", zelle: "Zelle", quickbooks: "QuickBooks",
 };
 
 const INK = "#111110";
@@ -168,7 +174,7 @@ export function InvoiceSheet({ info, paid = false }: { info: SheetInfo; paid?: b
         {/* How to pay, and thanks. */}
         <div className="mt-7 space-y-1 text-[13px]" style={{ color: MUTED, borderTop: `1px solid ${RULE}`, paddingTop: 14 }}>
           {paid
-            ? <p>Paid in full. Keep this receipt for your records.</p>
+            ? <p>Paid in full{METHOD[info.method || ""] ? ` by ${METHOD[info.method || ""]}` : ""}. Keep this receipt for your records.</p>
             : <p>Pay online below with a card, Apple Pay, Google Pay or your bank account.</p>}
           <p>Questions? Call or text {PHONE}.</p>
           <p>Thank you for choosing Sterling Fence Staining.</p>

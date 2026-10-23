@@ -235,6 +235,11 @@ def close_out(lead_id: str, body: CloseBody, user: dict = Depends(require_perm("
         job.closed_how = how
         job.updated_at = _now()
         db.commit()
+        # An open bill gets marked paid the same way, so the receipt page
+        # works and nothing stays "Invoice sent".
+        from api.stripe_pay import mark_paid_offline
+        for l in db.query(PayLink).filter(PayLink.lead_id == lead_id, PayLink.kind.in_(BILL_KINDS), PayLink.status == "open").all():
+            mark_paid_offline(db, l, how, _actor(user))
         log_event(lead_id, "invoice_closed", f"Paid & closed ({CLOSE_HOW[how]}) by {job.closed_by}")
         return {"ok": True}
     finally:
@@ -365,9 +370,14 @@ def suggest_invoice(db, lead_id: str) -> dict:
             pw = [PW_SERVICE_LABELS.get(k, k) for k in _json.loads(job.pw_services_json or "[]")] if job else []
         except (TypeError, ValueError):
             pw = []
-        if draft_services and (not total or abs(sum(float(s["price"]) for s in draft_services) - total) < 0.01):
+        services_sum = sum(float(s["price"]) for s in draft_services)
+        # A services-only job (Teila's house wash): the draft's lines are the
+        # whole bill. Otherwise the fence is the first line and any services
+        # on the draft go under it.
+        services_only = bool(draft_services) and not (draft.get("tier") or "") and (not total or abs(services_sum - total) < 0.01)
+        if services_only:
             items += [_line(s["name"], float(s["price"]), description=s.get("description") or "") for s in draft_services]
-        elif total and pw:
+        elif total and pw and not draft_services:
             items.append(_line(pw[0] if len(pw) == 1 else "Pressure washing", total, description="" if len(pw) == 1 else ", ".join(pw)))
         elif total:
             items.append(_fence_line(tier, color, total))
@@ -383,6 +393,8 @@ def suggest_invoice(db, lead_id: str) -> dict:
             price = hooks.tier_price(db, lead_id, t) if t else None
             if price:
                 items.append(_fence_line(t, color, float(price)))
+        if draft_services and not services_only:
+            items += [_line(s["name"], float(s["price"]), description=s.get("description") or "") for s in draft_services]
 
     # What the crew counted with the customer replaces the repairs on the
     # booking; the old add-on way adds on top.

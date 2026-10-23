@@ -42,6 +42,12 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
   const [askReview, setAskReview] = useState(true);
   // The invoice being edited in the builder, if any.
   const [editing, setEditing] = useState<PayLinkEntry | null>(null);
+  // "Paid by…" open on one link: a check, cash, Zelle (2026-10-23).
+  const [marking, setMarking] = useState<string | null>(null);
+  const markPaid = async (link: PayLinkEntry, how: string) => {
+    try { await api.markPayLinkPaid(link.token, how); toast.success("Marked paid. The receipt is ready to text."); setMarking(null); load(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't mark it paid"); }
+  };
 
   const load = useCallback(() => {
     api.listPayLinks(leadId).then(setData).catch(() => setData(null));
@@ -112,7 +118,7 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold"><CreditCard className="h-4 w-4 text-emerald-600" /> Stripe links</p>
         <span className="flex items-center gap-2">
-          {data ? <span className="text-xs text-muted-foreground">Paid through Stripe: <b className="text-foreground">{formatCurrency(data.paid_total)}</b></span> : null}
+          {data ? <span className="text-xs text-muted-foreground">Paid: <b className="text-foreground">{formatCurrency(data.paid_total)}</b></span> : null}
           <button type="button" onClick={showHealth} disabled={health === "loading"} title="What Stripe says about our webhook, payment methods and the last payments"
             className="inline-flex h-7 items-center gap-1 rounded-md bg-muted px-2 text-[11px] font-semibold hover:bg-muted/70 disabled:opacity-60">
             {health === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stethoscope className="h-3 w-3" />} Check setup
@@ -186,9 +192,16 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
               ) : null}
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
-              {l.status === "open" || l.kind === "done" ? (
-                <button type="button" onClick={() => text(l)} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60" title="Text the link to the customer (you can edit the text first)">
-                  <MessageSquare className="h-3 w-3" /> {l.sent_at ? "Text again" : "Text"}
+              {l.status === "open" || l.kind === "done" || (l.status === "paid" && l.kind !== "deposit") ? (
+                <button type="button" onClick={() => text(l)} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  title={l.status === "paid" && l.kind !== "done" ? "Text them the receipt (you can edit the text first)" : "Text the link to the customer (you can edit the text first)"}>
+                  <MessageSquare className="h-3 w-3" /> {l.status === "paid" && l.kind !== "done" ? "Text receipt" : l.sent_at ? "Text again" : "Text"}
+                </button>
+              ) : null}
+              {l.status === "open" ? (
+                <button type="button" onClick={() => { setComposing(null); setOther(null); setMarking(marking === l.token ? null : l.token); }}
+                  className="inline-flex h-7 items-center gap-1 rounded-md bg-muted px-2 text-[11px] font-bold hover:bg-background" title="They paid by check, cash, Zelle… Books it and makes the receipt.">
+                  <CheckCircle2 className="h-3 w-3" /> Paid by…
                 </button>
               ) : null}
               {l.status === "open" && l.opened ? (
@@ -215,6 +228,15 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
                 </div>
               ) : null}
               {other === l.token ? <SendToOther token={l.token} onSent={() => { setOther(null); load(); }} onClose={() => setOther(null)} /> : null}
+              {marking === l.token ? (
+                <div className="mt-1 flex basis-full flex-wrap items-center gap-1.5 rounded-md bg-background p-2">
+                  <span className="mr-1 text-[11px] font-semibold text-muted-foreground">They paid {formatCurrency(l.amount)} by</span>
+                  {(data?.offline_methods || [{ key: "check", label: "check" }, { key: "cash", label: "cash" }, { key: "zelle", label: "Zelle" }, { key: "other", label: "another way" }]).map((m) => (
+                    <button key={m.key} type="button" onClick={() => markPaid(l, m.key)} className="h-8 rounded-md bg-muted px-2.5 text-[11px] font-bold capitalize hover:bg-muted/70">{m.label}</button>
+                  ))}
+                  <button type="button" onClick={() => setMarking(null)} className="h-8 px-2 text-[11px] font-semibold text-muted-foreground">Cancel</button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

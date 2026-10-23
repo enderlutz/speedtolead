@@ -160,10 +160,18 @@ def alert_alan(message: str) -> None:
 
 # ── The text that carries the link ────────────────────────────────────────
 
+def receipt_url(token: str) -> str:
+    return pay_url(token).replace("/pay/", "/receipt/")
+
+
 def message_for(link: PayLink, lead: Lead | None) -> str:
     first = _first(lead)
     amt = money((link.amount_cents or 0) / 100)
     url = pay_url(link.token)
+    if link.status == "paid" and link.kind in ("balance", "full", "extra"):
+        # Paid by check or cash: the text is the receipt.
+        return (f"Hi {first}, it's Sterling Fence Staining. We got your payment of {amt}, thank you! "
+                f"Here's your receipt: {receipt_url(link.token)}")
     if link.kind == "deposit":
         return (f"Hi {first}, it's Sterling Fence Staining. Here's your link to reserve your dates with the {amt} deposit: {url}\n"
                 "Card, Apple Pay or Google Pay. Reply here with any questions.")
@@ -250,7 +258,8 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
         tag = PAID_TAGS.get(kind)
         if tag:
             _tag(lead, tag)
-        how = {"klarna": " through Klarna", "affirm": " through Affirm"}.get(method or "", "")
+        how = {"klarna": " through Klarna", "affirm": " through Affirm", "check": " by check", "cash": " in cash",
+               "zelle": " by Zelle", "quickbooks": " through QuickBooks", "card": " by card in person"}.get(method or "", "")
         _note(lead, f"Paid {money(amount)}{how} on Stripe ({kind}).")
         name = (lead.contact_name if lead else "") or "A customer"
         alert_alan(f"✅ Stripe: {name} paid {money(amount)}{how} ({kind}).")

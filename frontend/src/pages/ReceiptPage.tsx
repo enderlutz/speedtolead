@@ -20,6 +20,7 @@ type Receipt = Info & { paid_at?: string; method?: string };
 const METHOD: Record<string, string> = {
   card: "Card", link: "Card", apple_pay: "Apple Pay", google_pay: "Google Pay", us_bank_account: "Bank account",
   cashapp: "Cash App", klarna: "Klarna", affirm: "Affirm", amazon_pay: "Amazon Pay",
+  check: "check", cash: "cash", zelle: "Zelle", quickbooks: "QuickBooks", other: "",
 };
 
 export default function ReceiptPage() {
