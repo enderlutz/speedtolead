@@ -3804,7 +3804,7 @@ export const api = {
   uploadCompanyCamPhoto: async (
     leadId: string,
     file: File,
-    opts: { section: string; side?: string; note?: string; isDamage?: boolean; takenAt?: string },
+    opts: { section: string; side?: string; note?: string; isDamage?: boolean; takenAt?: string; signal?: AbortSignal },
   ) => {
     const fd = new FormData();
     fd.append("taken_at", opts.takenAt || "");
@@ -3817,6 +3817,7 @@ export const api = {
     const res = await fetch(`${BASE}/api/company-cam/${leadId}/photos`, {
       method: "POST",
       body: fd,
+      signal: opts.signal,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");

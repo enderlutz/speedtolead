@@ -45,6 +45,7 @@ import { Chips, Counter, FencePart, type FencePartKey } from "@/components/propo
 import { PARTS, PICKETS, POSTS } from "@/lib/repairs";
 import { sidesLabel } from "@/lib/fenceSides";
 import { tr, isSpanish } from "@/lib/i18n";
+import { enqueue, onQueue, pending as queuedPhotos, type PendingPhoto } from "@/lib/photoQueue";
 
 const PACKAGES = ["essential", "signature", "legacy"] as const;
 
@@ -745,6 +746,22 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
   useEffect(() => { void load(); }, [load]);
 
+  // Photos waiting on the phone to send (Alan and Chris, 2026-10-22): shown
+  // at once as "sending"; when one gets through, the job reloads quietly.
+  const [queued, setQueued] = useState<PendingPhoto[]>([]);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => { void queuedPhotos(leadId).then((q) => { if (live) setQueued(q); }); };
+    refresh();
+    const off = onQueue((ev) => {
+      refresh();
+      if (ev.kind === "sent" && ev.leadId === leadId) {
+        void api.getCompanyCam(leadId).then((d) => { if (live) setData(d); }).catch(() => {});
+      }
+    });
+    return () => { live = false; off(); };
+  }, [leadId]);
+
   // Fix the customer's address or number from the job (Alan, 2026-10-21):
   // the lead's contact route, which also updates GoHighLevel.
   const saveContact = async (body: Record<string, string>) => {
@@ -783,30 +800,20 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const upload = async (section: string, files: FileList | null) => {
     if (!files?.length) return;
     setUploading(section);
-    // One bad signal shouldn't lose the rest: each photo is shrunk, tried
-    // twice, and the others keep going (Chris on 5G, 2026-10-19).
-    let ok = 0;
-    let lastErr: unknown = null;
+    // Saved on the phone first, then sent in the background until it gets
+    // through, so a weak signal never means a lost photo or a spinning wheel
+    // (Alan and Chris, 2026-10-22).
+    let saved = 0;
     try {
       for (const f of Array.from(files)) {
         const takenAt = await photoTakenAt(f); // before shrinking drops the EXIF
         const small = await shrinkPhoto(f);
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            await api.uploadCompanyCamPhoto(leadId, small, { section, takenAt });
-            ok += 1;
-            break;
-          } catch (e) {
-            lastErr = e;
-            if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
-          }
-        }
+        await enqueue({ leadId, section, takenAt, file: small, name: f.name || undefined });
+        saved += 1;
       }
-      const failed = files.length - ok;
-      if (ok) toast.success(`${ok} photo${ok === 1 ? "" : "s"} added`);
-      if (failed) toast.error(`${failed} ${tr("didn't go up — weak signal. Try those again.")}`
-        + (ok ? "" : ` (${errMessage(lastErr, tr("Upload failed"))})`));
-      if (ok) await load();
+      if (saved) toast.success(isSpanish() ? `${saved} foto${saved === 1 ? "" : "s"} guardada${saved === 1 ? "" : "s"}. Se envían solas.` : `${saved} photo${saved === 1 ? "" : "s"} saved. ${saved === 1 ? "It sends" : "They send"} by itself.`);
+    } catch (e) {
+      toast.error(errMessage(e, tr("Couldn't save the photo")));
     } finally { setUploading(""); }
   };
 
@@ -891,7 +898,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
   const mixedPw = !pwMode && pwSecs.length > 0;
   const steps = (pwMode ? pwSecs : mixedPw ? [...sections, ...pwSecs] : sections).map((sec) => {
-    const n = (photos[sec.key] || []).length;
+    // A photo waiting to send counts: the crew moves on, it goes up by itself.
+    const n = (photos[sec.key] || []).length + queued.filter((q) => q.section === sec.key).length;
     const written = sec.key === "fence_scope" && !!job.scope_explanation.trim();
     return { ...sec, ...sectionLook(sec.key), n, done: n > 0 || written, written };
   });
@@ -963,6 +971,24 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               type="file" accept="image/*" multiple hidden
               onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
             />
+
+            {/* Taken, waiting on signal: they send by themselves. */}
+            {(() => {
+              const q = queued.filter((x) => x.section === sec.key);
+              if (!q.length) return null;
+              return (
+                <div className="space-y-1.5 rounded-xl border border-gold/50 bg-gold/10 p-2.5">
+                  <p className="flex items-center gap-1.5 text-sm font-bold">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {isSpanish() ? `${q.length} foto${q.length === 1 ? "" : "s"} guardada${q.length === 1 ? "" : "s"}, enviándose` : `${q.length} photo${q.length === 1 ? "" : "s"} saved, sending`}
+                  </p>
+                  <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                    {q.map((p) => <img key={p.id} src={p.url} alt="" className="aspect-square w-full rounded-lg object-cover opacity-80" />)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">{tr("Keep working. They go up by themselves when there's signal, even if you close the app.")}</p>
+                </div>
+              );
+            })()}
 
             {/* The sides, the same map as the estimate, next to the scope photo
                 so nobody can stain the wrong side (Alan, 2026-10-15). */}

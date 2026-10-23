@@ -49,6 +49,7 @@ import CallBar from "@/components/training/CallBar";
 import CallSession from "@/components/training/CallSession";
 import TrainingSummaryModal from "@/components/training/TrainingSummaryModal";
 import { TrainingModeProvider } from "@/lib/training_mode_context";
+import { startPhotoQueue } from "@/lib/photoQueue";
 const JobSops = lazy(() => import("@/pages/JobSops"));
 const InvoiceQueue = lazy(() => import("@/pages/InvoiceQueue"));
 const Revenue = lazy(() => import("@/pages/Revenue"));
@@ -331,6 +332,8 @@ function AppLayout() {
 }
 
 export default function App() {
+  // Crew photos still waiting on the phone go up as soon as the app opens.
+  useEffect(() => { startPhotoQueue(); }, []);
   return (
     <BrowserRouter>
       <TrainingModeProvider>
