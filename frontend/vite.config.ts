@@ -16,6 +16,8 @@ export default defineConfig({
     target: ['es2020', 'safari14', 'chrome87', 'firefox78', 'edge88'],
   },
   server: {
+    // Design Lab reads docs/ideas/*.md from the repo root (bundled at build).
+    fs: { allow: [".."] },
     proxy: {
       '/api': 'http://localhost:8000',
       '/webhook': 'http://localhost:8000',

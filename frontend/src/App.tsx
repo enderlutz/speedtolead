@@ -65,9 +65,8 @@ const CompanyCamPage = lazy(() => import("@/pages/CompanyCamPage"));
 const FencePhotos = lazy(() => import("@/pages/FencePhotos"));
 const Agents = lazy(() => import("@/pages/Agents"));
 const Internal = lazy(() => import("@/pages/Internal"));
-const ProposalProject = lazy(() => import("@/pages/ProposalProject"));
+const DesignLab = lazy(() => import("@/pages/DesignLab"));
 const ProposalMockup = lazy(() => import("@/pages/ProposalMockup"));
-const CardoneFollowUps = lazy(() => import("@/pages/CardoneFollowUps"));
 const ProposalPreview = lazy(() => import("@/pages/ProposalPreview"));
 const TermsPage = lazy(() => import("@/pages/TermsPage"));
 const ProposalLive = lazy(() => import("@/pages/ProposalLive"));
@@ -300,9 +299,10 @@ function AppLayout() {
               <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
               <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
-              <Route path="/new-proposal" element={<StaffOnly><ProposalProject /></StaffOnly>} />
+              <Route path="/design-lab" element={<StaffOnly><DesignLab /></StaffOnly>} />
+              <Route path="/new-proposal" element={<Navigate to="/design-lab?tab=notes" replace />} />
               <Route path="/new-proposal/mockup" element={<StaffOnly><ProposalMockup /></StaffOnly>} />
-              <Route path="/cardone" element={<StaffOnly><CardoneFollowUps /></StaffOnly>} />
+              <Route path="/cardone" element={<Navigate to="/design-lab?tab=followups" replace />} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
               <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />

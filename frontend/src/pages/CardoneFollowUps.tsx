@@ -345,7 +345,8 @@ function Thread({ touches, name }: { touches: Touch[]; name: string }) {
   );
 }
 
-export default function CardoneFollowUps() {
+/** `embedded`: inside Design Lab, which has its own header and padding. */
+export default function CardoneFollowUps({ embedded = false }: { embedded?: boolean } = {}) {
   const [clock, setClock] = useState<Clock>(2);
   const [name, setName] = useState("Maria");
   const [view, setView] = useState<"timeline" | "thread">("timeline");
@@ -362,14 +363,16 @@ export default function CardoneFollowUps() {
   const current = CLOCKS.find((c) => c.id === clock)!;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
+    <div className={cn("space-y-4", !embedded && "mx-auto max-w-6xl p-4 md:p-6")}>
       <div className="overflow-hidden rounded-2xl bg-ink text-ivory shadow-lg">
         <div className="flex flex-wrap items-center gap-3 px-5 py-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
-            <Repeat className="h-5 w-5 text-ink" />
-          </div>
+          {embedded ? null : (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
+              <Repeat className="h-5 w-5 text-ink" />
+            </div>
+          )}
           <div className="min-w-0 flex-1">
-            <h1 className="font-heading text-xl font-bold leading-tight">Cardone's Follow-Ups</h1>
+            <h1 className={cn("font-heading font-bold leading-tight", embedded ? "text-base" : "text-xl")}>Cardone's Follow-Ups</h1>
             <p className="text-xs text-ivory/70">Every touch of the year, the way the customer meets it. Nothing on this page sends anything.</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">

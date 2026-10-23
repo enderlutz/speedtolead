@@ -1,0 +1,46 @@
+// What changed on the screens a customer sees, newest first (Alan,
+// 2026-10-23: "we're gonna have a lot of things like this that come up").
+// Shown on Design Lab → Changes. Add a line here whenever something a
+// customer can see goes live; dates are the day it went live.
+export type DesignChange = {
+  date: string;              // YYYY-MM-DD
+  title: string;             // one line, plain words
+  what: string;              // what a customer notices
+  open?: { label: string; to: string };   // where to see it
+};
+
+export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-23", title: "The invoice is a sheet of paper",
+    what: "Invoice, receipt and the office preview all show the same document: one typeface, hairlines, From and Bill to, a Qty · Unit price · Amount table, Amount due the only bold line. The black band, gold wordmark and serif numbers are gone.",
+    open: { label: "See it", to: "/design-lab?tab=screens" } },
+  { date: "2026-10-23", title: "The bill writes itself",
+    what: "Make the bill (Invoice Queue) opens the itemized invoice already filled in from what was sold, counted on site and paid. Klarna is off unless switched on; the Google review ask stays on.",
+    open: { label: "Invoice Queue", to: "/invoice-queue?stage=ready" } },
+  { date: "2026-10-22", title: "The pay page is ours",
+    what: "Stripe's card form sits on our own page instead of a jump to Stripe: white, Inter, the amount in Instrument Serif, Apple Pay or Google Pay on top, one black Pay button, gold as a hairline.",
+    open: { label: "Pay page", to: "/design-lab?tab=screens" } },
+  { date: "2026-10-22", title: "Real job photos on the colours",
+    what: "Simply Cedar joins the Signature colours. Plymouth Red, Potato Skin and Dark Walnut show Alan's own job photos instead of the library shots, with the full-size picture on tap." },
+  { date: "2026-10-21", title: "Booking invite for services-only jobs",
+    what: "A fourth choice beside the packages, \"No fence staining\", for a customer booking only a house wash or other services." },
+  { date: "2026-10-20", title: "Prices show cents",
+    what: "Measured prices on the estimate show cents; flat items (repairs per picket, the $250, the $100 referral) stay whole dollars." },
+  { date: "2026-10-20", title: "Customer pages load fast, on any phone",
+    what: "Each page loads only its own code, nothing on a customer page calls railway.app, and the estimate opens on phones back to iOS 14." },
+  { date: "2026-10-19", title: "After-job stars only count when sent",
+    what: "A stray tap no longer leaves a rating: the stars save on \"Send N stars\", and the low-stars text waits until they've stopped tapping." },
+  { date: "2026-10-18", title: "No PDF at send",
+    what: "An interactive proposal is only the interactive page; the text still goes out, and the PDF is made only when someone asks for it." },
+  { date: "2026-10-17", title: "The proposal shows everything, tapping only picks",
+    what: "No drawing, footage or \"Not correct?\" on the customer's page. Packages stack full-width on a phone and sit side by side on a laptop. Customers fear links and clicking." },
+  { date: "2026-10-15", title: "Referral pages",
+    what: "estimate.sterlingfencetx.com/r/CODE works: $100 off for the friend, $100 owed to the referrer once the friend's job is done." },
+  { date: "2026-10-14", title: "Our own booking invite",
+    what: "Replaces the Google Calendar invite: the page reads \"held\" until the $250 is paid, then \"confirmed\", with an Add to my calendar button. Klarna for the whole job can sit beside the $250." },
+  { date: "2026-10-13", title: "Itemized invoices",
+    what: "A balance link can carry lines with notes, discounts and what was already paid; the pay page and Stripe's checkout list them." },
+  { date: "2026-10-13", title: "Numbered drawings, frozen at send",
+    what: "Every send confirms a numbered scope drawing and freezes it with the prices, so what they saw is what they bought." },
+  { date: "2026-10-10", title: "After-payment screens",
+    what: "After paying: thank you, how did we do, the Google review ask on 4 or 5 stars, the referral, other services." },
+];
