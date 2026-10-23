@@ -12,8 +12,8 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  DndContext, DragOverlay, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors,
-  type DragEndEvent, type DragStartEvent,
+  DndContext, DragOverlay, PointerSensor, TouchSensor, pointerWithin, rectIntersection, useDraggable, useDroppable, useSensor, useSensors,
+  type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import { Plus } from "lucide-react";
 import type { PmDay } from "@/lib/api";
@@ -38,9 +38,14 @@ function useWide(): boolean {
 
 function Draggable({ g, children, on }: { g: JobGroup; children: ReactNode; on: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: groupKey(g), data: { g }, disabled: !on });
+  // Each card is also a drop spot: drop a job on it to take its place in the day
+  // (Alan, 2026-10-22: Harold above Charlotte on Friday).
+  const drop = useDroppable({ id: `chip:${groupKey(g)}`, data: { g }, disabled: !on });
+  const ref = (el: HTMLElement | null) => { setNodeRef(el); drop.setNodeRef(el); };
   return (
-    <div ref={setNodeRef} {...(on ? listeners : {})} {...(on ? attributes : {})}
-         className={cn(on && "touch-manipulation", isDragging && "opacity-30")}>
+    <div ref={ref} {...(on ? listeners : {})} {...(on ? attributes : {})}
+         className={cn("rounded-xl", on && "touch-manipulation", isDragging && "opacity-30",
+                       drop.isOver && !isDragging && "ring-2 ring-[#C9972F] ring-offset-2")}>
       {children}
     </div>
   );
@@ -51,7 +56,7 @@ function DropDay({ day, className, children }: { day: string; className: string;
   return <div ref={setNodeRef} className={cn(className, isOver && "bg-[#C9972F]/15 ring-2 ring-inset ring-[#C9972F]")}>{children}</div>;
 }
 
-export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onAdd, stacked, showPay }: {
+export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onReorder, onAdd, stacked, showPay }: {
   dates: string[]; byDay: Map<string, PmDay[]>; today: string; Link: JobLinkComponent;
   onPickDay: (d: string) => void;
   /** Week shows this many chips a day, then "+N more" (tap → that day). */
@@ -59,6 +64,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   canEdit?: boolean;
   /** Drop a job (the lead tech and their helpers) on another day. */
   onMove?: (g: JobGroup, toDate: string) => void;
+  /** The day's customers in their new running order, first = where they start. */
+  onReorder?: (day: string, leadIds: string[]) => void;
   /** "+ Add" under a day. */
   onAdd?: (d: string) => void;
   /** Week: narrow columns, so each job is two lines, the customer on top. */
@@ -75,11 +82,28 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
   const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { g: JobGroup } | undefined)?.g || null);
+  // A card under the finger wins over the day around it.
+  const collide: CollisionDetection = (args) => {
+    const hits = pointerWithin(args);
+    if (hits.length) return [...hits].sort((a, b) => Number(String(b.id).startsWith("chip:")) - Number(String(a.id).startsWith("chip:")));
+    return rectIntersection(args);
+  };
   const onEnd = (e: DragEndEvent) => {
     setDragging(null);
     const g = (e.active.data.current as { g: JobGroup } | undefined)?.g;
-    const to = e.over ? String(e.over.id) : "";
-    if (g && to && to !== g.x.date) onMove?.(g, to);
+    if (!g || !e.over) return;
+    const overId = String(e.over.id);
+    const t = overId.startsWith("chip:") ? (e.over.data.current as { g: JobGroup } | undefined)?.g : undefined;
+    const to = t ? t.x.date : overId;
+    if (to !== g.x.date) { onMove?.(g, to); return; }
+    if (!t || t.key === g.key || !onReorder) return;
+    // Same day: take the dropped-on card's spot.
+    const ids = groupJobs(byDay.get(to) || []).map((x) => x.key);
+    const from = ids.indexOf(g.key), at = ids.indexOf(t.key);
+    if (from < 0 || at < 0) return;
+    ids.splice(from, 1);
+    ids.splice(at, 0, g.key);
+    onReorder(to, ids);
   };
   const chip = (g: JobGroup) => (
     <Draggable key={groupKey(g)} g={g} on={dnd}><JobChip g={g} Link={Link} stacked={stacked && wide} showPay={showPay} /></Draggable>
@@ -137,8 +161,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   if (!dnd) return body;
   return (
     <>
-      <p className={cn("px-1 text-[14px]", MUTED)}>Drag a job to another day to move it. On a phone, hold it for a moment first.</p>
-      <DndContext sensors={sensors} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(null)}>
+      <p className={cn("px-1 text-[14px]", MUTED)}>Drag a job to another day to move it, or onto another job to swap their order. On a phone, hold it for a moment first.</p>
+      <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(null)}>
         {body}
         <DragOverlay dropAnimation={null}>
           {dragging ? <div className="w-56 rotate-1 shadow-xl"><JobChip g={dragging} /></div> : null}

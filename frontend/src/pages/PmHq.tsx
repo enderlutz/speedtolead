@@ -272,6 +272,22 @@ function CalendarView() {
     } catch (e) { toast.error(errMessage(e, "Couldn't move it")); }
     load();
   };
+  // Drop a job on another in the same day: that day's running order changes
+  // for everyone on it (Alan, 2026-10-22: Harold before Charlotte).
+  const reorderDay = async (day: string, leadIds: string[]) => {
+    const rank = new Map(leadIds.map((id, i) => [id, i]));
+    setDays((ds) => {
+      const list = ds || [];
+      const theDay = list.filter((d) => d.date === day).sort((a, b) => (rank.get(a.lead_id) ?? 99) - (rank.get(b.lead_id) ?? 99));
+      let i = 0;
+      return list.map((d) => (d.date === day ? theDay[i++] : d));
+    });
+    try {
+      await api.pmHqOrder(day, leadIds, "");
+      toast.success("Order saved");
+    } catch (e) { toast.error(errMessage(e, "Couldn't change the order")); }
+    load();
+  };
   const byDay = useMemo(() => groupByDay(days || []), [days]);
   const pickDay = useCallback((d: string) => set({ view: "day", day: d }), [set]);
   // One unit of the view: a day, 3 days, a week, a month; 4 weeks on the list.
@@ -306,7 +322,7 @@ function CalendarView() {
           ) : null}
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
                         onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={isOffice()}
-                        canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+                        canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </>
       )}
     </div>
