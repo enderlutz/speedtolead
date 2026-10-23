@@ -17,8 +17,8 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Check, Lock, Phone, Star } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { InvoiceSheet } from "@/components/InvoiceSheet";
 import { TermsBody } from "@/components/proposal/TermsBody";
-import { dueText } from "@/lib/due";
 
 import { API_BASE as BASE } from "@/lib/apiBase";
 const GOLD = "#C9972F";
@@ -447,7 +447,7 @@ export default function PayLink() {
       <h1 className="mt-2 text-[34px] font-normal leading-[1.1] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>
         {info.first_name ? `Hi ${info.first_name}, ` : ""}{deposit ? "this books your spot." : invoice ? "here's your invoice." : "here's what's due."}
       </h1>
-      {invoice ? <InvoiceDoc info={info} /> : (
+      {invoice ? <InvoiceSheet info={info} /> : (
         <>
           {/* The amount, then what it's for. Whitespace and hairlines, no boxes. */}
           <p className="mt-7 text-[60px] leading-none tracking-[-0.02em] tabular-nums" style={{ fontFamily: SERIF }}>{formatCurrency(info.amount)}</p>
@@ -508,90 +508,6 @@ export default function PayLink() {
       )}
       <Contact />
     </Shell>
-  );
-}
-
-const money = (n: number) => formatCurrency(n);
-const minus = (n: number) => `− ${formatCurrency(Math.abs(n))}`;
-
-/** An itemized invoice laid out like a paper one: who it's from, the number
- *  and date, who it's billed to, the lines, then the totals. A line's own
- *  discount sits right under it in green; a discount on the whole invoice
- *  sits in the totals. */
-export function InvoiceDoc({ info, paid = false }: { info: Info; paid?: boolean }) {
-  const items = info.items ?? [];
-  const lines = items.filter((i) => !i.total_discount);
-  const wholeOff = items.filter((i) => i.total_discount);
-  const subtotal = lines.reduce((t, i) => t + i.amount, 0);
-  const lineOff = lines.reduce((t, i) => t + (i.discount || 0), 0);
-  const date = info.date ? new Date(info.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
-  return (
-    <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#15130F]/10">
-      <div className="flex items-end justify-between gap-3 bg-[#15130F] px-4 py-3 text-white">
-        <div>
-          <p className="text-[13px] font-bold uppercase tracking-[0.18em]" style={{ color: GOLD }}>Sterling</p>
-          <p className="text-[13px] text-white/80">Fence Staining · Houston</p>
-        </div>
-        <p className="font-heading text-2xl font-bold tracking-wide">{paid ? "RECEIPT" : "INVOICE"}</p>
-      </div>
-      <div className="grid grid-cols-2 gap-3 border-b border-[#15130F]/10 px-4 py-3 text-[15px]">
-        <div>
-          <p className="text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Bill to</p>
-          {info.name ? <p className="font-bold capitalize">{info.name.toLowerCase()}</p> : null}
-          {info.address ? <p className="text-[#15130F]/75">{info.address}</p> : null}
-        </div>
-        <div className="text-right">
-          {info.invoice_number ? (<>
-            <p className="text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Invoice no.</p>
-            <p className="font-bold tabular-nums">{info.invoice_number}</p>
-          </>) : null}
-          {date ? (<>
-            <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Date</p>
-            <p className="tabular-nums">{date}</p>
-          </>) : null}
-          {!paid ? (<>
-            <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Due</p>
-            <p className="font-bold tabular-nums">{dueText(info.due_date)}</p>
-          </>) : null}
-        </div>
-      </div>
-      <div className="flex justify-between bg-[#F8F3E7] px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-[#15130F]/65">
-        <span>Description</span><span>Amount</span>
-      </div>
-      <ul className="divide-y divide-[#15130F]/10 px-4">
-        {lines.map((i, n) => (
-          <li key={n} className="py-3">
-            <div className="flex justify-between gap-3 text-[16px]">
-              <div>
-                <p className="font-bold">{i.name}</p>
-                {(i.qty ?? i.quantity ?? 1) > 1 && i.unit_price ? (
-                  <p className="text-[14px] font-semibold text-[#15130F]/75 tabular-nums">{i.qty ?? i.quantity} × {money(i.unit_price)}</p>
-                ) : null}
-                {i.description ? <p className="text-[14px] text-[#15130F]/70">{i.description}</p> : null}
-              </div>
-              <p className="shrink-0 font-semibold tabular-nums">{money(i.amount)}</p>
-            </div>
-            {i.discount ? (
-              <div className="mt-1.5 flex justify-between gap-3 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[15px] font-semibold text-emerald-800">
-                <span>{i.discount_label || "Discount"}</span><span className="tabular-nums">{minus(i.discount)}</span>
-              </div>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      <dl className="ml-auto space-y-1.5 border-t-2 border-[#15130F]/15 px-4 py-3 text-[15px] sm:w-3/4">
-        <div className="flex justify-between gap-3"><dt className="text-[#15130F]/75">Subtotal</dt><dd className="tabular-nums">{money(subtotal)}</dd></div>
-        {lineOff ? <div className="flex justify-between gap-3 text-emerald-800"><dt>Discounts</dt><dd className="tabular-nums">{minus(lineOff)}</dd></div> : null}
-        {wholeOff.map((i, n) => (
-          <div key={n} className="flex justify-between gap-3 text-emerald-800"><dt>{i.name}</dt><dd className="tabular-nums">{minus(i.amount)}</dd></div>
-        ))}
-        {info.credit ? <div className="flex justify-between gap-3"><dt className="text-[#15130F]/75">Already paid</dt><dd className="tabular-nums">{minus(info.credit)}</dd></div> : null}
-      </dl>
-      <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: "#FBF3DF" }}>
-        <span className="text-[17px] font-bold">{paid ? "Total paid" : "Total due"}</span>
-        <span className="font-heading text-3xl font-bold tabular-nums">{money(info.amount)}</span>
-      </div>
-    </div>
   );
 }
 

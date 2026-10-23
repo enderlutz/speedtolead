@@ -25,7 +25,6 @@ import { ArrowLeft, Check, CreditCard, Landmark, Lock, Phone, Star } from "lucid
 import { cn, formatCurrency } from "@/lib/utils";
 import type { PayFlow, PayMethod } from "@/components/proposal/AfterPay";
 import { InvoiceSheet } from "@/components/InvoiceSheet";
-import { InvoiceDoc } from "@/pages/PayLink";
 
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
@@ -75,9 +74,8 @@ export function PayPageMock({ mode, pkgName, total, firstName, address, onClose,
   const balance = Math.max(0, total - 250);
   const amount = deposit ? 250 : mode === "balance" ? balance : total;
   const [look, setLook] = useState<PayLook>("white");
-  // The balance page carries the itemized invoice. "New" is the paper sheet
-  // (Alan, 2026-10-23: "it needs to look like a PDF"); "Old" is what's live.
-  const [invoiceLook, setInvoiceLook] = useState<"new" | "old">("new");
+  // The balance page carries the itemized invoice, the paper sheet that went
+  // live 2026-10-23.
   const invoiceItems = [
     { name: "Fence staining", description: `${pkgName} package · Pecan`, amount: total, quantity: 1, unit_price: total },
     { name: "Picket replacement (pine)", description: "Counted on site with you", amount: 156, quantity: 13, unit_price: 12 },
@@ -127,13 +125,6 @@ export function PayPageMock({ mode, pkgName, total, firstName, address, onClose,
                 <button key={k} type="button" onClick={() => setLook(k)} className={cn("px-2 py-1 capitalize", look === k ? "bg-[#C9972F] text-[#111110]" : "text-white/80")}>{k}</button>
               ))}
             </span> : null}
-            {mode === "balance" ? (
-              <span className="flex overflow-hidden rounded-md bg-white/10 text-[11px] font-bold" title="The invoice: the new paper sheet, or the one that's live">
-                {(["new", "old"] as const).map((k) => (
-                  <button key={k} type="button" onClick={() => setInvoiceLook(k)} className={cn("whitespace-nowrap px-2 py-1 capitalize", invoiceLook === k ? "bg-white text-[#111110]" : "text-white/80")}>{k} invoice</button>
-                ))}
-              </span>
-            ) : null}
             {onOldLook ? <button type="button" onClick={onOldLook} className="whitespace-nowrap rounded-md bg-white/10 px-2 py-1 text-[11px] font-bold text-white/85">Old</button> : null}
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full" style={{ background: GOLD }} aria-label="Call"><Phone className="h-4 w-4 text-[#111110]" /></span>
           </div>
@@ -147,11 +138,7 @@ export function PayPageMock({ mode, pkgName, total, firstName, address, onClose,
             Hi {firstName}, {deposit ? "this books your spot." : mode === "balance" ? "here's your invoice." : "here's your total."}
           </h1>
 
-          {mode === "balance" ? (
-            invoiceLook === "new"
-              ? <InvoiceSheet info={invoiceInfo} />
-              : <InvoiceDoc info={{ ...invoiceInfo, kind: "balance", label: "Balance", description: "", status: "open", configured: true }} />
-          ) : (<>
+          {mode === "balance" ? <InvoiceSheet info={invoiceInfo} /> : (<>
           {/* The amount, then what it's for. Whitespace and hairlines, no boxes. */}
           <p className="mt-7 text-[60px] leading-none tracking-[-0.02em] tabular-nums" style={{ fontFamily: SERIF }}>{formatCurrency(amount)}</p>
           <p className={cn("mt-2 text-[14px] font-medium", t.muted)}>{deposit ? "Deposit today" : "Due today"}</p>

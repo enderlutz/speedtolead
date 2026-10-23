@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Copy, Ban, Pencil, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type SuggestedInvoice, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
-import { InvoiceDoc } from "@/pages/PayLink";
+import { InvoiceSheet } from "@/components/InvoiceSheet";
 import { dueText } from "@/lib/due";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
@@ -645,17 +645,16 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
       </div>
       {preview && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-3 sm:items-center" onClick={() => setPreview(false)}>
-          <div className="w-full max-w-[430px] rounded-2xl bg-[#F8F3E7] p-4 text-[#15130F] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-[430px] rounded-2xl bg-white p-4 text-[#111110] shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="text-[12px] font-bold uppercase tracking-[0.18em] text-[#8C6224]">Preview · what the customer sees</p>
               <button type="button" onClick={() => setPreview(false)} className="rounded-full p-1.5 hover:bg-black/10" aria-label="Close preview"><X className="h-4 w-4" /></button>
             </div>
-            <InvoiceDoc info={{
-              kind: "balance", label: "Balance", amount: Math.max(0, due), description: "", status: "open",
-              first_name: (billTo?.name || "").split(" ")[0], address: billTo?.address || "", configured: true,
-              items: buildItems(), credit: paid, financing: klarna, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(), due_date: dueOn,
+            <InvoiceSheet info={{
+              amount: Math.max(0, due), items: buildItems(), credit: paid,
+              name: billTo?.name || "", address: billTo?.address || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(), due_date: dueOn,
             }} />
-            <div className="mt-4 flex h-14 w-full items-center justify-center rounded-xl text-[18px] font-bold text-[#15130F] opacity-90" style={{ background: "#C9972F" }}>
+            <div className="mt-4 flex h-14 w-full items-center justify-center rounded-xl bg-[#111110] text-[17px] font-semibold text-white opacity-90">
               Pay {formatCurrency(Math.max(0, due))}
             </div>
             <p className="mt-2 text-center text-[13px] text-[#15130F]/70">Nothing is made or sent until you tap Make invoice link.</p>

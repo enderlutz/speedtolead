@@ -9,7 +9,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, MessageSquare, Share2, Check } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { InvoiceDoc, type Info } from "@/pages/PayLink";
+import { type Info } from "@/pages/PayLink";
+import { InvoiceSheet } from "@/components/InvoiceSheet";
 
 import { API_BASE as BASE } from "@/lib/apiBase";
 const GOLD = "#C9972F";
@@ -64,7 +65,7 @@ export default function ReceiptPage() {
       </div>
       <div className="relative">
         {r.items?.length ? (
-          <InvoiceDoc info={{ ...r, amount: r.amount }} paid />
+          <InvoiceSheet info={r} paid />
         ) : (
           <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <p className="text-[15px] font-semibold">{r.label}{r.invoice_number ? ` · ${r.invoice_number}` : ""}</p>
