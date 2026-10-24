@@ -3787,9 +3787,15 @@ export const api = {
     customers_only?: boolean;
     /** intake — newest form fill first (default) | added — GHL's own order */
     sort?: "intake" | "added";
+    /** Whose contacts: Sterling's (default) or A&T's Pressure Washing. */
+    account?: "sterling" | "at";
+    /** A&T's only: fence staining or pressure washing. */
+    service?: "fence" | "pressure";
     limit?: number; offset?: number;
   } = {}) => {
     const qs = new URLSearchParams();
+    if (params.account) qs.set("account", params.account);
+    if (params.service) qs.set("service", params.service);
     if (params.q) qs.set("q", params.q);
     if (params.estimate) qs.set("estimate", params.estimate);
     if (params.sort) qs.set("sort", params.sort);
@@ -3932,7 +3938,9 @@ export const api = {
     }),
   deleteCompanyCamPhoto: (leadId: string, photoId: string) =>
     request<{ ok: boolean }>(`/api/company-cam/${leadId}/photos/${photoId}`, { method: "DELETE" }),
-  getContactStats: () => request<ContactStats>("/api/contacts/stats"),
+  getContactStats: (account: "sterling" | "at" = "sterling") => request<ContactStats>(`/api/contacts/stats?account=${account}`),
+  /** Whether A&T's GHL accounts are connected (their tokens are in Railway). */
+  contactAccounts: () => request<{ at_connected: boolean; at_accounts: string[] }>("/api/contacts/accounts"),
   syncContacts: () => request<Record<string, ContactSyncResult>>("/api/contacts/sync", { method: "POST" }),
 };
 
@@ -3941,6 +3949,10 @@ export const api = {
 export interface ContactRow {
   id: string;
   ghl_contact_id: string;
+  /** A&T's rows only. */
+  also_sterling?: boolean;
+  service?: string;
+  ghl_url?: string;
   name: string;
   phone: string;
   email: string;

@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     ghl_api_key_2: str = ""
     ghl_location_id_2: str = ""
 
+    # GHL - A&T's Pressure Washing (Alan's other business, 2026-10-23). Read
+    # into the A&T's Contacts tab; nothing is sent from here yet. The
+    # location ids aren't secret; each account needs its own private-
+    # integration token (GHL_API_KEY_AT / GHL_API_KEY_AT_WOODLANDS) in Railway.
+    ghl_api_key_at: str = ""
+    ghl_location_id_at: str = "Av5xMTGXnCv1YARiyu6Z"
+    ghl_api_key_at_woodlands: str = ""
+    ghl_location_id_at_woodlands: str = "OfcrbUVpJSYGT3oSRxcs"
+
     # GHL - OLD account credentials moved out of env (2026-06-16). The
     # Painting Upsell import is a one-shot admin action; the API key is
     # entered into the admin form, used for the single request, and

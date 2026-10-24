@@ -132,8 +132,14 @@ def _headers(location_id: str | None = None, api_key: str | None = None) -> dict
         chosen = api_key
     else:
         chosen = settings.ghl_api_key
-        if location_id and location_id == settings.ghl_location_id_2 and settings.ghl_api_key_2:
-            chosen = settings.ghl_api_key_2
+        # Each GHL account answers only to its own token (A&T's two accounts,
+        # 2026-10-23); Sterling's key stays the default.
+        for loc, key in ((settings.ghl_location_id_2, settings.ghl_api_key_2),
+                         (settings.ghl_location_id_at, settings.ghl_api_key_at),
+                         (settings.ghl_location_id_at_woodlands, settings.ghl_api_key_at_woodlands)):
+            if location_id and loc and location_id == loc and key:
+                chosen = key
+                break
     return {
         "Authorization": f"Bearer {chosen}",
         "Version": "2021-07-28",

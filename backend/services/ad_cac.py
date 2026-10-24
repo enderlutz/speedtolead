@@ -20,6 +20,7 @@ import re
 from collections import defaultdict
 
 from database import Contact, QuickbooksInvoice
+from services.contact_mirror import at_location_ids
 
 
 def _norm_name(s: str | None) -> str:
@@ -28,7 +29,9 @@ def _norm_name(s: str | None) -> str:
 
 def paid_by_contact(db) -> dict[str, float]:
     """contact id → money paid, all time."""
-    contacts = db.query(Contact.id, Contact.lead_id, Contact.email, Contact.name).all()
+    # Sterling's ads only: A&T's contacts have their own ads (2026-10-23).
+    contacts = (db.query(Contact.id, Contact.lead_id, Contact.email, Contact.name)
+                .filter(~Contact.ghl_location_id.in_(at_location_ids())).all())
     by_lead, by_email, by_name = {}, defaultdict(list), defaultdict(list)
     for cid, lid, email, name in contacts:
         if lid:
@@ -61,7 +64,8 @@ def outcomes_by_ad(db, since: str, until: str) -> dict[str, dict]:
     paid = paid_by_contact(db)
     out: dict[str, dict] = {}
     rows = (db.query(Contact.id, Contact.ad_id, Contact.ad_name, Contact.ad_campaign, Contact.date_added)
-            .filter(Contact.ad_id != "", Contact.ad_id.isnot(None)).all())
+            .filter(Contact.ad_id != "", Contact.ad_id.isnot(None))
+            .filter(~Contact.ghl_location_id.in_(at_location_ids())).all())
     for cid, ad_id, ad_name, campaign, added in rows:
         day = (added or "")[:10]
         if not (since <= day <= until):

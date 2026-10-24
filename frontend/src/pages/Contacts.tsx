@@ -6,6 +6,7 @@ import { api, getCurrentUser, type ContactRow, type ContactStats } from "@/lib/a
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AtContacts } from "@/components/AtContacts";
 
 /**
  * Contacts — a straight mirror of the GHL contact list.
@@ -238,7 +239,48 @@ function NextStep({ s, big }: { s: ContactRow["next_step"]; big?: boolean }) {
   );
 }
 
+/** Sterling's contacts and A&T's Pressure Washing's, one tab each (Alan,
+ *  2026-10-23). The tab is remembered in ?account=. */
 export default function Contacts() {
+  const [params, setParams] = useSearchParams();
+  const account = params.get("account") === "at" ? "at" : "sterling";
+  const [counts, setCounts] = useState<{ sterling?: number; at?: number }>({});
+  useEffect(() => {
+    api.getContactStats("sterling").then((s) => setCounts((c) => ({ ...c, sterling: s.total }))).catch(() => {});
+    api.getContactStats("at").then((s) => setCounts((c) => ({ ...c, at: s.total }))).catch(() => {});
+  }, []);
+  const pick = (a: "sterling" | "at") => setParams((p) => {
+    const n = new URLSearchParams(p);
+    if (a === "at") n.set("account", "at"); else n.delete("account");
+    return n;
+  }, { replace: true });
+  const tab = (a: "sterling" | "at", label: string) => (
+    <button type="button" onClick={() => pick(a)}
+      className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-bold transition ${account === a ? "bg-[#1F1A14] text-white" : "bg-white text-[#1F1A14] ring-1 ring-[#E4DCCB] hover:bg-[#F8F3E7]"}`}>
+      {label}
+      {counts[a] !== undefined ? <span className={`rounded-full px-2 text-[13px] ${account === a ? "bg-white/15" : "bg-[#F3EEE4]"}`}>{counts[a]!.toLocaleString()}</span> : null}
+    </button>
+  );
+  return (
+    <>
+      <div className="flex flex-wrap gap-2 px-4 pt-4 sm:px-6 lg:px-8">
+        {tab("sterling", "Sterling")}
+        {tab("at", "A&T's Contacts")}
+      </div>
+      {account === "at" ? (
+        <div className="space-y-4 p-4 sm:p-6 lg:p-8">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">A&amp;T&rsquo;s Contacts</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">Everyone in A&amp;T&rsquo;s Pressure Washing GHL, newest first: fence staining and pressure washing.</p>
+          </div>
+          <AtContacts />
+        </div>
+      ) : <SterlingContacts />}
+    </>
+  );
+}
+
+function SterlingContacts() {
   const navigate = useNavigate();
   const saved = useRef(readView()).current;
   const [rows, setRows] = useState<ContactRow[]>([]);

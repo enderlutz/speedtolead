@@ -9,6 +9,7 @@ customer base instead of a subset of it.
 See services/contact_mirror.py for how the mirror is filled and deduped.
 """
 from __future__ import annotations
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -191,6 +192,29 @@ def outreach_filter():
     )
 
 
+def _account_filter(query, account: str):
+    """Sterling's contacts, or A&T's (Alan, 2026-10-23: an "A&T's Contacts"
+    tab). A contact is A&T's when it came from one of A&T's GHL accounts."""
+    from services.contact_mirror import at_location_ids
+    at = at_location_ids()
+    if account == "at":
+        return query.filter(Contact.ghl_location_id.in_(at))
+    return query.filter(or_(Contact.ghl_location_id.is_(None), ~Contact.ghl_location_id.in_(at)))
+
+
+PW_WORDS = ("pressure", "power wash", "house wash", "soft wash", "driveway", "roof", "window", "gutter", "concrete", "patio")
+
+
+def _service_guess(source: str, tags: list[str]) -> str:
+    """Fence staining or pressure washing, from A&T's form and tags."""
+    text = " ".join([source or "", *tags]).lower()
+    if "fence" in text or "stain" in text:
+        return "Fence staining"
+    if any(w in text for w in PW_WORDS):
+        return "Pressure washing"
+    return ""
+
+
 @router.get("/contacts")
 def list_contacts(
     q: str | None = Query(None, description="name, phone or email substring"),
@@ -198,6 +222,8 @@ def list_contacts(
     has_lead: bool | None = Query(None),
     customers_only: bool = Query(False, description="leave out the fence-company outreach batch"),
     sort: str = Query("intake", description="intake — newest form fill first | added — GHL's own order"),
+    account: str = Query("sterling", description="sterling | at (A&T's Pressure Washing)"),
+    service: str | None = Query(None, description="A&T's only: fence | pressure"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: dict = Depends(get_current_user),
@@ -219,7 +245,7 @@ def list_contacts(
 
     db = get_db()
     try:
-        query = db.query(Contact)
+        query = _account_filter(db.query(Contact), account)
 
         if q:
             like = f"%{q.strip()}%"
@@ -242,6 +268,12 @@ def list_contacts(
             query = query.filter(Contact.lead_id.is_(None))
 
         total = query.count()
+        if account == "at" and service in ("fence", "pressure"):
+            want = "Fence staining" if service == "fence" else "Pressure washing"
+            keep = [cid for cid, src, tags in query.with_entities(Contact.id, Contact.source, Contact.tags_json).all()
+                    if _service_guess(src or "", _tags(tags)) == want]
+            query = query.filter(Contact.id.in_(keep or [""]))
+            total = len(keep)
 
         # When each contact last came in: their latest real form fill
         # (services/intake.py — which needs the texts around each card, so
@@ -339,9 +371,26 @@ def list_contacts(
             steps = next_steps(db, lead_ids, last_send=_last_send_times(db, lead_ids),
                                scheduled=scheduled, overdue=overdue, stopped=stops | dnc)
 
+        # A&T's rows: already a Sterling customer? (the same phone on a
+        # Sterling contact or lead), so nobody copies them over again.
+        sterling_phones: set[str] = set()
+        if account == "at":
+            from services.contact_mirror import at_location_ids
+            keys = [r.phone_key for r in rows if r.phone_key]
+            if keys:
+                at = at_location_ids()
+                sterling_phones = {k for (k,) in db.query(Contact.phone_key).filter(
+                    Contact.phone_key.in_(keys), ~Contact.ghl_location_id.in_(at)).all()}
+                sterling_phones |= {k for (k,) in db.query(Lead.phone_key).filter(
+                    Lead.phone_key.in_(keys), or_(Lead.ghl_location_id.is_(None), ~Lead.ghl_location_id.in_(at))).all()}
+
         out = []
         for r in rows:
             d = r.to_dict()
+            if account == "at":
+                d["also_sterling"] = bool(r.phone_key and r.phone_key in sterling_phones)
+                d["service"] = _service_guess(r.source or "", _tags(r.tags_json))
+                d["ghl_url"] = f"https://app.gohighlevel.com/v2/location/{r.ghl_location_id}/contacts/detail/{r.ghl_contact_id}"
             lid = r.lead_id
             # When they last came in, and how many times. A second fill is a
             # new lead again and the row says so.
@@ -383,8 +432,16 @@ def list_contacts(
         db.close()
 
 
+def _tags(raw: str | None) -> list[str]:
+    try:
+        v = json.loads(raw or "[]")
+        return [str(t) for t in v] if isinstance(v, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
 @router.get("/contacts/stats")
-def contact_stats(user: dict = Depends(get_current_user)):
+def contact_stats(account: str = Query("sterling"), user: dict = Depends(get_current_user)):
     """Headline counts for the top of the page — the mirror's own scoreboard.
 
     `estimate_sent` is counted across the whole mirror here (not per page), so
@@ -394,9 +451,10 @@ def contact_stats(user: dict = Depends(get_current_user)):
     del user
     db = get_db()
     try:
-        total = db.query(func.count(Contact.id)).scalar() or 0
-        with_lead = db.query(func.count(Contact.id)).filter(Contact.lead_id.isnot(None)).scalar() or 0
-        no_phone = db.query(func.count(Contact.id)).filter(
+        scope = lambda q: _account_filter(q, account)  # noqa: E731
+        total = scope(db.query(func.count(Contact.id))).scalar() or 0
+        with_lead = scope(db.query(func.count(Contact.id))).filter(Contact.lead_id.isnot(None)).scalar() or 0
+        no_phone = scope(db.query(func.count(Contact.id))).filter(
             or_(Contact.phone_key == "", Contact.phone_key.is_(None))
         ).scalar() or 0
         # "Do not contact" is everyone who can't be texted on purpose: GHL's
@@ -408,7 +466,7 @@ def contact_stats(user: dict = Depends(get_current_user)):
         stops, dnc = _stops(db, None)
         dnd = 0
         bouncing = 0
-        for c_dnd, c_sms, c_note, c_lid in db.query(Contact.dnd, Contact.dnd_sms, Contact.dnd_note, Contact.lead_id).all():
+        for c_dnd, c_sms, c_note, c_lid in scope(db.query(Contact.dnd, Contact.dnd_sms, Contact.dnd_note, Contact.lead_id)).all():
             if c_dnd or (c_sms and not _carrier_error(c_note)) or (c_lid and (c_lid in stops or c_lid in dnc)):
                 dnd += 1
             elif c_sms:
@@ -420,13 +478,13 @@ def contact_stats(user: dict = Depends(get_current_user)):
         scheduled_ids, overdue_ids = _scheduled_send_state(db, None)
         sent_ids |= scheduled_ids
 
-        linked = [r[0] for r in db.query(Contact.lead_id).filter(Contact.lead_id.isnot(None)).all()]
+        linked = [r[0] for r in scope(db.query(Contact.lead_id)).filter(Contact.lead_id.isnot(None)).all()]
         estimate_sent = sum(1 for lid in linked if lid in sent_ids)
         send_overdue = sum(1 for lid in linked if lid in overdue_ids)
 
-        newest = db.query(Contact).order_by(Contact.date_added.desc().nullslast()).first()
-        oldest = db.query(Contact).order_by(Contact.date_added.asc().nullsfirst()).first()
-        last_sync = db.query(func.max(Contact.synced_at)).scalar() or ""
+        newest = scope(db.query(Contact)).order_by(Contact.date_added.desc().nullslast()).first()
+        oldest = scope(db.query(Contact)).order_by(Contact.date_added.asc().nullsfirst()).first()
+        last_sync = scope(db.query(func.max(Contact.synced_at))).scalar() or ""
 
         return {
             "total": total,
@@ -441,6 +499,7 @@ def contact_stats(user: dict = Depends(get_current_user)):
             "newest": (newest.name if newest else ""),
             "oldest": (oldest.name if oldest else ""),
             "last_sync": last_sync,
+            "account": account,
         }
     finally:
         db.close()
@@ -460,6 +519,14 @@ def sync_contacts_endpoint(
     del user
     from services.contact_mirror import sync_all_locations
     return sync_all_locations(create_leads=create_leads)
+
+
+@router.get("/contacts/accounts")
+def contact_accounts(user: dict = Depends(get_current_user)):
+    """Which businesses' contacts the dashboard can read, for the tabs."""
+    del user
+    from services.contact_mirror import at_accounts
+    return {"at_connected": bool(at_accounts()), "at_accounts": [label for _, label in at_accounts()]}
 
 
 def _call_tallies(

@@ -159,12 +159,36 @@ def _create_shadow_lead(db, c: dict, cid: str, loc: str, label: str,
     return lead
 
 
+def at_accounts() -> list[tuple[str, str]]:
+    """A&T's GHL accounts that have a token: [(location id, label)]."""
+    s = get_settings()
+    g = lambda k: getattr(s, k, "") or ""  # noqa: E731
+    out = []
+    if g("ghl_location_id_at") and g("ghl_api_key_at"):
+        out.append((g("ghl_location_id_at"), "A&T's"))
+    if g("ghl_location_id_at_woodlands") and g("ghl_api_key_at_woodlands"):
+        out.append((g("ghl_location_id_at_woodlands"), "A&T's Woodlands"))
+    return out
+
+
+def at_location_ids() -> set[str]:
+    """Every A&T's GHL account id, token or not: a contact or lead from one
+    of these is A&T's, never Sterling's."""
+    s = get_settings()
+    return {x for x in (getattr(s, "ghl_location_id_at", ""), getattr(s, "ghl_location_id_at_woodlands", "")) if x}
+
+
 def sync_contacts(location_id: str | None = None, location_label: str = "",
-                  create_leads: bool = True) -> dict:
+                  create_leads: bool = True, own_leads_only: bool = False) -> dict:
     """Pull every GHL contact for one location into `contacts`.
 
     Returns counts. Safe to re-run: keyed on `ghl_contact_id`, so a second
     sweep updates in place rather than inserting again.
+
+    `own_leads_only` (A&T's accounts): a contact links only to a lead made
+    from that same GHL contact, never to a Sterling lead by phone, and
+    nothing on any lead is changed (name, opt-out, form answers). The A&T's
+    Contacts tab reads; it doesn't write into Sterling's pipeline.
     """
     settings = get_settings()
     loc = location_id or settings.ghl_location_id
@@ -221,6 +245,8 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 if lead:
                     link_method = "ghl_id"
                     stats["linked_by_ghl_id"] += 1
+                elif own_leads_only:
+                    stats["no_lead"] += 1
                 else:
                     lead = _pick_lead_by_phone(db, pk)
                     if lead:
@@ -238,7 +264,7 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 # ── GHL wins on the name ──────────────────────────────
                 # Only when GHL actually has one: an empty GHL name must
                 # never blank out a name somebody typed on the dashboard.
-                if lead and name and (lead.contact_name or "").strip() != name:
+                if lead and not own_leads_only and name and (lead.contact_name or "").strip() != name:
                     renamed.append({
                         "lead_id": lead.id,
                         "from": lead.contact_name or "",
@@ -288,14 +314,14 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 # A customer who opted out in GHL must not be texted from
                 # here either. Only ever set, never cleared: a flag someone
                 # set on the dashboard is not GHL's to undo.
-                if lead and (row.dnd or (row.dnd_sms and not _carrier_error(row.dnd_note))) and not lead.do_not_contact:
+                if lead and not own_leads_only and (row.dnd or (row.dnd_sms and not _carrier_error(row.dnd_note))) and not lead.do_not_contact:
                     lead.do_not_contact = True
                     lead.updated_at = _now()
                 # The customer's own answers ("Repairs?", "sides?") ride on
                 # the contact, not the opportunity, so a refill from someone
                 # the poller no longer watches still reaches the lead page.
                 # Customer-only fields: nothing an estimator typed is touched.
-                if lead and c.get("customFields"):
+                if lead and not own_leads_only and c.get("customFields"):
                     try:
                         fd = json.loads(lead.form_data or "{}")
                         fd = fd if isinstance(fd, dict) else None
@@ -398,12 +424,11 @@ def reconcile_deleted(db, loc: str, started: str) -> dict:
 def sync_all_locations(create_leads: bool = True) -> dict:
     """Mirror every GHL location the app is configured for.
 
-    Location 1 only, deliberately. Location 2 is still in the settings, but
-    its lead intake was switched off in April 2026 (services/poller.py:693)
-    and its newest contact is dated 27 April — it is a closed account. Its
-    people are already represented by the 396 legacy leads in the database,
-    and pulling them into the working contact list would put hundreds of
-    names nobody can serve back in front of the team.
+    Sterling's account (location 1) feeds the pipeline. A&T's Pressure
+    Washing accounts are mirrored too, once their tokens are in Railway
+    (Alan, 2026-10-23): they are NOT closed, their forms take fence staining
+    and pressure washing leads every day. They fill the A&T's Contacts tab
+    only: no leads are made, nothing on a Sterling lead is touched.
     """
     settings = get_settings()
     out: dict = {}
@@ -415,4 +440,6 @@ def sync_all_locations(create_leads: bool = True) -> dict:
         )
     else:
         out["error"] = "ghl_location_id is not configured"
+    for loc, label in at_accounts():
+        out[label] = sync_contacts(loc, label, create_leads=False, own_leads_only=True)
     return out
