@@ -66,6 +66,7 @@ const FencePhotos = lazy(() => import("@/pages/FencePhotos"));
 const Agents = lazy(() => import("@/pages/Agents"));
 const Internal = lazy(() => import("@/pages/Internal"));
 const DesignLab = lazy(() => import("@/pages/DesignLab"));
+const FollowUpEngine = lazy(() => import("@/pages/FollowUpEngine"));
 const ProposalMockup = lazy(() => import("@/pages/ProposalMockup"));
 const ProposalPreview = lazy(() => import("@/pages/ProposalPreview"));
 const TermsPage = lazy(() => import("@/pages/TermsPage"));
@@ -300,6 +301,7 @@ function AppLayout() {
               <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/design-lab" element={<StaffOnly><DesignLab /></StaffOnly>} />
+              <Route path="/follow-ups" element={<StaffOnly><FollowUpEngine /></StaffOnly>} />
               <Route path="/new-proposal" element={<Navigate to="/design-lab?tab=notes" replace />} />
               <Route path="/new-proposal/mockup" element={<StaffOnly><ProposalMockup /></StaffOnly>} />
               <Route path="/cardone" element={<Navigate to="/design-lab?tab=followups" replace />} />

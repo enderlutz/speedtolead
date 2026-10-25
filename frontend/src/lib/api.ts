@@ -3476,6 +3476,8 @@ export const api = {
 
   // Follow-up Engine — admin-only
   getFollowupConfig: () => request<FollowUpConfig>("/api/followups/config"),
+  getBoardOverlap: (refresh = false) =>
+    request<BoardOverlap>(`/api/followups/board-overlap${refresh ? "?refresh=true" : ""}`),
   updateFollowupConfig: (body: Partial<FollowUpConfig>) =>
     request<FollowUpConfig>("/api/followups/config", { method: "PUT", body: JSON.stringify(body) }),
   listFollowupSequences: () =>
@@ -6332,3 +6334,15 @@ export interface BookedMonth {
   close_rate: number | null; close_rate_goal: number;
   customers: { key: string; name: string; lead_id: string; first_paid: string; value: number }[];
 }
+
+/** Follow-Up Engine (2026-10-24): who has a card on both GHL boards. */
+export type OverlapCard = {
+  opp_id: string; contact_id: string; name: string; phone: string;
+  stage: string; status: string; texting: boolean; updated: string;
+};
+export type BoardOverlap = {
+  generated_at: string;
+  boards: Record<"at" | "sterling", { total: number; texting: number; by_stage: { stage: string; count: number; texting: boolean }[] }>;
+  both: { name: string; phone: string; same_contact: boolean; at: OverlapCard; sterling: OverlapCard; risk: "both_texting" | "one_texting" | "quiet" }[];
+  counts: { both: number; both_texting: number; one_texting: number; two_contacts_one_phone: number };
+};

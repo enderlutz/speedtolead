@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent
-from api.auth import require_admin
+from api.auth import require_admin, require_staff
 from services.followup_engine import (
     CFG_MASTER_ON, CFG_MYCRMSIM_PROVIDER_ID, CFG_TEST_LEAD_ID,
     CFG_IMESSAGE_NUMBER, CFG_SMS_NUMBER,  # legacy, retained for back-compat
@@ -1063,3 +1063,125 @@ def run_engine_tick(user: dict = Depends(require_admin)):
     except Exception as e:
         logger.error(f"Manual /followups/tick failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------------------------------------------------
+# Both boards (Alan, 2026-10-24): before the follow-ups move off GHL, see
+# everyone who has a card on BOTH boards in the Cypress GHL — A&T's ads
+# board (FENCE STAINING NEW AUTOMATION FLOW) and Sterling's (STERLING) —
+# and whether both cards sit in a column where GHL is texting them. One
+# person, two cards, two sets of texts is the thing to never make worse.
+# Read only: nothing here moves a card or sends anything.
+# -----------------------------------------------------------------------
+
+AT_ADS_PIPELINE_ID = "ZSoj3hqhKJcU2vzMa60H"     # FENCE STAINING NEW AUTOMATION FLOW (Sterling A workflows)
+STERLING_PIPELINE_ID = "QSiqDNrxlwExuqcxi5IX"   # STERLING (Sterling B workflows)
+# Columns where a GHL workflow is mid-sequence for whoever sits there
+# (P01 intro, P03 address texts, P04a/b estimate texts, P06 nurture).
+_TEXTING_COLUMNS = ("new lead", "address follow up", "estimate sent", "long term nurture")
+_overlap_cache: dict = {"at": 0.0, "data": None}
+
+
+def _is_texting_column(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return any(n == c or n.startswith(c) for c in _TEXTING_COLUMNS) and "responded" not in n
+
+
+def _phone_key(p: str) -> str:
+    d = "".join(ch for ch in (p or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else ""
+
+
+@router.get("/followups/board-overlap")
+def board_overlap(refresh: bool = False, user: dict = Depends(require_staff)):
+    import time as _t
+    from config import get_settings
+    from services.ghl import get_opportunities, get_pipelines
+
+    if not refresh and _overlap_cache["data"] and _t.time() - _overlap_cache["at"] < 600:
+        return _overlap_cache["data"]
+
+    loc = get_settings().ghl_location_id
+    stage_names: dict[str, str] = {}
+    for p in get_pipelines(loc):
+        for s in p.get("stages", []) or []:
+            stage_names[s.get("id", "")] = s.get("name", "")
+
+    boards = {"at": AT_ADS_PIPELINE_ID, "sterling": STERLING_PIPELINE_ID}
+    cards: dict[str, list[dict]] = {}
+    summary: dict[str, dict] = {}
+    for key, pid in boards.items():
+        opps = get_opportunities(loc, pid)
+        rows = []
+        by_stage: dict[str, int] = {}
+        for o in opps:
+            c = o.get("contact") or {}
+            stage = stage_names.get(o.get("pipelineStageId", ""), "")
+            by_stage[stage] = by_stage.get(stage, 0) + 1
+            rows.append({
+                "opp_id": o.get("id", ""),
+                "contact_id": o.get("contactId") or c.get("id", ""),
+                "name": c.get("name") or o.get("name", ""),
+                "phone": c.get("phone", ""),
+                "stage": stage,
+                "status": o.get("status", ""),
+                "texting": _is_texting_column(stage) and o.get("status", "open") == "open",
+                "updated": o.get("updatedAt") or o.get("lastStageChangeAt") or "",
+            })
+        cards[key] = rows
+        summary[key] = {
+            "total": len(rows),
+            "texting": sum(1 for r in rows if r["texting"]),
+            "by_stage": sorted(
+                [{"stage": s, "count": n, "texting": _is_texting_column(s)} for s, n in by_stage.items()],
+                key=lambda x: -x["count"],
+            ),
+        }
+
+    # The same person = the same GHL contact, or the same phone on two contacts.
+    def keys(r: dict) -> list[str]:
+        ks = [f"c:{r['contact_id']}"] if r["contact_id"] else []
+        pk = _phone_key(r["phone"])
+        if pk:
+            ks.append(f"p:{pk}")
+        return ks
+
+    sterling_by_key: dict[str, list[dict]] = {}
+    for r in cards["sterling"]:
+        for k in keys(r):
+            sterling_by_key.setdefault(k, []).append(r)
+
+    both = []
+    seen: set[tuple[str, str]] = set()
+    for a in cards["at"]:
+        for k in keys(a):
+            for s in sterling_by_key.get(k, []):
+                pair = (a["opp_id"], s["opp_id"])
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                both.append({
+                    "name": a["name"] or s["name"],
+                    "phone": a["phone"] or s["phone"],
+                    "same_contact": bool(a["contact_id"]) and a["contact_id"] == s["contact_id"],
+                    "at": a,
+                    "sterling": s,
+                    "risk": "both_texting" if a["texting"] and s["texting"]
+                            else "one_texting" if a["texting"] or s["texting"] else "quiet",
+                })
+    order = {"both_texting": 0, "one_texting": 1, "quiet": 2}
+    both.sort(key=lambda b: (order[b["risk"]], (b["name"] or "").lower()))
+
+    data = {
+        "generated_at": _now(),
+        "boards": summary,
+        "both": both,
+        "counts": {
+            "both": len(both),
+            "both_texting": sum(1 for b in both if b["risk"] == "both_texting"),
+            "one_texting": sum(1 for b in both if b["risk"] == "one_texting"),
+            "two_contacts_one_phone": sum(1 for b in both if not b["same_contact"]),
+        },
+    }
+    _overlap_cache.update(at=_t.time(), data=data)
+    return data

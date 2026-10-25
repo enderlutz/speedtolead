@@ -15,7 +15,6 @@ import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import PermissionsManager from "@/components/PermissionsManager";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
-import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import PromotionSettingsCard from "@/components/PromotionSettingsCard";
 import ProposalInteractiveCard from "@/components/ProposalInteractiveCard";
 import GoogleReviewsCard from "@/components/GoogleReviewsCard";
@@ -263,8 +262,7 @@ export default function Settings() {
           pipeline. */}
       <PaintingUpsellImportCard />
 
-      {/* Follow-up Engine — master toggle, routing numbers, sequences */}
-      <FollowUpSettingsCard />
+      {/* Follow-up Engine moved to its own tab, /follow-ups (2026-10-24). */}
 
       {/* QuickBooks Online — OAuth connection, mode, realm, reconnect banner */}
       <QuickBooksSettingsCard />
