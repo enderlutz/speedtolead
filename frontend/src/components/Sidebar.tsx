@@ -87,6 +87,10 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // the boards are a subset of it (they only show people with an opportunity
   // card; 469 of 1,972 contacts had none on 2026-09-29).
   { to: "/contacts", icon: Contact, label: "Contacts", perm: "leads", divisions: ["fence"] },
+  // Project Manager sits right under Contacts (Alan, 2026-10-25).
+  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
+  // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
+  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
@@ -109,9 +113,6 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // Division-aware (scoped) — visible in both fence and brick:
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
-  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
-  // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
-  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // Archived (Alan, 2026-10-22): "it doesn't do us any good right now". The
   // page and its data stay at /job-map; put this line back to bring it back.
