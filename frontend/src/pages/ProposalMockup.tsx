@@ -402,7 +402,8 @@ const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
   // Alan's cleaner photo (2026-10-22) in place of the library one.
   { name: "Potato Skin", src: "/proposal-mockup/legacy-potato-skin.jpg", full: "/proposal-mockup/legacy-potato-skin-full.jpg" },
   { name: "Chocolate Chip", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/ad73d243-da98-4448-8158-646f436f0070/3a3a2501-207a-4c97-be2e-1fda6dba0bc3_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/ad73d243-da98-4448-8158-646f436f0070/3a3a2501-207a-4c97-be2e-1fda6dba0bc3.jpg" },
-  { name: "Classic Mahogany", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/931bd8c6-919e-4647-8713-a60dd4359dd1/6248216e-0fc9-434e-80ae-8e7e18107b5e_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/931bd8c6-919e-4647-8713-a60dd4359dd1/6248216e-0fc9-434e-80ae-8e7e18107b5e.jpg" },
+  // Alan's photo (2026-10-25) in place of the library one.
+  { name: "Classic Mahogany", src: "/proposal-mockup/legacy-classic-mahogany.jpg", full: "/proposal-mockup/legacy-classic-mahogany-full.jpg" },
   // Alan's cleaner photo (2026-10-22) in place of the library one.
   { name: "Plymouth Red", src: "/proposal-mockup/legacy-plymouth-red.jpg", full: "/proposal-mockup/legacy-plymouth-red-full.jpg" },
   { name: "Galapagos Grey", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/573f331f-c1b8-4aa5-b301-c6ca83300c8f/bcc20eac-8ae7-418f-a333-da5613a3e06d_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/573f331f-c1b8-4aa5-b301-c6ca83300c8f/bcc20eac-8ae7-418f-a333-da5613a3e06d.jpg" },

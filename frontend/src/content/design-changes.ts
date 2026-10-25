@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-25", title: "A real Classic Mahogany fence",
+    what: "The Legacy colour Classic Mahogany shows Alan's photo of a stained backyard fence instead of the library shot, with the full-size picture on tap." },
   { date: "2026-10-23", title: "The invoice is a sheet of paper",
     what: "Invoice, receipt and the office preview all show the same document: one typeface, hairlines, From and Bill to, a Qty · Unit price · Amount table, Amount due the only bold line. The black band, gold wordmark and serif numbers are gone.",
     open: { label: "See it", to: "/design-lab?tab=screens" } },
