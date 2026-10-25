@@ -297,8 +297,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="text-sm sm:col-span-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
+        <div className="min-w-0 text-sm sm:col-span-2">
           <p className="font-semibold">Day we're aiming for{draft.date ? <span className="ml-1.5 rounded-md bg-gold/20 px-2 py-0.5 font-bold text-bronze">{longDay(draft.date)}</span> : null}</p>
           {/* Tap a day: the weekday is on every button. */}
           <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
