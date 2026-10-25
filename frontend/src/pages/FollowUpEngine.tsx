@@ -161,8 +161,8 @@ function SharedTab() {
 }
 
 const RISK = {
-  both_texting: { word: "Texted on both", cls: "bg-rose-50 text-rose-800" },
-  one_texting: { word: "Texted on one", cls: "bg-amber-50 text-amber-800" },
+  both_texting: { word: "Texting column on both", cls: "bg-rose-50 text-rose-800" },
+  one_texting: { word: "Texting column on one", cls: "bg-amber-50 text-amber-800" },
   quiet: { word: "Quiet", cls: "bg-stone-100 text-stone-600" },
 } as const;
 
@@ -182,14 +182,14 @@ function BothTab() {
       <section className="rounded-2xl border bg-white p-4" style={{ borderColor: LINE }}>
         <p className="text-[15px]" style={{ color: INK }}>
           The same person can have a card on <b>A&amp;T&rsquo;s board</b> and on <b>Sterling&rsquo;s</b>, under one GHL contact or two contacts with the same phone.
-          GHL runs each board&rsquo;s follow-ups separately, so they can get two sets of texts. Read live from GHL; nothing here changes anything.
+          GHL runs each board&rsquo;s follow-ups separately, so they can get two sets of texts. &ldquo;Texting column&rdquo; means the card sits where a GHL follow-up runs (New Lead, Address Follow Up, Estimate Sent, Long Term Nurture); GHL doesn&rsquo;t say whether their texts there already finished. Read live from GHL; nothing here changes anything.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {d ? (
             <>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-[14px] font-bold" style={{ color: INK }}><Users className="mr-1 inline h-4 w-4" />{d.counts.both} on both boards</span>
-              <span className="rounded-full bg-rose-50 px-3 py-1 text-[14px] font-bold text-rose-800">{d.counts.both_texting} texted on both</span>
-              <span className="rounded-full bg-amber-50 px-3 py-1 text-[14px] font-bold text-amber-800">{d.counts.one_texting} texted on one</span>
+              <span className="rounded-full bg-rose-50 px-3 py-1 text-[14px] font-bold text-rose-800">{d.counts.both_texting} in a texting column on both</span>
+              <span className="rounded-full bg-amber-50 px-3 py-1 text-[14px] font-bold text-amber-800">{d.counts.one_texting} on one</span>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-[14px] font-bold" style={{ color: MUTED }}>{d.counts.two_contacts_one_phone} are two contacts, one phone</span>
             </>
           ) : null}
@@ -210,7 +210,7 @@ function BothTab() {
       {err ? <p className="rounded-xl bg-red-50 p-3 text-[15px] text-red-800">{err}</p> : null}
       {d ? (
         <div className="flex gap-2">
-          {([["risky", "Being texted"], ["all", "Everyone on both"]] as const).map(([k, l]) => (
+          {([["risky", "In a texting column"], ["all", "Everyone on both"]] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setShow(k)} className={cn("min-h-10 rounded-full px-3.5 text-[14px] font-bold ring-1", show === k ? "bg-[#1F1A14] text-white ring-[#1F1A14]" : "bg-white ring-[#E4DCCB]")} style={show === k ? undefined : { color: INK }}>{l}</button>
           ))}
         </div>
@@ -226,7 +226,7 @@ function BothTab() {
               {([["Sterling", b.sterling], ["A&T's", b.at]] as const).map(([label, c]) => (
                 <p key={label} style={{ color: INK }}>
                   <b>{label}:</b> {c.stage || "unknown column"}{c.status && c.status !== "open" ? ` (${c.status})` : ""}
-                  {c.texting ? <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[13px] font-bold text-emerald-800">texting</span> : null}
+                  {c.texting ? <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[13px] font-bold text-emerald-800">texting column</span> : null}
                 </p>
               ))}
             </div>
