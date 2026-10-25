@@ -892,7 +892,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             that each carry the whole story, the way a pricing page does. */}
         <section id="mock-packages" className="scroll-mt-14 bg-white px-2 py-6 sm:px-4">
           <div className="px-1">
-            <SectionTitle kicker="Step 1" title="Pick your package" />
+            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Each one stains your whole fence. Higher ones last longer." />
           </div>
 
           {phone ? (
@@ -1028,7 +1028,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             made with us on the phone (Alan, 2026-10-10, after a competitor's
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 2" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
+          <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
           {/* The two tabs are the two packages, not two words: the package's
               own photo behind the name, the first few colours fanned out, and
               the one that's open shines (Alan, 2026-10-10: "give it a little
@@ -1231,7 +1231,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* How to pay: the deposit, or the whole job over time. Both go to
             the same Stripe checkout; Klarna is picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 3" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${option ? ` · ${option.label}` : ""}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
+          <SectionTitle kicker="Step 3 of 3" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${option ? ` · ${option.label}` : ""}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
               now locks it even if the job happens later; paying over time is
               how someone does that without the cash today (Alan, 2026-10-10). */}
@@ -1546,9 +1546,9 @@ const SHINE_CSS = `
 function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub?: string }) {
   return (
     <div className="mb-3">
-      <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">{kicker}</p>
-      <h2 className="font-heading text-2xl font-bold leading-tight">{title}</h2>
-      {sub ? <p className="mt-0.5 text-[15px] text-[#15130F]/75">{sub}</p> : null}
+      <p className="text-[15px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{kicker}</p>
+      <h2 className="font-heading text-[30px] font-bold leading-tight">{title}</h2>
+      {sub ? <p className="mt-1 text-[17px] leading-snug text-[#15130F]/80">{sub}</p> : null}
     </div>
   );
 }

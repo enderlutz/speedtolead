@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-25", title: "Bigger, plainer step headings",
+    what: "The proposal steps read \"Step 1 of 3\", \"Step 2 of 3\", \"Step 3 of 3\". Step 1 is now \"Choose 1 of these 3\" with \"Each one stains your whole fence. Higher ones last longer.\" under it. Headings are bigger: 30px titles, 15px step labels, 17px lines under them." },
   { date: "2026-10-25", title: "Shorter package heading",
     what: "\"Pick your package\" no longer has the line \"Same expert service. Three levels of protection.\" under it." },
   { date: "2026-10-25", title: "A real Simply Cedar solid fence",
