@@ -862,7 +862,7 @@ def test_the_crew_list_needs_the_company_cam_permission(db, monkeypatch):
     cc.get_company_cam(other.id, user=USER)
     cc.get_company_cam(lead.id, user=USER)
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[{"username": "chrismoran", "date": "2026-10-16", "task": "cleaning"}, "nobody"]), user=USER)
-    assert r["job"]["crew"] == [{"username": "ChrisMoran", "date": "2026-10-16", "task": "cleaning"}]
+    assert r["job"]["crew"] == [{"username": "ChrisMoran", "date": "2026-10-16", "task": "cleaning", "helper": False}]
     rows = cc.company_cam_jobs(user=crew)
     assert [x["lead_id"] for x in rows] == [lead.id] and rows[0]["name"] == "Yogi Patel"
     assert rows[0]["date"] == "2026-10-16" and rows[0]["task"] == "cleaning"

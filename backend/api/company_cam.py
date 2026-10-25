@@ -135,7 +135,7 @@ def _pay_of(x: dict) -> dict:
 
 
 def _public_crew(entries: list[dict]) -> list[dict]:
-    return [{k: e[k] for k in ("username", "date", "task")} for e in entries]
+    return [{k: e[k] for k in ("username", "date", "task", "helper")} for e in entries]
 
 
 def default_pay(db, entries: list[dict]) -> list[dict]:
@@ -857,8 +857,11 @@ def update_company_cam(
                         datetime.strptime(day, "%Y-%m-%d")
                     except ValueError:
                         raise HTTPException(400, "The day isn't a real date")
+                # The job page can mark someone a helper now (Alan, 2026-10-25:
+                # "it doesn't let me add a helper there on Shelley's").
+                helper = bool(e["helper"]) if "helper" in e else old_helper.get((name, day), False)
                 entries.append({"username": name, "date": day, "task": task, "order": old_order.get((name, day), 0),
-                                "helper": old_helper.get((name, day), False),
+                                "helper": helper,
                                 **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
             job.crew_json = json.dumps(entries)
         if body.crew_pay is not None:

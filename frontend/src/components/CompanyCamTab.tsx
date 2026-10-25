@@ -1366,6 +1366,13 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                           {taskLabel(t)}
                         </button>
                       ))}
+                      {/* Helper: rides with the lead tech that day and follows their order
+                          (Alan, 2026-10-25: Alfredo helping Jose on Shelley's). */}
+                      <button type="button" onClick={() => setMine({ helper: !mine.helper })} aria-pressed={!!mine.helper}
+                              className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
+                                mine.helper ? "bg-amber-100 text-amber-900 ring-amber-300" : "bg-background ring-border")}>
+                        {mine.helper ? <><Check className="mr-1 inline h-4 w-4" />{tr("Helper")}</> : tr("Helper?")}
+                      </button>
                       <CrewPayPicker username={mine.username} value={data.crew_pay?.[mine.username]} onSave={(v) => void patch({ crew_pay: { username: mine.username, ...v } })} />
                       {/* More days for the same person, set from PM HQ's calendar (Alan, 2026-10-18). */}
                       {crew.filter((x) => x !== mine && x.username.toLowerCase() === c.username.toLowerCase()).map((x, i) => (
@@ -2640,6 +2647,11 @@ function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; s
   const cleaner = noCleaning ? [] : [
     job.bleach_gallons_to_bring ? (isSpanish() ? `${job.bleach_gallons_to_bring} galones de cloro` : `${job.bleach_gallons_to_bring} gallons of bleach`) : "",
     planned.counts.pickets ? tr("Spray paint, to mark the pickets with the customer") : "",
+    // Rocks and dirt piled against the boards (Alan, 2026-10-25): pull them
+    // back before washing so the bottom gets clean and the stain reaches it.
+    isSpanish()
+      ? "Un rastrillo de metal (o una pala plana) para jalar las piedras y la tierra del pie de la cerca. De la bodega, o cómpralo en Lowe's"
+      : "A metal bow rake (or a flat shovel) to pull rocks and dirt back from the bottom of the fence. From the storage unit, or buy one at Lowe's",
   ].filter(Boolean);
   const stainer = [
     job.gallons_needed ? (isSpanish() ? `${job.gallons_needed} galones de ${stain || "tinte (color sin elegir todavía)"}` : `${job.gallons_needed} gallons of ${stain || "stain (colour not picked yet)"}`) : "",

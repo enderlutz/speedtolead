@@ -50,7 +50,7 @@ export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link
   const pw = g.rows.find((r) => r.pw_services?.length)?.pw_services || [];
   const cls = cn("flex w-full gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight", RING,
     stacked ? "flex-col items-stretch px-2 py-1.5" : "items-center",
-    tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2",
+    tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2 py-1.5",
     fin ? cn(IVORY, MUTED) : cn(PAPER, INK, !tiny && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60"));
   const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : icons}</span>;
   const body = stacked ? (
@@ -63,7 +63,14 @@ export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link
   ) : (
     <>
       {icon}
-      <span className="min-w-0 flex-1 truncate">{g.n} {g.people} · {x.name}</span>
+      {/* The customer first, then who's on it (Alan, 2026-10-25: "the customer's
+          name should show first, and then Jose and Alfredo to the side"). */}
+      {tiny ? <span className="min-w-0 flex-1 truncate">{x.name}</span> : (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-bold">{g.n}. {x.name}</span>
+          <span className={cn("block truncate text-[14px] font-medium", MUTED)}>{g.people}</span>
+        </span>
+      )}
       {showPay ? <span className={cn("shrink-0 text-[14px] font-bold tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>{payLine(g)}</span> : null}
     </>
   );

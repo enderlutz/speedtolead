@@ -6212,7 +6212,7 @@ export interface StainCoverageFile {
 
 /** Pressure washing is the third kind of crew day (Alan, 2026-10-19). */
 export type CrewDayTask = "" | "cleaning" | "staining" | "pressure_washing";
-export type CrewEntry = { username: string; date: string; task: CrewDayTask };
+export type CrewEntry = { username: string; date: string; task: CrewDayTask; helper?: boolean };
 /** How one person is paid on one job: a flat amount, or hourly at a rate. */
 export type CrewPay = { pay_type: "" | "flat" | "hourly"; pay: number };
 
