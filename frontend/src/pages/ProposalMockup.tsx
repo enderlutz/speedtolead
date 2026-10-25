@@ -1461,7 +1461,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           // The trust version of the pay box (Alan, 2026-10-25): the face of
           // whoever sent the invite. Mockup only until Alan says go.
           trust={{
-            name: "Alan Bonner", role: "Owner, Sterling Fence Staining", photo: "/team/alan.jpg",
+            name: "Alan Bonner", role: "Project Manager, Sterling Fence Staining", photo: "/team/alan.jpg",
             reviews: realReviews ? {
               rating: realReviews.rating, total: realReviews.total,
               quote: (() => {
