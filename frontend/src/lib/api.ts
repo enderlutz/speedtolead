@@ -3476,6 +3476,8 @@ export const api = {
 
   // Follow-up Engine — admin-only
   getFollowupConfig: () => request<FollowUpConfig>("/api/followups/config"),
+  fencePhotoCustomers: () => request<{ customers: PhotoCustomer[] }>("/api/fence-photos/customers"),
+  fencePhotoCustomer: (leadId: string) => request<PhotoCustomerDetail>(`/api/fence-photos/customers/${leadId}`),
   getBoardOverlap: (refresh = false) =>
     request<BoardOverlap>(`/api/followups/board-overlap${refresh ? "?refresh=true" : ""}`),
   updateFollowupConfig: (body: Partial<FollowUpConfig>) =>
@@ -6345,4 +6347,14 @@ export type BoardOverlap = {
   boards: Record<"at" | "sterling", { total: number; texting: number; by_stage: { stage: string; count: number; texting: boolean }[] }>;
   both: { name: string; phone: string; same_contact: boolean; at: OverlapCard; sterling: OverlapCard; risk: "both_texting" | "one_texting" | "quiet" }[];
   counts: { both: number; both_texting: number; one_texting: number; two_contacts_one_phone: number };
+};
+
+/** Fence Photos → By customer (2026-10-25): every customer the crew photographed. */
+export type PhotoCustomer = {
+  lead_id: string; name: string; address: string; count: number; last: string; cover: string | null;
+  kinds: { label: string; count: number }[];
+};
+export type PhotoCustomerDetail = {
+  lead_id: string; name: string; address: string;
+  photos: { id: string; url: string; section: string; label: string; side: string; note: string; taken_at: string; damage: boolean }[];
 };

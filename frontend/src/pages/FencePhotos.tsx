@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
+import { CustomerPhotos } from "@/components/CustomerPhotos";
+import { useSearchParams } from "react-router-dom";
 import {
   Images, Search, Trash2, Loader2, Plus, ChevronRight, ChevronDown,
   X, ChevronLeft, User as UserIcon, Pencil, HardDrive, Check,
@@ -66,6 +68,37 @@ function groupStains(items: FencePhotoStain[]): Group[] {
 }
 
 export default function FencePhotos() {
+  // By colour (the sales library) or by customer (every fence the crew
+  // photographed, Alan 2026-10-25). Remembered in ?view= so a refresh stays put.
+  const [params, setParams] = useSearchParams();
+  const byCustomer = params.get("view") === "customers";
+  return (
+    <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <Images className="h-5 w-5 text-primary" /> Fence Photos
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {byCustomer ? "Every customer's fence the crew photographed: tap one to see all their photos, before and after." : "Finished fences by stain colour — pull one up on a call so the customer can see it."}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        {([["colours", "By color"], ["customers", "By customer"]] as const).map(([k, label]) => {
+          const on = (k === "customers") === byCustomer;
+          return (
+            <button key={k} type="button" onClick={() => setParams(k === "customers" ? { view: "customers" } : {}, { replace: true })}
+                    className={"min-h-11 rounded-full px-4 text-[15px] font-bold ring-1 " + (on ? "bg-[#15130F] text-white ring-[#15130F]" : "bg-background ring-border")}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {byCustomer ? <CustomerPhotos /> : <ByColour />}
+    </div>
+  );
+}
+
+function ByColour() {
   const [items, setItems] = useState<FencePhotoStain[]>([]);
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -112,15 +145,7 @@ export default function FencePhotos() {
   const viewingStain = viewing ? items.find((s) => s.id === viewing.stainId) : undefined;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <Images className="h-5 w-5 text-primary" /> Fence Photos
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Finished fences by stain colour — pull one up on a call so the customer can see it.
-        </p>
-      </div>
+    <div className="space-y-4">
 
       <Card>
         <CardHeader className="pb-3">

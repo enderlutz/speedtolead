@@ -477,3 +477,95 @@ def storage_status(user: dict = Depends(require_perm("fence_photos"))):
         out["status"] = "upload_failed"
         out["hint"] = "Supabase returned an unexpected error — see the detail field."
     return out
+
+
+# ---------------------------------------------------------------------------
+# By customer (Alan, 2026-10-25): every customer the crew ever photographed,
+# tap one and see all their photos, each labelled Before cleaning, After
+# cleaning, Before staining, After staining. Reads the crew's job photos
+# (company_cam_photos); nothing here changes them.
+# ---------------------------------------------------------------------------
+
+def _section_label(key: str) -> str:
+    from services.company_cam import SECTIONS
+    for s in SECTIONS:
+        if s["key"] == key:
+            return s["label"]
+    if key.startswith("pw_"):
+        phase = "Before" if key.endswith("_before") else "After" if key.endswith("_after") else ""
+        service = key[3:].rsplit("_", 1)[0].replace("x_", "").replace("_", " ").strip()
+        return f"{phase} {service}".strip().capitalize() if service else (phase or "Pressure washing")
+    return key.replace("_", " ").capitalize()
+
+
+_SECTION_ORDER = ["fence_scope", "clean_before", "clean_after", "stain_before", "stain_after"]
+
+
+def _section_rank(key: str) -> int:
+    return _SECTION_ORDER.index(key) if key in _SECTION_ORDER else len(_SECTION_ORDER)
+
+
+def _job_photo_url(p) -> str:
+    return p.storage_url or f"/api/company-cam/{p.lead_id}/photos/{p.id}/image"
+
+
+@router.get("/fence-photos/customers")
+def fence_photo_customers(user: dict = Depends(require_perm("fence_photos"))):
+    """One row per customer with crew photos, newest first: name, address,
+    how many photos of each kind, and a cover (an after-staining photo when
+    there is one)."""
+    del user
+    from database import CompanyCamPhoto
+    db = get_db()
+    try:
+        rows = db.query(CompanyCamPhoto.id, CompanyCamPhoto.lead_id, CompanyCamPhoto.section, CompanyCamPhoto.seq,
+                        CompanyCamPhoto.storage_url, CompanyCamPhoto.uploaded_at, CompanyCamPhoto.taken_at).all()
+        by: dict[str, dict] = {}
+        for p in rows:
+            c = by.setdefault(p.lead_id, {"lead_id": p.lead_id, "count": 0, "last": "", "kinds": {}, "cover": None, "cover_rank": 99})
+            c["count"] += 1
+            when = p.taken_at or p.uploaded_at or ""
+            if when > c["last"]:
+                c["last"] = when
+            label = _section_label(p.section)
+            c["kinds"][label] = c["kinds"].get(label, 0) + 1
+            # The best cover: after staining, then after cleaning, then anything.
+            rank = {"stain_after": 0, "clean_after": 1, "stain_before": 2, "clean_before": 3}.get(p.section, 4)
+            if rank < c["cover_rank"]:
+                c["cover_rank"], c["cover"] = rank, _job_photo_url(p)
+        leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(list(by))).all()} if by else {}
+        out = []
+        for lid, c in by.items():
+            lead = leads.get(lid)
+            if not lead:
+                continue
+            out.append({"lead_id": lid, "name": lead.contact_name or "", "address": lead.address or "",
+                        "count": c["count"], "last": c["last"], "cover": c["cover"],
+                        "kinds": [{"label": k, "count": n} for k, n in c["kinds"].items()]})
+        out.sort(key=lambda r: r["last"], reverse=True)
+        return {"customers": out}
+    finally:
+        db.close()
+
+
+@router.get("/fence-photos/customers/{lead_id}")
+def fence_photo_customer(lead_id: str, user: dict = Depends(require_perm("fence_photos"))):
+    """Every crew photo of one customer's fence, in job order: scope, before
+    cleaning, after cleaning, before staining, after staining, then the rest."""
+    del user
+    from database import CompanyCamPhoto
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "No such customer")
+        ps = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()
+        ps.sort(key=lambda p: (_section_rank(p.section), p.section, p.seq or 0))
+        return {
+            "lead_id": lead_id, "name": lead.contact_name or "", "address": lead.address or "",
+            "photos": [{"id": p.id, "url": _job_photo_url(p), "section": p.section, "label": _section_label(p.section),
+                        "side": p.side or "", "note": p.note or "", "taken_at": p.taken_at or p.uploaded_at or "",
+                        "damage": bool(p.is_damage)} for p in ps],
+        }
+    finally:
+        db.close()
