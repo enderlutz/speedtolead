@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-25", title: "Shorter package heading",
+    what: "\"Pick your package\" no longer has the line \"Same expert service. Three levels of protection.\" under it." },
   { date: "2026-10-25", title: "A real Simply Cedar solid fence",
     what: "The Legacy colour Simply Cedar shows Alan's photo of a stained backyard fence instead of the library shot, with the full-size picture on tap. The Signature Simply Cedar photo is unchanged." },
   { date: "2026-10-25", title: "A real Classic Mahogany fence",
