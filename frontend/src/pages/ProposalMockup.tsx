@@ -396,7 +396,8 @@ const SIGNATURE_PHOTOS = [
 // (2026-10-10). Served straight from the photo storage. Cedar Naturaltone
 // and Midnight Gray have no photo yet.
 const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
-  { name: "Simply Cedar", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/905d3a02-4ae0-4984-8207-01c738cfd216/b83d4972-fd3f-4196-bdea-b3f0a7270898_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/905d3a02-4ae0-4984-8207-01c738cfd216/b83d4972-fd3f-4196-bdea-b3f0a7270898.jpg" },
+  // Alan's photo (2026-10-25) in place of the library one.
+  { name: "Simply Cedar", src: "/proposal-mockup/legacy-simply-cedar.jpg", full: "/proposal-mockup/legacy-simply-cedar-full.jpg" },
   { name: "Pine Bark", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/35fd7c95-2407-4bb8-ab12-c530ce523f02/cf591159-dadc-4bf8-bfce-e96984b906e8_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/35fd7c95-2407-4bb8-ab12-c530ce523f02/cf591159-dadc-4bf8-bfce-e96984b906e8.jpg" },
   { name: "October Brown", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/bb52bae5-9222-42b1-bd6a-2aa01cf4e22a/8231b4c2-0f42-459a-b568-631b81d2e1b4_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/bb52bae5-9222-42b1-bd6a-2aa01cf4e22a/8231b4c2-0f42-459a-b568-631b81d2e1b4.jpg" },
   // Alan's cleaner photo (2026-10-22) in place of the library one.
