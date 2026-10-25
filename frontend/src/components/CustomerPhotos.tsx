@@ -63,7 +63,7 @@ export function CustomerPhotos() {
       {list ? <p className="text-[14px] text-muted-foreground">{shown.length} customer{shown.length === 1 ? "" : "s"} with photos · newest first</p> : null}
       <ul className="grid gap-2.5 sm:grid-cols-2">
         {shown.map((c) => (
-          <li key={c.lead_id}>
+          <li key={c.lead_id} className="min-w-0">
             <button type="button" onClick={() => setOpen(c.lead_id)} className="flex w-full gap-3 rounded-2xl border bg-card p-2.5 text-left shadow-sm transition hover:bg-muted/40 active:scale-[0.99]">
               {c.cover ? <JobImg url={c.cover} alt={c.name} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
                 : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-muted"><Images className="h-6 w-6 text-muted-foreground" /></div>}

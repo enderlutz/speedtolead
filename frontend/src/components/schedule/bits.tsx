@@ -69,6 +69,12 @@ export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-bold">{g.n}. {x.name}</span>
           <span className={cn("block truncate text-[14px] font-medium", MUTED)}>{g.people}</span>
+          {/* Where the colour stands (Alan, 2026-10-25): picked, or TBD. */}
+          {g.tasks.some((t) => t === "staining") ? (
+            <span className={cn("block truncate text-[14px] font-semibold", x.color && !/^tbd$/i.test(x.color.trim()) ? "text-[#8C6224]" : "text-amber-700")}>
+              🎨 {x.color && !/^tbd$/i.test(x.color.trim()) ? x.color : "Color TBD"}
+            </span>
+          ) : null}
         </span>
       )}
       {showPay ? <span className={cn("shrink-0 text-[14px] font-bold tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>{payLine(g)}</span> : null}

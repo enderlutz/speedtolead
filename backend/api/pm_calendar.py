@@ -182,7 +182,7 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
                 "pay_type": e.get("pay_type") or "", "pay": e.get("pay") or 0.0,
                 "with": [names.get(x["username"].lower(), x["username"]) for x in entries
                          if x["date"] == day and x["username"] != e["username"] and not x["helper"]],
-                "progress": prog, "color": j.final_color or "",
+                "progress": prog, "color": j.final_color or j.color or "",
                 # The services on a washing job, for the day card.
                 "pw_services": _pw_labels(j),
                 "staining_days": [{"date": d, "person": p} for d, p in staining],
@@ -412,7 +412,7 @@ def past(user: dict = Depends(_office)):
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "first_day": min(e["date"] for e in entries), "last_day": last,
                 "completed_at": j.completed_at or "", "completed_by": j.completed_by or "",
-                "color": j.final_color or "", "progress": progress(j, j.lead_id in cleaned, pw.get(j.lead_id)),
+                "color": j.final_color or j.color or "", "progress": progress(j, j.lead_id in cleaned, pw.get(j.lead_id)),
                 "pw_services": _pw_labels(j),
                 "crew": [{"person": names.get(e["username"].lower(), e["username"]), "date": e["date"], "task": e["task"]}
                          for e in sorted(entries, key=lambda e: e["date"])],
