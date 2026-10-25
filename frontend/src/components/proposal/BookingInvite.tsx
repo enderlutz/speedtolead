@@ -15,7 +15,7 @@
 // except "Add to my calendar", which really does hand the phone a calendar
 // file, so it can be tried.
 import { useEffect, useState } from "react";
-import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin, ArrowLeft, Save } from "lucide-react";
+import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin, ArrowLeft, Save, ShieldCheck, Star, Receipt } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { klarnaLine } from "@/lib/klarna";
 
@@ -25,6 +25,14 @@ const EMAIL = "sterlingfencestaining@gmail.com";
 const DEPOSIT = 250;
 
 export type BookingState = "held" | "confirmed";
+
+/** The person who sent the invite, for the trust version of the pay box
+ *  (Alan, 2026-10-25: "the $250 needs to feel so easy to pay" — scam fear).
+ *  Mockup only until Alan approves it. */
+export type BookingTrust = {
+  name: string; role: string; photo: string;
+  reviews?: { rating: number | null; total: number; quote?: { author: string; text: string } };
+};
 
 const STEPS = ["Picked your package", "Date held", "Deposit paid", "Job day", "Final payment"];
 
@@ -46,7 +54,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -85,6 +93,8 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   /** Staff preview: save the draft from here, without sending. */
   onSave?: () => void;
   saveLabel?: string;
+  /** The trust version of the pay box: sender's face, the money as a sum, card protection. */
+  trust?: BookingTrust;
 }) {
   // The $250, never more than a small services-only job (same as the server).
   const dep = servicesOnly && total > 0 ? Math.min(DEPOSIT, total) : DEPOSIT;
@@ -224,6 +234,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 <p className="text-[15px] text-white/90">{paidInFull ? "Paid in full" : "Deposit paid"} · {formatCurrency(paid)}</p>
               </div>
             </div>
+          ) : trust ? (
+            <TrustPay trust={trust} firstName={firstName} longDate={longDate} total={total} dep={dep} paying={paying} onPay={pay}
+              holdUntil={holdUntil} />
           ) : (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white shadow-md">
               <div className="flex items-center gap-3">
@@ -426,6 +439,75 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
     <div className={cn("flex justify-between gap-3", bold && "font-bold")}>
       <dt className="text-[#15130F]/75">{k}</dt>
       <dd className="text-right font-semibold tabular-nums">{v}</dd>
+    </div>
+  );
+}
+
+/** The pay box for a customer who's afraid it's a scam: a real face first,
+ *  why the $250 (it saves the day, it comes off the total), the money as a
+ *  sum, one tap to pay, and what protects them. The no-refund rule is said
+ *  before they pay, in small calm words under the button (it has to be seen
+ *  before payment for a card dispute to go our way). */
+function TrustPay({ trust, firstName, longDate, total, dep, paying, onPay, holdUntil }: {
+  trust: BookingTrust; firstName: string; longDate: string; total: number; dep: number;
+  paying: boolean; onPay: () => void; holdUntil: Date;
+}) {
+  const first = trust.name.split(" ")[0];
+  const r = trust.reviews;
+  const hold = holdUntil.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  return (
+    <div className="overflow-hidden rounded-3xl bg-white shadow-md ring-1 ring-[#15130F]/10">
+      {/* A real person, the one they just talked to. */}
+      <div className="flex items-center gap-3.5 bg-[#15130F] px-4 py-4 text-white">
+        <img src={trust.photo} alt={trust.name} className="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-[#C9972F]" draggable={false} />
+        <div className="min-w-0">
+          <p className="text-[19px] font-bold leading-tight">Hi {firstName}, it&rsquo;s {first}!</p>
+          <p className="mt-0.5 text-[15px] leading-snug text-white/85">I&rsquo;m saving <b className="text-[#E3BE63]">{longDate}</b> for your fence.</p>
+          <p className="mt-0.5 text-[13px] text-white/60">{trust.name} · {trust.role}</p>
+        </div>
+      </div>
+
+      <div className="space-y-3.5 p-4">
+        <div>
+          <p className="font-heading text-[24px] font-bold leading-tight">Let&rsquo;s save your date</p>
+          <p className="mt-1 text-[16px] leading-snug">Your {formatCurrency(dep).replace(".00", "")} saves the day for you. <b>It comes off your total. It&rsquo;s not extra.</b></p>
+        </div>
+
+        {/* The money, as a little sum they can check. */}
+        <dl className="rounded-2xl bg-[#F8F3E7] p-3.5 text-[16px]">
+          <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="tabular-nums">{formatCurrency(total)}</dd></div>
+          <div className="mt-1.5 flex justify-between gap-3 font-bold"><dt>Today</dt><dd className="tabular-nums">{formatCurrency(dep)}</dd></div>
+          <div className="mt-1.5 flex justify-between gap-3 border-t border-[#15130F]/10 pt-1.5 text-[#15130F]/80"><dt>After the job is done</dt><dd className="tabular-nums">{formatCurrency(Math.max(0, total - dep))}</dd></div>
+        </dl>
+
+        <button type="button" onClick={onPay}
+          className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl text-[18px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
+          <Lock className="h-5 w-5" /> {paying ? "Opening…" : `Save my date · ${formatCurrency(dep).replace(".00", "")}`}
+        </button>
+        <p className="-mt-1.5 text-center text-[14px] text-[#15130F]/70">Apple Pay, card or bank · secure checkout by Stripe</p>
+
+        {/* What protects them. */}
+        <ul className="space-y-2.5 text-[15px] leading-snug">
+          <li className="flex gap-2.5"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /><span><b>Pay with a card and your card company protects you.</b> We&rsquo;ll never ask for gift cards, Zelle or a wire.</span></li>
+          <li className="flex gap-2.5"><Receipt className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /><span>You get a <b>text receipt right away</b>, and a text the day before your job.</span></li>
+          <li className="flex gap-2.5"><Phone className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /><span>Questions? Call or text {first} at <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="font-bold underline">{PHONE}</a>.</span></li>
+        </ul>
+
+        {r && r.total > 0 ? (
+          <div className="rounded-2xl p-3.5 ring-1 ring-[#15130F]/10">
+            <p className="flex items-center gap-1.5 text-[15px] font-bold">
+              <span className="flex text-[#C9972F]">{[0, 1, 2, 3, 4].map((i) => <Star key={i} className="h-4 w-4 fill-current" />)}</span>
+              {r.rating ? r.rating.toFixed(1) : "5.0"} on Google · {r.total} reviews
+            </p>
+            {r.quote ? <p className="mt-1.5 text-[15px] leading-snug">&ldquo;{r.quote.text}&rdquo; <span className="text-[#15130F]/60">— {r.quote.author}</span></p> : null}
+          </div>
+        ) : null}
+
+        <p className="text-center text-[13px] leading-snug text-[#15130F]/60">
+          We hold {longDate.split(",")[0]} for you until {hold}. After that it opens up to other customers.
+          Need a different day? You can move your date anytime. The deposit isn&rsquo;t refunded if you cancel.
+        </p>
+      </div>
     </div>
   );
 }

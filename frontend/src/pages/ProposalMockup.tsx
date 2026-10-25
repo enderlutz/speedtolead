@@ -1458,6 +1458,18 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           date={inviteDate}
           staff
           onClose={() => setInvite(false)}
+          // The trust version of the pay box (Alan, 2026-10-25): the face of
+          // whoever sent the invite. Mockup only until Alan says go.
+          trust={{
+            name: "Alan Bonner", role: "Owner, Sterling Fence Staining", photo: "/team/alan.jpg",
+            reviews: realReviews ? {
+              rating: realReviews.rating, total: realReviews.total,
+              quote: (() => {
+                const q = realReviews.reviews.filter((x) => x.rating === 5 && x.text && x.text.length <= 170).sort((a, b) => b.text.length - a.text.length)[0];
+                return q ? { author: q.author.split(" ")[0], text: q.text } : undefined;
+              })(),
+            } : undefined,
+          }}
         />
       ) : null}
 
