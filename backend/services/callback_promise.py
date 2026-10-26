@@ -18,9 +18,13 @@ from datetime import date, timedelta
 from clock import to_ct
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-_WHEN = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|later today|tonight|this evening|this afternoon)"
-# "call (you|me) (back) (on|first thing|next) Monday", up to three words between.
-_CALL = re.compile(r"\b(call|talk|get back to)\b((?:\s+[\w']+){0,4}?)\s+(?:on\s+|by\s+)?" + _WHEN + r"\b", re.I)
+_WHEN = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|(?:the )?end of (?:the |this )?week|this week|later today|tonight|this evening|this afternoon)"
+# "call (you|me) (back) (on|first thing|next) Monday", a few words between,
+# commas allowed ("I'll reach back out to you, I'd say, next Sunday").
+_CALL = re.compile(r"\b(call|talk|get back to|reach (?:back )?out|follow up)\b((?:[\s,]+[\w']+){0,6}?)[\s,]+(?:on\s+|by\s+|next\s+)?" + _WHEN + r"\b", re.I)
+# Calling someone else ("I'll call them tomorrow" about another project,
+# Chemaria Green 2026-10-25) is no promise to us.
+_SOMEONE_ELSE = re.compile(r"\b(them|him|her|my|his|the)\b", re.I)
 # The customer promising to ring us, not asking us to ring them.
 _THEY_CALL = re.compile(r"\b(i'll|i will|i'm gonna|i am going to|let me)\s+(call|get back to)\s+you\b", re.I)
 
@@ -31,6 +35,8 @@ def _resolve(word: str, called: date) -> date:
         return called + timedelta(days=1)
     if w == "next week":
         return called + timedelta(days=7 - called.weekday())  # the next Monday
+    if "week" in w:  # "this week", "by the end of the week": the coming Friday
+        return called + timedelta(days=(4 - called.weekday()) % 7)
     if w in WEEKDAYS:
         ahead = (WEEKDAYS.index(w) - called.weekday()) % 7
         return called + timedelta(days=ahead or 7)
@@ -45,6 +51,8 @@ def find_promise(text: str, called_at) -> dict | None:
         return None
     last = None
     for m in _CALL.finditer(text):
+        if _SOMEONE_ELSE.search(m.group(2) or ""):
+            continue
         last = m
     if last is None:
         return None
