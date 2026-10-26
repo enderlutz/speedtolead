@@ -77,7 +77,8 @@ def status(user: dict = Depends(require_admin)):
     db = get_db()
     try:
         done = db.query(CallTone).filter(CallTone.listen_json != "").count()
-        return {"gemini_key": tone.configured(), "model": tone.GEMINI_MODEL, "listened": done}
+        return {"gemini_key": tone.configured(), "model": tone.GEMINI_MODEL, "listened": done,
+                "left": len(_not_heard(db, 100000))}
     finally:
         db.close()
 
@@ -86,12 +87,25 @@ class RunBody(BaseModel):
     limit: int = 10
 
 
-_running = {"on": False, "done": 0, "of": 0}
+_running = {"on": False, "done": 0, "of": 0, "failed": 0}
+WORKERS = 3  # three calls at a time: the whole backlog fits in a night
+
+
+def _not_heard(db, limit: int) -> list[str]:
+    """Real calls with audio not listened to yet (a failed try counts as not
+    heard, so a re-run picks it up), newest first."""
+    heard = db.query(CallTone.recording_id).filter(CallTone.listen_json != "")
+    return [r for (r,) in db.query(CallRecording.id)
+            .filter(CallRecording.has_recording_data.is_(True), CallRecording.is_voicemail.is_(False),
+                    CallRecording.duration_seconds >= MIN_SECONDS, CallRecording.id.notin_(heard))
+            .order_by(CallRecording.created_at.desc()).limit(limit).all()]
 
 
 @router.post("/call-tone/run")
 def run(body: RunBody, user: dict = Depends(require_admin)):
-    """Listen to the newest real calls not heard yet, in the background."""
+    """Listen to past real calls not heard yet, in the background (Alan,
+    2026-10-25: "run all the calls"). Each call's result is saved as it
+    finishes, so a restart just means running this again."""
     del user
     if not tone.configured():
         raise HTTPException(400, "GEMINI_API_KEY isn't set in Railway")
@@ -99,31 +113,43 @@ def run(body: RunBody, user: dict = Depends(require_admin)):
         return {"started": False, **_running}
     db = get_db()
     try:
-        heard = {r for (r,) in db.query(CallTone.recording_id).filter(CallTone.listen_json != "").all()}
-        ids = [r for (r,) in db.query(CallRecording.id)
-               .filter(CallRecording.has_recording_data.is_(True), CallRecording.is_voicemail.is_(False),
-                       CallRecording.duration_seconds >= MIN_SECONDS)
-               .order_by(CallRecording.created_at.desc()).limit(max(1, min(body.limit, 300)) * 3).all()
-               if r not in heard][: max(1, min(body.limit, 300))]
+        ids = _not_heard(db, max(1, min(body.limit, 5000)))
     finally:
         db.close()
-    _running.update(on=True, done=0, of=len(ids))
+    _running.update(on=True, done=0, of=len(ids), failed=0)
+    lock = threading.Lock()
+    queue = list(ids)
 
     def work():
-        try:
-            for rid in ids:
-                d = get_db()
-                try:
-                    rec = d.query(CallRecording).filter(CallRecording.id == rid).first()
-                    if rec and rec.recording_data:
-                        listen_to(d, rec)
-                finally:
-                    d.close()
+        while True:
+            with lock:
+                if not queue:
+                    return
+                rid = queue.pop(0)
+            d = get_db()
+            try:
+                rec = d.query(CallRecording).filter(CallRecording.id == rid).first()
+                ok = bool(rec and rec.recording_data) and not listen_to(d, rec).get("error")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("tone run failed on %s: %s", rid, e)
+                ok = False
+            finally:
+                d.close()
+            with lock:
                 _running["done"] += 1
+                _running["failed"] += 0 if ok else 1
+
+    def boss():
+        try:
+            ts = [threading.Thread(target=work, daemon=True) for _ in range(WORKERS)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
         finally:
             _running["on"] = False
 
-    threading.Thread(target=work, daemon=True).start()
+    threading.Thread(target=boss, daemon=True).start()
     return {"started": True, **_running}
 
 
