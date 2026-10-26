@@ -2320,6 +2320,9 @@ export const api = {
   // --- Call Recordings ---
   getLeadCalls: (leadId: string, includeArchived = false) =>
     request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}?include_archived=${includeArchived}`),
+  // How a call sounded (Alan, 2026-10-25): talk numbers + Gemini's listen.
+  getCallTone: (recordingId: string) => request<CallTone>(`/api/call-tone/${recordingId}`),
+  listenToCall: (recordingId: string) => request<CallTone>(`/api/call-tone/${recordingId}`, { method: "POST" }),
   getCall: (recordingId: string) => request<CallRecordingEntry>(`/api/calls/${recordingId}`),
   getAllCalls: (opts: { limit?: number; offset?: number; archived?: boolean; favoritesOnly?: boolean } = {}) => {
     const { limit = 50, offset = 0, archived = false, favoritesOnly = false } = opts;
@@ -6287,6 +6290,43 @@ export type DocCategory = { key: string; label: string; about: string };
 export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean; pw?: [number, number] }
 /** A customer on the PM HQ week map: a job on the days on screen, or one
  *  Alan put there by name. status: nothing done yet, cleaned, or stained. */
+export interface CallToneNumbers {
+  ok: boolean;
+  why?: string;
+  customer_share?: number;
+  team_share?: number;
+  avg_customer_answer?: number;
+  longest_customer_answer?: number;
+  short_answers_pct?: number;
+  team_interrupted?: number;
+  customer_interrupted?: number;
+  team_words_per_min?: number;
+  customer_words_per_min?: number;
+  price_pauses?: { at: number; pause: number; said: string }[];
+}
+
+export interface CallToneListen {
+  skip?: boolean;
+  why?: string;
+  customer_mood?: string;
+  customer_mood_why?: string;
+  buying_temperature?: number;
+  moments?: { at: string; who: string; feeling: string; quote: string; why_it_matters: string }[];
+  team_tone?: { warmth?: number; confidence?: number; pace?: string; listening?: number; note?: string };
+  team_score?: number;
+  do_better?: string[];
+  follow_up?: { when_days?: number; how?: string; say?: string; why?: string };
+}
+
+export interface CallTone {
+  recording_id: string;
+  numbers: CallToneNumbers;
+  listen: CallToneListen | null;
+  listened_at: string;
+  error: string;
+  can_listen: boolean;
+}
+
 export interface PmMapPin {
   lead_id: string;
   name: string;

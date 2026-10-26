@@ -14,6 +14,7 @@ import {
   MessageSquare, Volume2, Loader2, Sparkles, FileText,
 } from "lucide-react";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
+import CallTonePanel from "@/components/CallTonePanel";
 
 type Tab = "active" | "archived";
 type ScoreFilter = "all" | "green" | "amber" | "red";
@@ -437,6 +438,7 @@ export default function Calls() {
                         {!rec.has_recording && !isFailed && !analysis && (
                           <p className="text-xs text-muted-foreground">Still processing — playback + transcript appear when ready.</p>
                         )}
+                        {rec.has_recording && rec.duration_seconds >= 60 ? <CallTonePanel recordingId={rec.id} isAdmin={isAdmin} /> : null}
                         {/* Scoring/coaching analysis hidden for now — pattern recognition lives
                             in the "Common Customer Questions" card below the list. */}
                         {/* {analysis && <CallCoachAnalysis analysis={analysis} />} */}

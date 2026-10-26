@@ -1151,6 +1151,20 @@ class ThreadIntent(Base):
         }
 
 
+class CallTone(Base):
+    """How a call sounded (Alan, 2026-10-25): Gemini's listen to the
+    recording, kept so it's paid for once. The talk numbers are worked out
+    from the transcript on each read (services/call_tone.py)."""
+    __tablename__ = "call_tones"
+
+    recording_id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=True, index=True)
+    listen_json = Column(Text, default="")   # Gemini's JSON, "" until listened to
+    model = Column(Text, default="")
+    error = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+
 class CallAnalysis(Base):
     __tablename__ = "call_analyses"
     __table_args__ = (

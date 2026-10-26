@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # Deepgram (call transcription)
     deepgram_api_key: str = ""
 
+    # Gemini (listens to call recordings for tone, services/call_tone.py)
+    gemini_api_key: str = ""
+
     # ElevenLabs (voice training simulator TTS). When empty, the training
     # feature still works but in text-only mode — the conversation loop runs
     # without audio so the rep can practice via transcript. Audio flips on
