@@ -253,7 +253,10 @@ def listen(audio: bytes, transcript: str = "", model: str = "") -> dict:
                 break
             time.sleep(wait)
         if r.status_code >= 400:
-            raise RuntimeError(f"Gemini {r.status_code}: {r.text[:300]}")
+            # Keep which quota was hit ("free_tier" in its name means the key
+            # has no billing, and Google may train on what we send).
+            quota = sorted(set(re.findall(r'"quota(?:Metric|Id)":\s*"([^"]+)"', r.text)))
+            raise RuntimeError(f"Gemini {r.status_code}: {r.text[:200]}" + (f" | quota: {', '.join(quota)}" if quota else ""))
         data = r.json()
     cands = data.get("candidates") or []
     text = "".join(p.get("text", "") for p in ((cands[0].get("content") or {}).get("parts") or [])) if cands else ""

@@ -64,7 +64,7 @@ def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
         row.listen_json, row.error, row.model = json.dumps(heard), "", tone.current_model(db)
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
-        row.error = str(e)[:500]
+        row.error = str(e)[:900]
     row.created_at = _now()
     db.merge(row)
     db.commit()
@@ -198,7 +198,7 @@ def try_model(body: TryBody, user: dict = Depends(require_admin)):
             heard = tone.listen(rec.recording_data, text, model=body.model)
             return {"ok": True, "seconds": round(_t.time() - t0, 1), "listen": heard}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "seconds": round(_t.time() - t0, 1), "error": str(e)[:300]}
+            return {"ok": False, "seconds": round(_t.time() - t0, 1), "error": str(e)[:900]}
     finally:
         db.close()
 
