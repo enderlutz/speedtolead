@@ -25,7 +25,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = "gemini-2.5-flash"
+# Google retires model names for new accounts (2.5 Flash was gone by
+# 2026-10-25); the "latest" name always points at the current Flash.
+GEMINI_MODEL = "gemini-flash-latest"
 _API = "https://generativelanguage.googleapis.com"
 # Gemini takes up to ~20 MB in one request; base64 adds a third, so bigger
 # recordings are uploaded first.
