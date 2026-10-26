@@ -76,9 +76,21 @@ def test_every_new_real_call_gets_listened_to(db, monkeypatch):
     monkeypatch.setattr(call_analyzer, "analyze_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no credits")))
     heard = []
     monkeypatch.setattr(tone, "_key", lambda: "k")
+    monkeypatch.setattr(tone, "configured", lambda: True)
     monkeypatch.setattr(tone, "listen", lambda audio, text="": heard.append(audio) or {"customer_mood": "excited"})
     call_poller.process_recording_pipeline("R1")
     call_poller.process_recording_pipeline("R2")
     assert heard == [b"RIFFxxxxWAVE"]
     assert _json.loads(db.query(CallTone).filter_by(recording_id="R1").first().listen_json)["customer_mood"] == "excited"
     assert db.query(CallTone).filter_by(recording_id="R2").first() is None
+
+
+def test_listening_stays_paused_until_turned_on(db, monkeypatch):
+    """Free-plan key (2026-10-25): nothing is sent until someone unpauses."""
+    import database
+    from database import SystemConfig
+    monkeypatch.setattr(tone, "_key", lambda: "k")
+    monkeypatch.setattr(database, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    assert tone.configured() is False
+    SystemConfig.set(db, "call_tone_paused", "0")
+    assert tone.configured() is True

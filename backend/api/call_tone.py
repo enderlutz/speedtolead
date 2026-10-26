@@ -77,7 +77,7 @@ def status(user: dict = Depends(require_admin)):
     db = get_db()
     try:
         done = db.query(CallTone).filter(CallTone.listen_json != "").count()
-        return {"gemini_key": tone.configured(), "model": tone.current_model(db), "listened": done,
+        return {"gemini_key": bool(tone._key()), "listening": tone.configured(), "model": tone.current_model(db), "listened": done,
                 "left": len(_not_heard(db, 100000))}
     finally:
         db.close()
@@ -151,6 +151,23 @@ def run(body: RunBody, user: dict = Depends(require_admin)):
 
     threading.Thread(target=boss, daemon=True).start()
     return {"started": True, **_running}
+
+
+class PauseBody(BaseModel):
+    paused: bool
+
+
+@router.post("/call-tone/pause")
+def pause(body: PauseBody, user: dict = Depends(require_admin)):
+    """Stop or restart all listening (new calls, the backlog, the button)."""
+    del user
+    from database import SystemConfig
+    db = get_db()
+    try:
+        SystemConfig.set(db, "call_tone_paused", "1" if body.paused else "0")
+    finally:
+        db.close()
+    return {"paused": body.paused, "listening": tone.configured()}
 
 
 @router.get("/call-tone/models")

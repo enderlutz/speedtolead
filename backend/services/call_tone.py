@@ -160,7 +160,21 @@ def models() -> list[str]:
 
 
 def configured() -> bool:
-    return bool(_key())
+    """A key is in AND listening isn't paused. Paused 2026-10-25: the key
+    turned out to be on Google's free plan, where Google may use what we
+    send (customers' voices) for training. Unpause once billing is on:
+    POST /api/call-tone/pause {"paused": false}."""
+    if not _key():
+        return False
+    try:
+        from database import SystemConfig, get_db
+        d = get_db()
+        try:
+            return SystemConfig.get(d, "call_tone_paused", "1") != "1"
+        finally:
+            d.close()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _mime(audio: bytes) -> str:
