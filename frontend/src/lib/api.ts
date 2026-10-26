@@ -3889,6 +3889,13 @@ export const api = {
     request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids, username }) }),
   pmHqMove: (b: { lead_id: string; username: string; task: string; from_date: string; to_date: string }) =>
     request<{ ok: boolean; moved: number }>(`/api/pm-hq/move`, { method: "POST", body: JSON.stringify(b) }),
+  // The week map under the calendar (Alan, 2026-10-25).
+  getPmHqMap: (start: string, end: string) =>
+    request<{ pins: PmMapPin[]; can_edit: boolean }>(`/api/pm-hq/map?start=${start}&end=${end}`),
+  pmHqMapAdd: (lead_id: string) =>
+    request<{ ok: boolean }>(`/api/pm-hq/map/pins`, { method: "POST", body: JSON.stringify({ lead_id }) }),
+  pmHqMapRemove: (lead_id: string) =>
+    request<{ ok: boolean }>(`/api/pm-hq/map/pins/${encodeURIComponent(lead_id)}`, { method: "DELETE" }),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
@@ -6278,6 +6285,19 @@ export type DocCategory = { key: string; label: string; about: string };
 // ── PM HQ calendar ───────────────────────────────────────────────────────
 /** `pw`: a pressure-washing job's services with both photos in, of those picked. */
 export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean; pw?: [number, number] }
+/** A customer on the PM HQ week map: a job on the days on screen, or one
+ *  Alan put there by name. status: nothing done yet, cleaned, or stained. */
+export interface PmMapPin {
+  lead_id: string;
+  name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  status: "pending" | "cleaned" | "done";
+  days: { date: string; task: string }[];
+  added: boolean;
+}
+
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
   task: CrewDayTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;

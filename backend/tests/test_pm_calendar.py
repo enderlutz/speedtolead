@@ -284,3 +284,33 @@ def test_drag_a_job_to_another_day_and_the_helper_goes_along(db, monkeypatch):
     with pytest.raises(HTTPException):
         pm.move(pm.MoveBody(lead_id="M", username="Jose Arthur", task="staining",
                             from_date="2026-10-21", to_date="2026-10-24"), user=ALAN)
+
+
+def test_week_map_pins_the_weeks_jobs_and_added_customers(db, monkeypatch):
+    """Alan, 2026-10-25: a map under the calendar, name + where the job stands."""
+    _seed(db)
+    db.add(Lead(id="R", contact_name="Russ", address="505 Whitetail Run Ct", status="estimate_sent", lat=29.9, lng=-95.6))
+    db.query(Lead).filter_by(id="Y").update({"lat": 29.95, "lng": -95.65})
+    db.add(CompanyCamJob(id="J", lead_id="Y", crew_json=json.dumps([
+        {"username": "Chris", "date": "2026-10-26", "task": "cleaning"},
+        {"username": "Chris", "date": "2026-10-28", "task": "staining"}]),
+        cleaner_checklist_json=json.dumps([i["key"] for i in pm.CLEANER_CHECKLIST])))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    import services.geocoder as g
+    monkeypatch.setattr(g, "geocode_address", lambda *a, **k: None)
+    pm.add_pin(pm.PinBody(lead_id="R"), user=ALAN)
+    pm.add_pin(pm.PinBody(lead_id="R"), user=ALAN)  # twice = once
+    out = pm.week_map("2026-10-26", "2026-11-01", user=ALAN)
+    by = {p["name"]: p for p in out["pins"]}
+    assert set(by) == {"YOGI", "Russ"}
+    assert by["YOGI"]["status"] == "cleaned" and [d["task"] for d in by["YOGI"]["days"]] == ["cleaning", "staining"]
+    assert by["Russ"]["status"] == "pending" and by["Russ"]["added"] and by["Russ"]["lat"] == 29.9
+    pm.remove_pin("R", user=ALAN)
+    assert [p["name"] for p in pm.week_map("2026-10-26", "2026-11-01", user=ALAN)["pins"]] == ["YOGI"]
+
+
+def test_map_status_done_once_stained():
+    j = CompanyCamJob(cleaner_checklist_json="[]", stainer_checklist_json=json.dumps([i["key"] for i in pm.STAINER_CHECKLIST]))
+    assert pm.map_status(j, cleaned=True) == "done"
+    assert pm.map_status(None, cleaned=False) == "pending"

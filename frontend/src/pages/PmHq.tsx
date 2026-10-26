@@ -28,6 +28,7 @@ import { AgendaView } from "@/components/schedule/AgendaView";
 import type { JobGroup } from "@/components/schedule/dates";
 import { MultiDayView } from "@/components/schedule/MultiDayView";
 import { MonthView } from "@/components/schedule/MonthView";
+import { WeekMap } from "@/components/schedule/WeekMap";
 import { DayBanner } from "@/components/schedule/bits";
 import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek } from "@/components/schedule/dates";
 
@@ -323,6 +324,8 @@ function CalendarView() {
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
                         onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={false}
                         canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          {/* The week's customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
+          {view === "week" ? <WeekMap start={range.start} end={range.end} refreshKey={days} /> : null}
         </>
       )}
     </div>

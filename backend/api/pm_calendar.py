@@ -421,3 +421,122 @@ def past(user: dict = Depends(_office)):
         return out
     finally:
         db.close()
+
+
+# ── Week map (Alan, 2026-10-25) ──────────────────────────────────────────────
+# Under the calendar: a pin for every customer on the days on screen, plus any
+# customer Alan puts on it by name (an unpaid booking he's planning around,
+# a neighbour). Each pin says the name and where the job stands: nothing yet,
+# cleaned (🧽), or cleaned and stained (✓). For planning cleaning and staining
+# routes. The added list is one list, kept until he takes a name off.
+MAP_PINS_KEY = "pm_hq_map_pins"
+_GEOCODE_CAP = 25  # new addresses looked up per load; the rest pin next time
+
+
+def _added(db) -> list[str]:
+    from database import SystemConfig
+    try:
+        ids = json.loads(SystemConfig.get(db, MAP_PINS_KEY, "[]"))
+    except (ValueError, TypeError):
+        ids = []
+    return [str(i) for i in ids if i]
+
+
+def _save_added(db, ids: list[str]) -> None:
+    from database import SystemConfig
+    SystemConfig.set(db, MAP_PINS_KEY, json.dumps(ids))
+
+
+def _in_area(lat, lng) -> bool:
+    # Roughly Texas; anything else is an old wrong lookup and is redone.
+    return bool(lat and lng) and 25.5 <= float(lat) <= 36.6 and -106.7 <= float(lng) <= -93.4
+
+
+def map_status(job: CompanyCamJob | None, cleaned: bool, pw_sections: set[str] | None = None) -> str:
+    """pending (nothing done), cleaned, or done (stained or marked Job done)."""
+    if not job:
+        return "pending"
+    prog = progress(job, cleaned, pw_sections)
+    s_done, s_of = prog["staining"]
+    if prog["stage"] == "Done" or (s_of and s_done == s_of):
+        return "done"
+    if prog["cleaning_done"] or cleaned:
+        return "cleaned"
+    return "pending"
+
+
+@router.get("/pm-hq/map")
+def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
+    from config import get_settings
+    from services.geocoder import geocode_address
+    db = get_db()
+    try:
+        rows = _rows(db, start[:10], end[:10]) if start and end else []
+        days: dict[str, list[dict]] = {}
+        for r in rows:
+            d = days.setdefault(r["lead_id"], [])
+            if not any(x["date"] == r["date"] and x["task"] == r["task"] for x in d):
+                d.append({"date": r["date"], "task": r["task"]})
+        added = _added(db)
+        ids = list(dict.fromkeys([*days, *added]))
+        leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(ids)).all()} if ids else {}
+        jobs = {j.lead_id: j for j in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(ids)).all()} if ids else {}
+        cleaned = _cleaned(db, ids)
+        pw = _pw_photos(db, ids)
+        settings = get_settings()
+        key = settings.google_maps_browser_key or settings.google_maps_api_key
+        looked_up = 0
+        pins = []
+        for lid in ids:
+            lead = leads.get(lid)
+            if not lead:
+                continue
+            if not _in_area(lead.lat, lead.lng) and (lead.address or "").strip() and looked_up < _GEOCODE_CAP:
+                looked_up += 1
+                try:
+                    geo = geocode_address(lead.address, lead.zip_code or "", api_key=key)
+                except Exception:  # noqa: BLE001
+                    geo = None
+                if geo and geo.get("lat") and geo.get("lng"):
+                    lead.lat, lead.lng = float(geo["lat"]), float(geo["lng"])
+                    lead.geocoded_at = datetime.now(timezone.utc).isoformat()
+                    db.commit()
+            ok = _in_area(lead.lat, lead.lng)
+            pins.append({
+                "lead_id": lid, "name": lead.contact_name or "", "address": lead.address or "",
+                "lat": float(lead.lat) if ok else None, "lng": float(lead.lng) if ok else None,
+                "status": map_status(jobs.get(lid), lid in cleaned, pw.get(lid)),
+                "days": sorted(days.get(lid, []), key=lambda x: x["date"]),
+                "added": lid in added,
+            })
+        return {"pins": pins, "can_edit": user.get("role") == "admin"}
+    finally:
+        db.close()
+
+
+class PinBody(BaseModel):
+    lead_id: str
+
+
+@router.post("/pm-hq/map/pins")
+def add_pin(body: PinBody, user: dict = Depends(require_admin)):
+    db = get_db()
+    try:
+        if not db.query(Lead).filter(Lead.id == body.lead_id).first():
+            raise HTTPException(404, "Customer not found")
+        ids = _added(db)
+        if body.lead_id not in ids:
+            _save_added(db, [*ids, body.lead_id])
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@router.delete("/pm-hq/map/pins/{lead_id}")
+def remove_pin(lead_id: str, user: dict = Depends(require_admin)):
+    db = get_db()
+    try:
+        _save_added(db, [i for i in _added(db) if i != lead_id])
+        return {"ok": True}
+    finally:
+        db.close()
