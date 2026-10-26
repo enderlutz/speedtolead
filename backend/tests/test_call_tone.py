@@ -56,3 +56,29 @@ def test_card_digits_never_survive_but_prices_do():
                       "say": "Your total is $1,994.40", "_tokens": {"in": 777}})
     assert "4266" not in str(out) and "1234" not in str(out) and "0428" not in str(out)
     assert out["say"] == "Your total is $1,994.40" and out["_tokens"]["in"] == 777
+
+
+def test_every_new_real_call_gets_listened_to(db, monkeypatch):
+    """The pipeline listens after the transcript; voicemails and short calls don't."""
+    import json as _json
+    from database import CallRecording, CallTone
+    from services import call_poller, call_transcriber, call_analyzer
+    from services import voicemail
+    db.add(CallRecording(id="R1", lead_id=None, recording_data=b"RIFFxxxxWAVE", has_recording_data=True,
+                         duration_seconds=300, call_direction="outbound", status="pending"))
+    db.add(CallRecording(id="R2", lead_id=None, recording_data=b"RIFFxxxxWAVE", has_recording_data=True,
+                         duration_seconds=30, call_direction="outbound", status="pending"))
+    db.commit()
+    monkeypatch.setattr(call_poller, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(call_transcriber, "transcribe_recording", lambda a: {"full_text": "hi there", "segments": [
+        {"speaker": 0, "start": 0, "end": 3, "text": "hi"}, {"speaker": 1, "start": 3, "end": 5, "text": "there"}], "confidence": 0.9})
+    monkeypatch.setattr(voicemail, "looks_like_voicemail", lambda t: False)
+    monkeypatch.setattr(call_analyzer, "analyze_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no credits")))
+    heard = []
+    monkeypatch.setattr(tone, "_key", lambda: "k")
+    monkeypatch.setattr(tone, "listen", lambda audio, text="": heard.append(audio) or {"customer_mood": "excited"})
+    call_poller.process_recording_pipeline("R1")
+    call_poller.process_recording_pipeline("R2")
+    assert heard == [b"RIFFxxxxWAVE"]
+    assert _json.loads(db.query(CallTone).filter_by(recording_id="R1").first().listen_json)["customer_mood"] == "excited"
+    assert db.query(CallTone).filter_by(recording_id="R2").first() is None

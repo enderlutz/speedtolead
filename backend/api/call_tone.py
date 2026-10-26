@@ -54,12 +54,13 @@ def _payload(db, recording_id: str) -> dict:
             "can_listen": tone.configured()}
 
 
-def listen_to(db, rec: CallRecording) -> dict:
-    """Run Gemini on one recording and save what it heard (or the error)."""
+def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
+    """Run Gemini on one recording and save what it heard (or the error).
+    `audio` when the caller already has the bytes (the new-call pipeline)."""
     _, _, text = _transcript(db, rec.id)
     row = db.query(CallTone).filter(CallTone.recording_id == rec.id).first() or CallTone(recording_id=rec.id, lead_id=rec.lead_id)
     try:
-        heard = tone.listen(rec.recording_data, text)
+        heard = tone.listen(audio or rec.recording_data, text)
         row.listen_json, row.error, row.model = json.dumps(heard), "", tone.GEMINI_MODEL
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
