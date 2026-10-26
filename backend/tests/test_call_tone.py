@@ -49,3 +49,10 @@ def test_listen_without_a_key_says_so(monkeypatch):
         raise AssertionError("should have raised")
     except RuntimeError as e:
         assert "GEMINI_API_KEY" in str(e)
+
+
+def test_card_digits_never_survive_but_prices_do():
+    out = tone.scrub({"moments": [{"quote": "It's a Visa. It's 4266 1234 5678 9012, exp 0428"}],
+                      "say": "Your total is $1,994.40", "_tokens": {"in": 777}})
+    assert "4266" not in str(out) and "1234" not in str(out) and "0428" not in str(out)
+    assert out["say"] == "Your total is $1,994.40" and out["_tokens"]["in"] == 777

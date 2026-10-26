@@ -124,6 +124,7 @@ Return ONLY a JSON object with these keys:
   "do_better": up to 3 short, specific tips for our person, plain words,
   "follow_up": {"when_days": integer days from the call to reach out next (0 = today), "how": "call" | "text" | "either", "say": one sentence of what to open with next time, "why": one short sentence}
 }
+NEVER write down card numbers, expiration dates, security codes, bank details or any long number read out on the call; if a moment is someone paying, write "reads out card details" instead of the quote.
 If the recording is a voicemail, silence, or not a sales conversation, return {"skip": true, "why": "..."}.
 Plain words only. No markdown, no extra text."""
 
@@ -173,6 +174,23 @@ def _upload(client: httpx.Client, key: str, audio: bytes, mime: str) -> dict:
     return {"file_data": {"mime_type": mime, "file_uri": f["uri"]}}
 
 
+# A card number, expiry or code read out on the call never gets saved or
+# shown, whatever Gemini writes (Chris Harrell's quote had his card digits).
+_DIGITS = re.compile(r"(?:\d[\s-]?){4,}")
+
+
+def scrub(value):
+    """Blank out runs of 4+ digits in every string of Gemini's answer.
+    Prices keep their commas ($1,994 is safe) so they stay readable."""
+    if isinstance(value, str):
+        return _DIGITS.sub("••••", value)
+    if isinstance(value, list):
+        return [scrub(v) for v in value]
+    if isinstance(value, dict):
+        return {k: (v if k == "_tokens" else scrub(v)) for k, v in value.items()}
+    return value
+
+
 def _json_out(text: str) -> dict:
     t = (text or "").strip()
     t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t)
@@ -208,7 +226,7 @@ def listen(audio: bytes, transcript: str = "", model: str = GEMINI_MODEL) -> dic
     text = "".join(p.get("text", "") for p in ((cands[0].get("content") or {}).get("parts") or [])) if cands else ""
     if not text:
         raise RuntimeError(f"Gemini sent nothing back ({(data.get('promptFeedback') or {}).get('blockReason', 'no reason given')})")
-    out = _json_out(text)
+    out = scrub(_json_out(text))
     usage = data.get("usageMetadata") or {}
     out["_tokens"] = {"in": usage.get("promptTokenCount", 0), "out": usage.get("candidatesTokenCount", 0)}
     return out

@@ -46,7 +46,7 @@ def _payload(db, recording_id: str) -> dict:
     heard = None
     if row and row.listen_json:
         try:
-            heard = json.loads(row.listen_json)
+            heard = tone.scrub(json.loads(row.listen_json))
         except ValueError:
             heard = None
     return {"recording_id": recording_id, "numbers": tone.talk_numbers(segs, spk), "listen": heard,
