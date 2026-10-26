@@ -193,10 +193,14 @@ def listen(audio: bytes, transcript: str = "", model: str = GEMINI_MODEL) -> dic
         prompt = LISTEN_PROMPT
         if transcript:
             prompt += "\n\nThe transcript (speaker labels may be wrong; trust the audio):\n" + transcript[:12000]
-        r = client.post(f"{_API}/v1beta/models/{model}:generateContent", params={"key": key}, json={
-            "contents": [{"role": "user", "parts": [part, {"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
-        })
+        body = {"contents": [{"role": "user", "parts": [part, {"text": prompt}]}],
+                "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
+        # Busy (503) or too many at once (429) passes in a moment: try again.
+        for wait in (5, 15, 40, 0):
+            r = client.post(f"{_API}/v1beta/models/{model}:generateContent", params={"key": key}, json=body)
+            if r.status_code not in (429, 500, 503) or not wait:
+                break
+            time.sleep(wait)
         if r.status_code >= 400:
             raise RuntimeError(f"Gemini {r.status_code}: {r.text[:300]}")
         data = r.json()
