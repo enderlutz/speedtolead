@@ -134,6 +134,31 @@ def _key() -> str:
     return (getattr(get_settings(), "gemini_api_key", "") or "").strip()
 
 
+def current_model(db=None) -> str:
+    """The model to use: the one picked on the server (SystemConfig
+    call_tone_model) when set, so a busy or retired model can be swapped
+    without a deploy; otherwise GEMINI_MODEL."""
+    try:
+        from database import SystemConfig, get_db
+        d = db or get_db()
+        try:
+            return (SystemConfig.get(d, "call_tone_model", "") or GEMINI_MODEL).strip()
+        finally:
+            if db is None:
+                d.close()
+    except Exception:  # noqa: BLE001
+        return GEMINI_MODEL
+
+
+def models() -> list[str]:
+    """Gemini models this key can use to listen (generateContent)."""
+    with httpx.Client(timeout=30) as client:
+        r = client.get(f"{_API}/v1beta/models", params={"key": _key(), "pageSize": 200})
+        r.raise_for_status()
+        return sorted(m["name"].removeprefix("models/") for m in r.json().get("models", [])
+                      if "generateContent" in (m.get("supportedGenerationMethods") or []))
+
+
 def configured() -> bool:
     return bool(_key())
 
@@ -198,14 +223,15 @@ def _json_out(text: str) -> dict:
     return json.loads(m.group(0) if m else t)
 
 
-def listen(audio: bytes, transcript: str = "", model: str = GEMINI_MODEL) -> dict:
+def listen(audio: bytes, transcript: str = "", model: str = "") -> dict:
     """Gemini's read of how the call sounded. Raises on a missing key or an
     API error; the caller saves the error so it shows on the call."""
     key = _key()
     if not key:
         raise RuntimeError("GEMINI_API_KEY isn't set")
+    model = model or current_model()
     mime = _mime(audio)
-    with httpx.Client(timeout=240) as client:
+    with httpx.Client(timeout=httpx.Timeout(150, connect=20)) as client:
         part = (_upload(client, key, audio, mime) if len(audio) > _INLINE_MAX
                 else {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}})
         prompt = LISTEN_PROMPT
@@ -214,8 +240,15 @@ def listen(audio: bytes, transcript: str = "", model: str = GEMINI_MODEL) -> dic
         body = {"contents": [{"role": "user", "parts": [part, {"text": prompt}]}],
                 "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
         # Busy (503) or too many at once (429) passes in a moment: try again.
-        for wait in (5, 15, 40, 0):
-            r = client.post(f"{_API}/v1beta/models/{model}:generateContent", params={"key": key}, json=body)
+        # A hang (read timeout) is the same busy, said differently.
+        for wait in (5, 20, 60, 0):
+            try:
+                r = client.post(f"{_API}/v1beta/models/{model}:generateContent", params={"key": key}, json=body)
+            except httpx.TimeoutException:
+                if not wait:
+                    raise RuntimeError("Gemini took too long to answer (busy)")
+                time.sleep(wait)
+                continue
             if r.status_code not in (429, 500, 503) or not wait:
                 break
             time.sleep(wait)

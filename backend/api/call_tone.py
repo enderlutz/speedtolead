@@ -61,7 +61,7 @@ def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
     row = db.query(CallTone).filter(CallTone.recording_id == rec.id).first() or CallTone(recording_id=rec.id, lead_id=rec.lead_id)
     try:
         heard = tone.listen(audio or rec.recording_data, text)
-        row.listen_json, row.error, row.model = json.dumps(heard), "", tone.GEMINI_MODEL
+        row.listen_json, row.error, row.model = json.dumps(heard), "", tone.current_model(db)
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
         row.error = str(e)[:500]
@@ -77,7 +77,7 @@ def status(user: dict = Depends(require_admin)):
     db = get_db()
     try:
         done = db.query(CallTone).filter(CallTone.listen_json != "").count()
-        return {"gemini_key": tone.configured(), "model": tone.GEMINI_MODEL, "listened": done,
+        return {"gemini_key": tone.configured(), "model": tone.current_model(db), "listened": done,
                 "left": len(_not_heard(db, 100000))}
     finally:
         db.close()
@@ -151,6 +151,56 @@ def run(body: RunBody, user: dict = Depends(require_admin)):
 
     threading.Thread(target=boss, daemon=True).start()
     return {"started": True, **_running}
+
+
+@router.get("/call-tone/models")
+def list_models(user: dict = Depends(require_admin)):
+    del user
+    return {"models": tone.models()}
+
+
+class ModelBody(BaseModel):
+    model: str
+
+
+@router.post("/call-tone/model")
+def set_model(body: ModelBody, user: dict = Depends(require_admin)):
+    """Swap the listening model without a deploy ("" = back to the default)."""
+    del user
+    from database import SystemConfig
+    db = get_db()
+    try:
+        SystemConfig.set(db, "call_tone_model", body.model.strip())
+        return {"model": tone.current_model(db)}
+    finally:
+        db.close()
+
+
+class TryBody(BaseModel):
+    recording_id: str
+    model: str
+
+
+@router.post("/call-tone/try")
+def try_model(body: TryBody, user: dict = Depends(require_admin)):
+    """Listen to one call with a given model and return it, without saving.
+    For picking a model that answers well and fast."""
+    del user
+    import time as _t
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == body.recording_id).first()
+        if not rec or not rec.recording_data:
+            raise HTTPException(404, "No recording for this call")
+        _, _, text = _transcript(db, rec.id)
+        t0 = _t.time()
+        try:
+            heard = tone.listen(rec.recording_data, text, model=body.model)
+            return {"ok": True, "seconds": round(_t.time() - t0, 1), "listen": heard}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "seconds": round(_t.time() - t0, 1), "error": str(e)[:300]}
+    finally:
+        db.close()
 
 
 @router.get("/call-tone/run")
