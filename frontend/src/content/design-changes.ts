@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-26", title: "Signature says Semi-transparent",
+    what: "The small tag on the Signature package reads \"Semi-transparent\" instead of \"See-through color\"." },
   { date: "2026-10-25", title: "Bigger, plainer step headings",
     what: "The proposal steps read \"Step 1 of 3\", \"Step 2 of 3\", \"Step 3 of 3\". Step 1 is now \"Choose 1 of these 3\" with \"Each one stains your whole fence. Higher ones last longer.\" under it. Headings are bigger: 30px titles, 15px step labels, 17px lines under them." },
   { date: "2026-10-25", title: "Shorter package heading",
