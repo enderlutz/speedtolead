@@ -314,3 +314,10 @@ def test_map_status_done_once_stained():
     j = CompanyCamJob(cleaner_checklist_json="[]", stainer_checklist_json=json.dumps([i["key"] for i in pm.STAINER_CHECKLIST]))
     assert pm.map_status(j, cleaned=True) == "done"
     assert pm.map_status(None, cleaned=False) == "pending"
+
+
+def test_map_redoes_a_middle_of_texas_pin_and_cleans_the_address():
+    assert not pm._in_area(31.9685988, -99.9018131)   # "somewhere in Texas"
+    assert pm._in_area(29.8, -95.8)                    # Katy
+    assert pm._street("6215 North Lazy Meadow Way (Tom & Jerry Anne Clark, Jimmy's parents)") == "6215 North Lazy Meadow Way"
+    assert pm._street("7022 Golden Groundsel Dr Katy, TX  77493 United States") == "7022 Golden Groundsel Dr Katy, TX 77493"

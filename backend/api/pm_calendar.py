@@ -15,6 +15,7 @@ of its services with both a before and an after photo, 100% on "Job done".
 No prices anywhere in this module.
 """
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -448,8 +449,18 @@ def _save_added(db, ids: list[str]) -> None:
 
 
 def _in_area(lat, lng) -> bool:
-    # Roughly Texas; anything else is an old wrong lookup and is redone.
-    return bool(lat and lng) and 25.5 <= float(lat) <= 36.6 and -106.7 <= float(lng) <= -93.4
+    # Greater Houston, where every job is. Anything else is a wrong lookup and
+    # is redone: Michelle Stout (Katy) had the middle of Texas saved, the
+    # point Google gives when it only matches "TX" (Alan, 2026-10-25).
+    return bool(lat and lng) and 28.6 <= float(lat) <= 31.0 and -96.7 <= float(lng) <= -94.3
+
+
+def _street(address: str) -> str:
+    """The address without notes in brackets ("(Jimmy's parents)") or a
+    trailing "United States", which throw the lookup off."""
+    a = re.sub(r"\([^)]*\)", " ", address or "")
+    a = re.sub(r",?\s*United States\s*$", "", a.strip(), flags=re.I)
+    return re.sub(r"\s+", " ", a).strip(" ,")
 
 
 def map_status(job: CompanyCamJob | None, cleaned: bool, pw_sections: set[str] | None = None) -> str:
@@ -494,10 +505,10 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
             if not _in_area(lead.lat, lead.lng) and (lead.address or "").strip() and looked_up < _GEOCODE_CAP:
                 looked_up += 1
                 try:
-                    geo = geocode_address(lead.address, lead.zip_code or "", api_key=key)
+                    geo = geocode_address(_street(lead.address), lead.zip_code or "", api_key=key)
                 except Exception:  # noqa: BLE001
                     geo = None
-                if geo and geo.get("lat") and geo.get("lng"):
+                if geo and _in_area(geo.get("lat"), geo.get("lng")):
                     lead.lat, lead.lng = float(geo["lat"]), float(geo["lng"])
                     lead.geocoded_at = datetime.now(timezone.utc).isoformat()
                     db.commit()
