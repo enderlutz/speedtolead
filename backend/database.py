@@ -1899,6 +1899,9 @@ class CompanyCamJob(Base):
     # The cleaner confirms the exact pickets with the customer and marks
     # each with spray paint, so the stainer replaces the right ones.
     repairs_json = Column(Text, default="")
+    # The picket length the cleaner measured on site, in feet (Alan,
+    # 2026-10-27: the crew showed up with 6 ft pickets for an 8 ft fence).
+    picket_length_ft = Column(Float, default=0.0)
     repair_notes = Column(Text, default="")
     pickets_marked_at = Column(Text, default="")
     pickets_marked_by = Column(Text, default="")
@@ -5011,6 +5014,8 @@ def _run_migrations():
             ("closed_at", "TEXT DEFAULT ''"),
             ("closed_by", "TEXT DEFAULT ''"),
             ("closed_how", "TEXT DEFAULT ''"),
+            # The picket length the cleaner measured (Alan, 2026-10-27).
+            ("picket_length_ft", "DOUBLE PRECISION DEFAULT 0"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

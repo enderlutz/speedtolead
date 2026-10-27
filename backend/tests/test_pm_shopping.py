@@ -67,6 +67,18 @@ def test_ticked_items_leave_the_week_list_until_the_count_changes(db, monkeypatc
     assert line["label"] == "32 pine (treated) pickets, 6 ft" and line["have"] is False
 
 
+def test_the_cleaners_measured_picket_length_wins(db, monkeypatch):
+    """Alan, 2026-10-27: the crew showed up with 6 ft pickets for an 8 ft fence."""
+    _setup(db, monkeypatch)
+    h = db.query(CompanyCamJob).filter_by(lead_id="H").first()
+    line = next(l for l in ps.shopping(db, "2026-10-26", "2026-11-02") if l["name"] == "Harrell")["lines"][0]
+    assert line["label"] == "30 pine (treated) pickets, 6 ft" and "not measured" in line["note"]
+    h.picket_length_ft = 8
+    db.commit()
+    line = next(l for l in ps.shopping(db, "2026-10-26", "2026-11-02") if l["name"] == "Harrell")["lines"][0]
+    assert line["label"] == "30 pine (treated) pickets, 8 ft" and "not measured" not in line["note"]
+
+
 def test_no_color_yet_says_pick_it_and_buys_nothing(db, monkeypatch):
     _setup(db, monkeypatch)
     m = db.query(CompanyCamJob).filter_by(lead_id="M").first()

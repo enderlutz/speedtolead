@@ -4130,6 +4130,8 @@ export interface CompanyCamJob {
   repair_notes?: string;
   /** The cleaner agreed the exact pickets with the customer and marked them. */
   pickets_marked_at?: string; pickets_marked_by?: string;
+  /** The picket length the cleaner measured on site, feet. 0 = not measured yet. */
+  picket_ft?: number;
   /** Extra repairs the customer agreed to on site, and when they said yes. */
   extras?: { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
   extras_confirmed_at?: string; extras_confirmed_by?: string;

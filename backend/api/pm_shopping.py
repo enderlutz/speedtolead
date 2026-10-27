@@ -96,11 +96,15 @@ def repair_counts(job: CompanyCamJob) -> tuple[dict, str, str, bool]:
     return counts, src["picket_type"], src["post_type"], confirmed
 
 
-def material_lines(counts: dict, picket_type: str, height: int) -> list[dict]:
-    """What the store sells, for the repairs on one job."""
+def material_lines(counts: dict, picket_type: str, height: int, picket_ft: float = 0) -> list[dict]:
+    """What the store sells, for the repairs on one job. The picket length is
+    what the cleaner measured on site when there is one; the fence height
+    otherwise (and the line says so, because that's how the crew turned up
+    with 6 ft pickets for an 8 ft fence)."""
     wood = "cedar" if picket_type == "cedar" else "pine (treated)"
+    pf = f"{picket_ft:g}" if picket_ft else str(height)
     items = [
-        ("pickets", counts.get("pickets", 0), f"{wood} pickets, {height} ft"),
+        ("pickets", counts.get("pickets", 0), f"{wood} pickets, {pf} ft"),
         ("rail", counts.get("rail", 0), "treated 2x4 rails, 8 ft"),
         ("rotboard", counts.get("rotboard", 0), "rot boards (treated 2x6)"),
         ("cap", counts.get("cap", 0), "cap boards (top trim)"),
@@ -204,9 +208,13 @@ def shopping(db, start: str, end: str) -> list[dict]:
                          f"None on the shelf, buy {buy} gal" if buy else ""),
             })
         counts, ptype, post, confirmed = repair_counts(job)
-        mats = material_lines(counts, ptype, _height(job, inputs, post)) if any(counts.values()) else []
+        pf = float(getattr(job, "picket_length_ft", 0) or 0)
+        mats = material_lines(counts, ptype, _height(job, inputs, post), pf) if any(counts.values()) else []
         for m in mats:
-            m.update({"need_by": repair_day or stain_day, "note": "" if confirmed else "Count not confirmed with the customer yet"})
+            notes = [] if confirmed else ["Count not confirmed with the customer yet"]
+            if m["key"] == "pickets" and not pf:
+                notes.append("Length not measured by the cleaner yet: this is the fence height from the estimate")
+            m.update({"need_by": repair_day or stain_day, "note": ". ".join(notes)})
         lines += mats
         for ln in lines:
             h = mine.get(ln["key"])

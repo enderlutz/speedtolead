@@ -2656,7 +2656,9 @@ function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; s
   ].filter(Boolean);
   const stainer = [
     job.gallons_needed ? (isSpanish() ? `${job.gallons_needed} galones de ${stain || "tinte (color sin elegir todavía)"}` : `${job.gallons_needed} gallons of ${stain || "stain (colour not picked yet)"}`) : "",
-    ...repairWords(sum).map((w, i) => (i === 0 && pickets && extras.counts.pickets ? (isSpanish() ? `${w} (${planned.counts.pickets || 0} planeadas + ${extras.counts.pickets} agregadas en el lugar)` : `${w} (${planned.counts.pickets || 0} planned + ${extras.counts.pickets} added on site)`) : w)),
+    ...repairWords(sum).map((w, i) => (i === 0 && pickets
+      ? `${w}${job.picket_ft ? (isSpanish() ? ` de ${job.picket_ft} pies` : `, ${job.picket_ft} ft long`) : (isSpanish() ? " (largo sin medir: pregunta al limpiador)" : " (length not measured yet: ask the cleaner)")}${extras.counts.pickets ? (isSpanish() ? ` (${planned.counts.pickets || 0} planeadas + ${extras.counts.pickets} agregadas en el lugar)` : ` (${planned.counts.pickets || 0} planned + ${extras.counts.pickets} added on site)`) : ""}`
+      : w)),
     pickets ? (isSpanish() ? `${pickets * 4} clavos de tornillo (4 por tabla)` : `${pickets * 4} screw nails (4 a picket)`) : "",
     pickets || sum.counts.rotboard || sum.counts.cap || sum.counts.rail ? tr("A saw, to cut pickets and boards to size") : "",
   ].filter(Boolean);
@@ -2681,6 +2683,34 @@ function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; s
           <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-white/70 px-2 py-1.5 text-sm text-foreground"><b>{tr("Repair note:")}</b> {job.repair_notes}</p>
         ) : null}
       </>)}
+    </div>
+  );
+}
+
+/** The picket length, measured on site (Alan, 2026-10-27: the crew showed
+ *  up with 6 ft pickets for an 8 ft fence). Big chips, and "Other" for the
+ *  odd one. 0 = not measured yet. */
+const PICKET_FT = [5, 6, 8];
+function PicketLength({ value, onChange }: { value: number; onChange: (ft: number) => void }) {
+  const [other, setOther] = useState("");
+  const custom = value > 0 && !PICKET_FT.includes(value);
+  return (
+    <div>
+      <p className="text-sm font-semibold">{isSpanish() ? "Largo de las tablas (mide una)" : "Picket length (measure one)"}</p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {PICKET_FT.map((ft) => (
+          <button key={ft} type="button" onClick={() => onChange(ft)} aria-pressed={value === ft}
+                  className={cn("min-h-11 rounded-lg px-3.5 py-2 text-[15px] font-semibold transition", value === ft ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
+            {ft} ft
+          </button>
+        ))}
+        <span className="flex items-center gap-1">
+          <input value={custom ? String(value) : other} onChange={(e) => { setOther(e.target.value); const n = parseFloat(e.target.value); if (n >= 3 && n <= 12) onChange(n); }}
+                 inputMode="decimal" placeholder={tr("Other")} className={cn("h-11 w-20 rounded-lg px-2 text-[15px] font-semibold ring-1", custom ? "bg-[#15130F] text-[#E3BE63] ring-[#15130F]" : "bg-white ring-[#15130F]/15")} />
+          <span className="text-sm text-muted-foreground">ft</span>
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">{isSpanish() ? "Una cerca de 8 pies lleva tablas de 8 pies. Esto es lo que se compra." : "An 8 ft fence takes 8 ft pickets. This is what gets bought."}</p>
     </div>
   );
 }
@@ -2767,14 +2797,18 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
           <p className="text-sm font-bold">{isSpanish() ? `Limpiador: marca las ${pickets} tablas con el cliente` : `Cleaner: mark the ${pickets} pickets with the customer`}</p>
           <p className="mt-0.5 text-sm leading-relaxed">
             {isSpanish()
-              ? `Camina la cerca con el cliente y marca cada tabla que se cambia con pintura en spray, para que el pintor cambie las correctas.`
-              : `Walk the fence with the customer and put a quick spray-paint mark on each picket that gets replaced, so the stainer replaces the right ones.`}
+              ? `Camina la cerca con el cliente. Pon una marca GRANDE y brillante de pintura en spray en cada tabla y cada poste que se cambia, que el pintor no la pueda pasar por alto. Después mide una tabla y marca su largo abajo.`
+              : `Walk the fence with the customer. Put a BIG, bright spray-paint mark on every picket and every post that gets replaced, one the stainer can't miss. Then measure one picket and tap its length below.`}
           </p>
-          <Button size="lg" variant={job.pickets_marked_at ? "default" : "outline"}
+          <div className="mt-2 rounded-lg bg-white/70 p-2">
+            <PicketLength value={job.picket_ft || 0} onChange={(ft) => onPatch({ picket_ft: ft })} />
+          </div>
+          <Button size="lg" variant={job.pickets_marked_at ? "default" : "outline"} disabled={!job.pickets_marked_at && !job.picket_ft}
                   className={cn("mt-2 h-auto min-h-11 w-full whitespace-normal py-2 text-sm font-semibold leading-tight", job.pickets_marked_at && "bg-emerald-600 hover:bg-emerald-600")}
                   onClick={() => onPatch({ pickets_marked: !job.pickets_marked_at })}>
             {job.pickets_marked_at
-              ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> {tr("Agreed with the customer and marked")}{job.pickets_marked_by ? ` · ${job.pickets_marked_by}` : ""}</>
+              ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> {tr("Agreed with the customer and marked")}{job.pickets_marked_by ? ` · ${job.pickets_marked_by}` : ""}{job.picket_ft ? ` · ${job.picket_ft} ft` : ""}</>
+              : !job.picket_ft ? <>{isSpanish() ? "Primero el largo de las tablas" : "Pick the picket length first"}</>
               : <>{isSpanish() ? `Acordado con el cliente y marcadas las ${pickets}` : `Agreed with the customer and marked all ${pickets}`}</>}
           </Button>
         </div>
@@ -2847,6 +2881,7 @@ function SiteCount({ job, onPatch }: {
                  onPrice={(p) => setPrice("pickets", p)} priceNote={note("pickets")}
                  art={<FencePart part="picket" />} n={e.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
           <Chips options={PICKETS} value={e.picket_type} onChange={(k) => set({ picket_type: k })} />
+          {(e.counts.pickets || 0) > 0 ? <div className="mt-2"><PicketLength value={job.picket_ft || 0} onChange={(ft) => onPatch({ picket_ft: ft })} /></div> : null}
         </Counter>
         {PARTS.map((part) => (
           <Counter stack key={part.key} label={tr(part.label)} what={tr(part.what)} unit={part.unit} price={priceOf(part.key, e)}

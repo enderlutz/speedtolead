@@ -433,6 +433,7 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "color_all_sides": job.color_all_sides or "",
         "repairs": _repairs(job),
         "repair_notes": job.repair_notes or "",
+        "picket_ft": float(getattr(job, "picket_length_ft", 0) or 0),
         "pickets_marked_at": job.pickets_marked_at or "",
         "pickets_marked_by": job.pickets_marked_by or "",
         "extras": _repairs(job, job.extras_json or ""),
@@ -645,6 +646,8 @@ class CompanyCamPatch(BaseModel):
     repair_notes: str | None = None
     # True: the cleaner agreed the exact pickets with the customer and marked them.
     pickets_marked: bool | None = None
+    # The picket length measured on site, feet (6 or 8 usually). 0 = not measured.
+    picket_ft: float | None = None
     # Extra repairs the customer agreed to on site (same shape as repairs).
     # Changing them un-confirms; extras_confirmed=True is "the customer said yes".
     extras: dict | None = None
@@ -831,6 +834,14 @@ def update_company_cam(
         if body.pickets_marked is not None:
             job.pickets_marked_at = _now() if body.pickets_marked else ""
             job.pickets_marked_by = _actor(user) if body.pickets_marked else ""
+        if body.picket_ft is not None:
+            try:
+                pf = float(body.picket_ft)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Picket length has to be a number of feet")
+            if pf and not 3 <= pf <= 12:
+                raise HTTPException(400, "Picket length has to be between 3 and 12 ft")
+            job.picket_length_ft = round(pf, 1)
         if body.crew is not None:
             if not _sees_all(user):
                 raise HTTPException(403, "Only the office puts crew on a job")
