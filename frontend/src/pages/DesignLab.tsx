@@ -12,8 +12,9 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { FlaskConical, History, Lightbulb, Maximize2, NotebookPen, Repeat, ShieldAlert, Smartphone } from "lucide-react";
+import { Calculator, FlaskConical, History, Lightbulb, Maximize2, NotebookPen, Repeat, ShieldAlert, Smartphone } from "lucide-react";
 import ProposalMockup from "@/pages/ProposalMockup";
+import QuoteMockup from "@/pages/QuoteMockup";
 import CardoneFollowUps from "@/pages/CardoneFollowUps";
 import { DESIGN_CHANGES } from "@/content/design-changes";
 import notes from "@/content/proposal-v2.md?raw";
@@ -21,9 +22,10 @@ import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
 import { cn } from "@/lib/utils";
 
-type Tab = "screens" | "followups" | "ideas" | "changes" | "notes";
+type Tab = "screens" | "quote" | "followups" | "ideas" | "changes" | "notes";
 const TABS: { key: Tab; label: string; icon: React.ElementType; hint: string }[] = [
   { key: "screens", label: "Screens", icon: Smartphone, hint: "Every customer screen, tap through it" },
+  { key: "quote", label: "Quote generator", icon: Calculator, hint: "Get my price: the self-serve quote, as a mock" },
   { key: "followups", label: "Follow-ups", icon: Repeat, hint: "Cardone's year of touches" },
   { key: "ideas", label: "Ideas", icon: Lightbulb, hint: "Saved for later" },
   { key: "changes", label: "Changes", icon: History, hint: "What went live, newest first" },
@@ -87,7 +89,7 @@ export default function DesignLab() {
   }, []);
 
   return (
-    <div className={cn("mx-auto space-y-4 p-4 md:p-6", tab === "screens" ? "max-w-6xl" : "max-w-4xl")}>
+    <div className={cn("mx-auto space-y-4 p-4 md:p-6", tab === "screens" || tab === "quote" ? "max-w-6xl" : "max-w-4xl")}>
       <div className="overflow-hidden rounded-2xl bg-ink text-ivory shadow-lg">
         <div className="flex flex-wrap items-center gap-3 px-5 py-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
@@ -97,6 +99,11 @@ export default function DesignLab() {
             <h1 className="font-heading text-xl font-bold leading-tight">Design Lab</h1>
             <p className="text-xs text-ivory/70">Everything a customer sees, before they see it. Nothing on this page sends anything.</p>
           </div>
+          {tab === "quote" ? (
+            <Link to="/quote-mockup" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
+              <Maximize2 className="h-3.5 w-3.5" /> Full screen
+            </Link>
+          ) : null}
           {tab === "screens" ? (
             <Link to="/new-proposal/mockup" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
               <Maximize2 className="h-3.5 w-3.5" /> Full screen
@@ -122,6 +129,8 @@ export default function DesignLab() {
           <ProposalMockup />
         </div>
       ) : null}
+
+      {tab === "quote" ? <QuoteMockup embedded /> : null}
 
       {tab === "followups" ? <CardoneFollowUps embedded /> : null}
 
