@@ -51,7 +51,13 @@ const SIZE_TIERS: [number, number][] = [[400, 0.45], [700, 0.28], [1000, 0.25], 
 const MIN_JOB = 600;
 
 type Pt = { lat: number; lng: number };
-type Drawn = { key: string; label: string; pts: Pt[]; feet: number; both: boolean };
+// One traced side: its corners, and for each line between two corners
+// whether both faces get stained (Alan, 2026-10-27: asked per line, because
+// the short piece that turns in to the house is the one to double-side).
+type Drawn = { key: string; label: string; pts: Pt[]; legs: boolean[] };
+const legFeet = (d: Drawn, i: number) => feet(d.pts[i], d.pts[i + 1]);
+const stainedFeet = (d: Drawn) => d.legs.reduce((s, both, i) => s + legFeet(d, i) * (both ? 2 : 1), 0);
+const bothFeet = (d: Drawn) => d.legs.reduce((s, both, i) => s + (both ? legFeet(d, i) : 0), 0);
 type Step = "start" | "measuring" | "draw" | "length" | "video" | "height" | "wood" | "price" | "contact" | "done" | "outside";
 type Wood = "new" | "grey" | "stained" | "unsure";
 
@@ -216,7 +222,7 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
   const totalFeet = useMemo(() => {
     if (typedFeet) return typedFeet;
     if (bucket) return BUCKETS.find((b) => b.key === bucket)?.feet || 0;
-    return Math.round(drawn.reduce((s, d) => s + (d.both ? d.feet * 2 : d.feet), 0));
+    return Math.round(drawn.reduce((s, d) => s + stainedFeet(d), 0));
   }, [drawn, bucket, typedFeet]);
   const ft = HEIGHTS.find((h) => h.key === height)?.ft || 6.5;
   const sqft = Math.round(totalFeet * ft);
@@ -444,11 +450,19 @@ function Measuring({ done }: { done: number }) {
  * crosshair shows the next leg and its feet before the point is dropped.
  * The lot lines are a faint guide and the crosshair snaps to the lot's
  * corners when it's within 10 ft.
+ *
+ * The photo is turned so the street is at the bottom (Alan, 2026-10-27:
+ * "position it based on the street", so left is left and right is right).
+ * Google's satellite layer can't rotate, so the map's box is rotated with
+ * CSS and finger drags are turned back into map space by hand; Google's own
+ * dragging is off. The street direction comes from where Street View's
+ * camera sits in front of the house (free). No camera: north stays up.
  */
 function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMine, onTypeIt }: {
   mapsKey: string; house: Pt; ring: Pt[] | null; found: string; drawn: Drawn[]; setDrawn: (d: Drawn[]) => void;
   onOk: () => void; onNotMine: () => void; onTypeIt: () => void;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const drawnRef = useRef<any[]>([]);
@@ -457,11 +471,16 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
   const [pts, setPts] = useState<Pt[]>([]);
   const [preview, setPreview] = useState<{ ft: number; snapped: boolean } | null>(null);
   const [extra, setExtra] = useState(0);
-  // Right after a side is finished: one face or both? (Alan, 2026-10-27: ask it per side, as each one is done.)
+  // Right after a side is finished: one face or both, per line (Alan, 2026-10-27).
   const [faces, setFaces] = useState<Drawn | null>(null);
+  const [facesEdit, setFacesEdit] = useState(false);
   const [anotherOn, setAnotherOn] = useState(false);
+  const [rot, setRot] = useState(0);
+  const rotRef = useRef(0);
   const snapPts = useMemo(() => (ring ? corners(ring) : []), [ring]);
   const side = idx < SIDES.length ? SIDES[idx] : null;
+  const ptsRef = useRef<Pt[]>([]);
+  ptsRef.current = pts;
 
   const snap = (p: Pt): { p: Pt; snapped: boolean } => {
     let best: Pt | null = null, bd = SNAP_FT;
@@ -469,20 +488,19 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
     return best ? { p: best, snapped: true } : { p, snapped: false };
   };
 
-  // The map, once.
+  // The map, once. Oversized and rotated inside the box; see the note above.
   useEffect(() => {
     let live = true;
     loadGoogleMaps(mapsKey).then(() => {
       if (!live || !divRef.current || mapRef.current) return;
       const G = g().maps;
-      const map = new G.Map(divRef.current, { center: house, zoom: 19, mapTypeId: "satellite", disableDefaultUI: true, gestureHandling: "greedy", tilt: 0, clickableIcons: false, zoomControl: true });
+      const map = new G.Map(divRef.current, { center: house, zoom: 19, mapTypeId: "satellite", disableDefaultUI: true, gestureHandling: "none",
+        draggable: false, scrollwheel: false, keyboardShortcuts: false, tilt: 0, clickableIcons: false, isFractionalZoomEnabled: true });
       mapRef.current = map;
-      if (ring) { const b = new G.LatLngBounds(); ring.forEach((p) => b.extend(p)); map.fitBounds(b, 30); }
+      if (ring) { const b = new G.LatLngBounds(); ring.forEach((p) => b.extend(p)); map.fitBounds(b, { top: 130, bottom: 130, left: 90, right: 90 }); }
       map.addListener("center_changed", () => {
         const c = map.getCenter(); if (!c) return;
         const s = snap({ lat: c.lat(), lng: c.lng() });
-        setPreview((old) => ({ ft: old?.ft ?? 0, snapped: s.snapped }));
-        // The dotted next leg: from the last corner to the crosshair.
         const last = ptsRef.current[ptsRef.current.length - 1];
         if (last) {
           const path = [last, s.p];
@@ -490,15 +508,53 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
             icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3, scale: 3 }, offset: "0", repeat: "14px" }] });
           else previewRef.current.setPath(path);
           setPreview({ ft: Math.round(feet(last, s.p)), snapped: s.snapped });
-        } else if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
+        } else {
+          if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
+          setPreview({ ft: 0, snapped: s.snapped });
+        }
       });
+      // Street at the bottom: Street View's camera sits in the street in front of the house.
+      try {
+        new G.StreetViewService().getPanorama({ location: house, radius: 80, source: "outdoor" }, (data: any, status: string) => {
+          if (status !== "OK" || !data?.location?.latLng) return;
+          const cam = { lat: data.location.latLng.lat(), lng: data.location.latLng.lng() };
+          const [x, y] = flat(house, cam);
+          if (Math.hypot(x, y) < 15) return;
+          const bearing = ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360; // 0 = north, clockwise
+          let r = 180 - bearing; if (r > 180) r -= 360; if (r < -180) r += 360;
+          rotRef.current = r; setRot(r);
+        });
+      } catch { /* north up */ }
     }).catch(() => {});
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapsKey]);
 
-  const ptsRef = useRef<Pt[]>([]);
-  ptsRef.current = pts;
+  // Finger drags and pinches, turned into map space under the rotation.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  const onDown = (e: React.PointerEvent) => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pointers.current.size === 2) pinch.current = null; };
+  const onMove = (e: React.PointerEvent) => {
+    const map = mapRef.current; const prev = pointers.current.get(e.pointerId); if (!map || !prev) return;
+    const now = { x: e.clientX, y: e.clientY };
+    const r = (rotRef.current * Math.PI) / 180;
+    if (pointers.current.size === 1) {
+      const dx = now.x - prev.x, dy = now.y - prev.y;
+      // Undo the rotation so a drag on the screen moves the photo the same way.
+      const mx = dx * Math.cos(-r) - dy * Math.sin(-r), my = dx * Math.sin(-r) + dy * Math.cos(-r);
+      map.panBy(-mx, -my);
+    } else if (pointers.current.size === 2) {
+      pointers.current.set(e.pointerId, now);
+      const [p1, p2] = [...pointers.current.values()];
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      if (!pinch.current) pinch.current = { dist, zoom: map.getZoom() };
+      else map.setZoom(Math.max(16, Math.min(21, pinch.current.zoom + Math.log2(dist / pinch.current.dist))));
+      return;
+    }
+    pointers.current.set(e.pointerId, now);
+  };
+  const onUp = (e: React.PointerEvent) => { pointers.current.delete(e.pointerId); if (pointers.current.size < 2) pinch.current = null; };
+  const zoomBy = (d: number) => { const m = mapRef.current; if (m) m.setZoom(Math.max(16, Math.min(21, m.getZoom() + d))); };
 
   // Redraw the lot guide, finished sides and the side in progress.
   useEffect(() => {
@@ -510,18 +566,26 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
     if (ring) add(new G.Polygon({ map, paths: ring, strokeColor: "#ffffff", strokeOpacity: 0.5, strokeWeight: 1.5, fillOpacity: 0, clickable: false }));
     for (const c of snapPts) add(new G.Marker({ map, position: c, clickable: false, zIndex: 3, icon: { path: G.SymbolPath.CIRCLE, scale: 4, fillColor: "#ffffff", fillOpacity: 0.9, strokeColor: "#111110", strokeWeight: 1 } }));
     for (const d of drawn) {
-      add(new G.Polyline({ map, path: d.pts, strokeColor: GOLD, strokeOpacity: 1, strokeWeight: d.both ? 7 : 4, zIndex: 2, clickable: false }));
-      if (d.both) add(new G.Polyline({ map, path: d.pts, strokeColor: "#111110", strokeOpacity: 1, strokeWeight: 2, zIndex: 3, clickable: false }));
-      const k = Math.floor((d.pts.length - 1) / 2);
-      tag(lerp(d.pts[k], d.pts[Math.min(d.pts.length - 1, k + 1)], 0.5), `${d.label} · ${Math.round(d.both ? d.feet * 2 : d.feet)} ft`);
+      d.legs.forEach((both, i) => {
+        const path = [d.pts[i], d.pts[i + 1]];
+        add(new G.Polyline({ map, path, strokeColor: GOLD, strokeOpacity: 1, strokeWeight: both ? 7 : 4, zIndex: 2, clickable: false }));
+        if (both) add(new G.Polyline({ map, path, strokeColor: "#111110", strokeOpacity: 1, strokeWeight: 2, zIndex: 3, clickable: false }));
+      });
+      if (faces && faces.key === d.key && d.legs.length > 1) {
+        d.legs.forEach((_, i) => tag(lerp(d.pts[i], d.pts[i + 1], 0.5), `${i + 1}`));
+      } else {
+        const k = Math.floor((d.pts.length - 1) / 2);
+        tag(lerp(d.pts[k], d.pts[k + 1], 0.5), `${d.label} · ${Math.round(stainedFeet(d))} ft`);
+      }
     }
     if (pts.length) {
       add(new G.Polyline({ map, path: pts, strokeColor: GOLD, strokeOpacity: 1, strokeWeight: 5, zIndex: 4, clickable: false }));
       for (const p of pts) add(new G.Marker({ map, position: p, clickable: false, zIndex: 5, icon: { path: G.SymbolPath.CIRCLE, scale: 7, fillColor: GOLD, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 2 } }));
     }
     add(new G.Marker({ map, position: house, clickable: false, icon: { path: G.SymbolPath.CIRCLE, scale: 5, fillColor: "#ffffff", fillOpacity: 0.9, strokeColor: "#111110", strokeWeight: 2 } }));
-  }, [ring, snapPts, drawn, pts, house, idx]);
+  }, [ring, snapPts, drawn, pts, house, idx, faces]);
 
+  const clearPreview = () => { if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; } };
   const addCorner = () => {
     const map = mapRef.current; const c = map?.getCenter(); if (!c) return;
     const s = snap({ lat: c.lat(), lng: c.lng() });
@@ -529,36 +593,33 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
     setPts([...pts, s.p]);
   };
   const undo = () => { if (pts.length) setPts(pts.slice(0, -1)); else if (drawn.length) { const last = drawn[drawn.length - 1]; setDrawn(drawn.slice(0, -1)); setPts(last.pts); setIdx(Math.max(0, idx - 1)); } };
-  const finishSide = () => {
-    if (!side || pts.length < 2) return;
-    const d: Drawn = { key: side.key + (extra ? `-${extra}` : ""), label: side.label, pts, feet: lengthOf(pts), both: false };
-    setDrawn([...drawn, d]); setFaces(d);
-    setPts([]);
-    if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
-  };
-  const answerFaces = (both: boolean) => {
-    if (!faces) return;
-    setDrawn(drawn.map((d) => (d.key === faces.key ? { ...d, both } : d)));
-    setFaces(null);
-    if (anotherOn) setAnotherOn(false); else setIdx(idx + 1);
-  };
-  const skipSide = () => { setPts([]); setIdx(idx + 1); if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; } };
-  const addAnother = () => { setExtra(extra + 1); setIdx(SIDES.length); setPts([]); setAnotherOn(true); };
-  const total = Math.round(drawn.reduce((s, d) => s + (d.both ? d.feet * 2 : d.feet), 0));
-  const flipBoth = (key: string) => setDrawn(drawn.map((d) => (d.key === key ? { ...d, both: !d.both } : d)));
-
-  // "Add another section" reuses the drawing controls with a generic label.
   const current = anotherOn ? { key: `more-${extra}`, label: `Section ${drawn.length + 1}`, ask: "Trace any other piece of fence we should stain." } : side;
   const drawing = !!current;
+  const finishSide = () => {
+    if (!current || pts.length < 2) return;
+    const d: Drawn = { key: anotherOn ? current.key : current.key + (extra ? `-${extra}` : ""), label: current.label, pts, legs: pts.slice(1).map(() => false) };
+    setDrawn([...drawn, d]); setFaces(d); setFacesEdit(false); setPts([]); clearPreview();
+  };
+  const setLeg = (i: number, both: boolean) => { if (!faces) return; const d = { ...faces, legs: faces.legs.map((b, j) => (j === i ? both : b)) }; setFaces(d); setDrawn(drawn.map((x) => (x.key === d.key ? d : x))); };
+  const doneFaces = () => { setFaces(null); if (facesEdit) return; if (anotherOn) setAnotherOn(false); else setIdx(idx + 1); };
+  const skipSide = () => { setPts([]); setIdx(idx + 1); clearPreview(); };
+  const addAnother = () => { setExtra(extra + 1); setIdx(SIDES.length); setPts([]); setAnotherOn(true); };
+  /** Done tracing, whatever's left in the list: straight to "Does this look right?" */
+  const finishAll = () => { setPts([]); clearPreview(); setAnotherOn(false); setIdx(SIDES.length); };
+  const total = Math.round(drawn.reduce((s, d) => s + stainedFeet(d), 0));
+  const editFaces = (d: Drawn) => { setFaces(d); setFacesEdit(true); };
 
   return (
     <div className="flex-1 px-5 pb-6 pt-3">
       <h2 className="text-[26px] leading-[1.1] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>
-        {faces ? "Nice. One more thing." : drawing ? `Trace your ${current!.label.toLowerCase()}` : "Does this look right?"}
+        {faces ? (faces.legs.length > 1 ? "Nice. Which pieces get both faces?" : "Nice. One more thing.") : drawing ? `Trace your ${current!.label.toLowerCase()}` : "Does this look right?"}
       </h2>
-      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">{faces ? "Each side is its own line. Nothing connects across the house." : drawing ? current!.ask : found}</p>
-      <div className="relative mt-3 overflow-hidden rounded-2xl ring-1 ring-[#111110]/10">
-        <div ref={divRef} className="h-[320px] w-full bg-[#2b2b2b]" style={{ touchAction: "none" }} />
+      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">
+        {faces ? "Each side is its own line. Nothing connects across the house." : drawing ? current!.ask : found}
+      </p>
+      <div ref={boxRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+           className="relative mt-3 h-[320px] overflow-hidden rounded-2xl bg-[#2b2b2b] ring-1 ring-[#111110]/10" style={{ touchAction: "none" }}>
+        <div ref={divRef} className="absolute left-1/2 top-1/2 h-[560px] w-[560px]" style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }} />
         {drawing && !faces ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className={cn("relative block h-9 w-9 rounded-full border-2", preview?.snapped ? "border-[#C9972F]" : "border-white")} style={{ boxShadow: "0 0 0 1px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.5)" }}>
@@ -568,23 +629,47 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
             </span>
           </div>
         ) : null}
-        {drawing && preview?.snapped ? <span className="absolute left-3 top-3 rounded-full bg-[#111110]/80 px-2.5 py-1 text-[12px] font-semibold text-white">On a lot corner</span> : null}
-        <style>{`.quote-map-label{text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6)}`}</style>
+        {drawing && !faces && preview?.snapped ? <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-[#111110]/80 px-2.5 py-1 text-[12px] font-semibold text-white">On a lot corner</span> : null}
+        <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[#111110]/80 px-2.5 py-1 text-[12px] font-semibold text-white">Street side ↓</span>
+        <div className="absolute right-2 top-2 flex flex-col gap-1">
+          <button type="button" onClick={() => zoomBy(0.5)} className="h-10 w-10 rounded-lg bg-white/95 text-[22px] font-semibold text-[#111110] shadow" aria-label="Zoom in">+</button>
+          <button type="button" onClick={() => zoomBy(-0.5)} className="h-10 w-10 rounded-lg bg-white/95 text-[22px] font-semibold text-[#111110] shadow" aria-label="Zoom out">−</button>
+        </div>
+        <style>{`.quote-map-label{text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6);transform:rotate(${-rot}deg)}`}</style>
       </div>
 
       {faces ? (
         <>
-          <p className="mt-3 flex items-center gap-2 text-[15px] font-semibold"><Check className="h-5 w-5 text-[#C9972F]" />{faces.label} saved · {Math.round(faces.feet)} ft</p>
-          <p className="mt-3 text-[17px] leading-snug" style={{ fontFamily: SERIF }}>Stain one face of it, or both?</p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => answerFaces(false)} className={cn(BTN, "mt-0 min-h-[56px] flex-col gap-0 text-[15px]")}>My side only<span className="text-[12px] font-normal opacity-80">the face you see</span></button>
-            <button type="button" onClick={() => answerFaces(true)} className={cn(BTN2, "min-h-[56px] flex-col gap-0 text-[15px]")}>Both faces<span className="text-[12px] font-normal text-[#55534D]">the neighbor's side too</span></button>
-          </div>
+          <p className="mt-3 flex items-center gap-2 text-[15px] font-semibold"><Check className="h-5 w-5 text-[#C9972F]" />{faces.label} saved · {Math.round(lengthOf(faces.pts))} ft{faces.legs.length > 1 ? ` · ${faces.legs.length} pieces` : ""}</p>
+          {faces.legs.length === 1 ? (
+            <>
+              <p className="mt-3 text-[17px] leading-snug" style={{ fontFamily: SERIF }}>Stain one face of it, or both?</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { setLeg(0, false); doneFaces(); }} className={cn(BTN, "mt-0 min-h-[56px] flex-col gap-0 text-[15px]")}>My side only<span className="text-[12px] font-normal opacity-80">the face you see</span></button>
+                <button type="button" onClick={() => { setLeg(0, true); doneFaces(); }} className={cn(BTN2, "min-h-[56px] flex-col gap-0 text-[15px]")}>Both faces<span className="text-[12px] font-normal text-[#55534D]">the other side too</span></button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-[14px] leading-snug text-[#55534D]">The numbers on the map match the list. Tap a piece to stain both faces of it.</p>
+              <ul className="mt-2 space-y-1.5">
+                {faces.legs.map((both, i) => (
+                  <li key={i}>
+                    <button type="button" onClick={() => setLeg(i, !both)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
+                      <span className="text-[15px] font-semibold">Piece {i + 1} <span className="font-normal text-[#55534D]">· {Math.round(legFeet(faces, i))} ft</span></span>
+                      <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", both ? "bg-[#C9972F] text-[#111110]" : "bg-[#111110] text-white")}>{both ? "Both faces" : "My side only"}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" onClick={doneFaces} className={BTN}>{facesEdit ? "Done" : "Next side"} <ChevronRight className="h-5 w-5" /></button>
+            </>
+          )}
           <p className="mt-3 text-[13px] text-[#8A877F]">Both faces of a shared fence needs your neighbor's OK. We'll ask when we call.</p>
         </>
       ) : drawing ? (
         <>
-          <p className="mt-2 text-[13px] text-[#55534D]">Drag the photo so the crosshair sits on a corner, then tap <b>Add corner</b>. Pinch to zoom. The white dots are your lot's corners; the crosshair snaps to them.</p>
+          <p className="mt-2 text-[13px] text-[#55534D]">Drag the photo so the crosshair sits on a corner, then tap <b>Add corner</b>. Pinch or use + − to zoom. The white dots are your lot's corners; the crosshair snaps to them.</p>
           <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
             <button type="button" onClick={undo} disabled={!pts.length && !drawn.length} className={BTN2} aria-label="Undo"><Undo2 className="h-5 w-5" /></button>
             <button type="button" onClick={addCorner} className={cn(BTN, "mt-0 min-h-[48px] text-[16px]")}>
@@ -592,36 +677,37 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
             </button>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={anotherOn ? () => { setAnotherOn(false); setPts([]); } : skipSide} className={BTN2}>{anotherOn ? "Never mind" : "No wood fence here, skip"}</button>
-            <button type="button" disabled={pts.length < 2} onClick={anotherOn ? () => { if (pts.length >= 2) { const d: Drawn = { key: current!.key, label: current!.label, pts, feet: lengthOf(pts), both: false }; setDrawn([...drawn, d]); setFaces(d); setPts([]); } } : finishSide}
-                    className={cn(BTN2, "bg-[#C9972F] text-[#111110] ring-0")}>
+            <button type="button" onClick={anotherOn ? () => { setAnotherOn(false); setPts([]); clearPreview(); } : skipSide} className={BTN2}>{anotherOn ? "Never mind" : "No wood fence here, skip"}</button>
+            <button type="button" disabled={pts.length < 2} onClick={finishSide} className={cn(BTN2, "bg-[#C9972F] text-[#111110] ring-0")}>
               {pts.length >= 2 ? `Done, next side · ${Math.round(lengthOf(pts))} ft` : "Done, next side"}
             </button>
           </div>
           <p className="mt-3 text-[13px] text-[#8A877F]">{idx < SIDES.length ? `Side ${Math.min(idx + 1, SIDES.length)} of ${SIDES.length}` : "Extra section"}{drawn.length ? ` · ${total} ft so far` : ""}</p>
+          {drawn.length && !pts.length ? (
+            <button type="button" onClick={finishAll} className={cn(BTN, "mt-3")}>That's all my fence · {total} ft <ChevronRight className="h-5 w-5" /></button>
+          ) : null}
           <button type="button" onClick={onTypeIt} className="mt-2 min-h-11 w-full text-[14px] font-medium text-[#55534D] underline">Rather not draw? Type the length or pick a size</button>
         </>
       ) : (
         <>
-          <p className="mt-2 text-[13px] text-[#55534D]">Gold lines are what we'd stain. Tap a side to stain both faces of it.</p>
-          <ul className="mt-3 space-y-2">
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-[15px] text-[#55534D]">Your fence</span>
+            <span className="text-[30px] leading-none tabular-nums" style={{ fontFamily: SERIF }}>{total} ft</span>
+          </div>
+          <button type="button" disabled={total < 20} onClick={onOk} className={cn(BTN, "mt-2")}>That's right, next <ChevronRight className="h-5 w-5" /></button>
+          <p className="mt-4 text-[13px] text-[#55534D]">Gold lines are what we'd stain. Tap a side to change which pieces get both faces.</p>
+          <ul className="mt-2 space-y-2">
             {drawn.map((d) => (
               <li key={d.key}>
-                <button type="button" onClick={() => flipBoth(d.key)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
-                  <span className="text-[15px] font-semibold">{d.label} <span className="font-normal text-[#55534D]">· {Math.round(d.both ? d.feet * 2 : d.feet)} ft</span></span>
-                  <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", d.both ? "bg-[#C9972F] text-[#111110]" : "bg-[#111110] text-white")}>{d.both ? "Both sides" : "My side"}</span>
+                <button type="button" onClick={() => editFaces(d)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
+                  <span className="text-[15px] font-semibold">{d.label} <span className="font-normal text-[#55534D]">· {Math.round(stainedFeet(d))} ft</span></span>
+                  <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", bothFeet(d) ? "bg-[#C9972F] text-[#111110]" : "bg-[#111110] text-white")}>{bothFeet(d) ? `${Math.round(bothFeet(d))} ft both faces` : "My side"}</span>
                 </button>
               </li>
             ))}
             {!drawn.length ? <li className="rounded-xl bg-[#F6F5F2] px-3.5 py-3 text-[14px] text-[#55534D]">Nothing traced yet. Tap Add another section, or type the length below.</li> : null}
           </ul>
-          <p className="mt-3 text-[13px] text-[#8A877F]">"Both sides" of a shared fence needs your neighbor's OK. We'll ask when we call.</p>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-[15px] text-[#55534D]">Your fence</span>
-            <span className="text-[30px] leading-none tabular-nums" style={{ fontFamily: SERIF }}>{total} ft</span>
-          </div>
-          <button type="button" disabled={total < 20} onClick={onOk} className={BTN}>That's right <ChevronRight className="h-5 w-5" /></button>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={addAnother} className={BTN2}>Add another section</button>
             <button type="button" onClick={undo} className={BTN2}><Undo2 className="h-4 w-4" /> Redo last side</button>
           </div>
@@ -704,7 +790,8 @@ function Notes() {
     "If it's between 8 AM and 8 PM, a real person calls to confirm. Then the number is firm.",
     "No bias up. The range is the straight calculation (Essential to Legacy, tonight's rates).",
     "Height is pictures to tap. Standard (6.5 ft) is the default and marked \"Most fences\".",
-    "Right after each side is finished it asks: my side only, or both faces? (Oct 27.) A concrete, brick or iron side gets \"No wood fence here, skip\". Neighbor's OK is asked on the call.",
+    "Right after each side is finished it asks: my side only, or both faces? Per piece when a side has more than one line, since the short piece that turns in to the house is the one to double-side (Oct 27). A concrete, brick or iron side gets \"No wood fence here, skip\". Neighbor's OK is asked on the call.",
+    "The photo is turned so the street is at the bottom, so left is left and right is right (Oct 27). The street direction comes from where Street View's camera sits in front of the house.",
     "Can't or won't draw: type the length, pick a size, or \"Not sure\" → a video link or \"just send my info\".",
     "The satellite photo is shown. Gold lines = what we stain.",
     "Proof under the price: photos (more than three), 4.9 · 41 reviews, 1-year warranty and the touch-up can.",
