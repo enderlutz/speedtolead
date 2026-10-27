@@ -457,6 +457,9 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
   const [pts, setPts] = useState<Pt[]>([]);
   const [preview, setPreview] = useState<{ ft: number; snapped: boolean } | null>(null);
   const [extra, setExtra] = useState(0);
+  // Right after a side is finished: one face or both? (Alan, 2026-10-27: ask it per side, as each one is done.)
+  const [faces, setFaces] = useState<Drawn | null>(null);
+  const [anotherOn, setAnotherOn] = useState(false);
   const snapPts = useMemo(() => (ring ? corners(ring) : []), [ring]);
   const side = idx < SIDES.length ? SIDES[idx] : null;
 
@@ -528,13 +531,19 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
   const undo = () => { if (pts.length) setPts(pts.slice(0, -1)); else if (drawn.length) { const last = drawn[drawn.length - 1]; setDrawn(drawn.slice(0, -1)); setPts(last.pts); setIdx(Math.max(0, idx - 1)); } };
   const finishSide = () => {
     if (!side || pts.length < 2) return;
-    setDrawn([...drawn, { key: side.key + (extra ? `-${extra}` : ""), label: side.label, pts, feet: lengthOf(pts), both: false }]);
-    setPts([]); setIdx(idx + 1);
+    const d: Drawn = { key: side.key + (extra ? `-${extra}` : ""), label: side.label, pts, feet: lengthOf(pts), both: false };
+    setDrawn([...drawn, d]); setFaces(d);
+    setPts([]);
     if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
+  };
+  const answerFaces = (both: boolean) => {
+    if (!faces) return;
+    setDrawn(drawn.map((d) => (d.key === faces.key ? { ...d, both } : d)));
+    setFaces(null);
+    if (anotherOn) setAnotherOn(false); else setIdx(idx + 1);
   };
   const skipSide = () => { setPts([]); setIdx(idx + 1); if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; } };
   const addAnother = () => { setExtra(extra + 1); setIdx(SIDES.length); setPts([]); setAnotherOn(true); };
-  const [anotherOn, setAnotherOn] = useState(false);
   const total = Math.round(drawn.reduce((s, d) => s + (d.both ? d.feet * 2 : d.feet), 0));
   const flipBoth = (key: string) => setDrawn(drawn.map((d) => (d.key === key ? { ...d, both: !d.both } : d)));
 
@@ -545,12 +554,12 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
   return (
     <div className="flex-1 px-5 pb-6 pt-3">
       <h2 className="text-[26px] leading-[1.1] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>
-        {drawing ? `Trace your ${current!.label.toLowerCase()}` : "Does this look right?"}
+        {faces ? "Nice. One more thing." : drawing ? `Trace your ${current!.label.toLowerCase()}` : "Does this look right?"}
       </h2>
-      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">{drawing ? current!.ask : found}</p>
+      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">{faces ? "Each side is its own line. Nothing connects across the house." : drawing ? current!.ask : found}</p>
       <div className="relative mt-3 overflow-hidden rounded-2xl ring-1 ring-[#111110]/10">
         <div ref={divRef} className="h-[320px] w-full bg-[#2b2b2b]" style={{ touchAction: "none" }} />
-        {drawing ? (
+        {drawing && !faces ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className={cn("relative block h-9 w-9 rounded-full border-2", preview?.snapped ? "border-[#C9972F]" : "border-white")} style={{ boxShadow: "0 0 0 1px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.5)" }}>
               <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#C9972F]" />
@@ -563,7 +572,17 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
         <style>{`.quote-map-label{text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6)}`}</style>
       </div>
 
-      {drawing ? (
+      {faces ? (
+        <>
+          <p className="mt-3 flex items-center gap-2 text-[15px] font-semibold"><Check className="h-5 w-5 text-[#C9972F]" />{faces.label} saved · {Math.round(faces.feet)} ft</p>
+          <p className="mt-3 text-[17px] leading-snug" style={{ fontFamily: SERIF }}>Stain one face of it, or both?</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => answerFaces(false)} className={cn(BTN, "mt-0 min-h-[56px] flex-col gap-0 text-[15px]")}>My side only<span className="text-[12px] font-normal opacity-80">the face you see</span></button>
+            <button type="button" onClick={() => answerFaces(true)} className={cn(BTN2, "min-h-[56px] flex-col gap-0 text-[15px]")}>Both faces<span className="text-[12px] font-normal text-[#55534D]">the neighbor's side too</span></button>
+          </div>
+          <p className="mt-3 text-[13px] text-[#8A877F]">Both faces of a shared fence needs your neighbor's OK. We'll ask when we call.</p>
+        </>
+      ) : drawing ? (
         <>
           <p className="mt-2 text-[13px] text-[#55534D]">Drag the photo so the crosshair sits on a corner, then tap <b>Add corner</b>. Pinch to zoom. The white dots are your lot's corners; the crosshair snaps to them.</p>
           <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
@@ -573,10 +592,10 @@ function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMin
             </button>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={anotherOn ? () => { setAnotherOn(false); setPts([]); } : skipSide} className={BTN2}>{anotherOn ? "Never mind" : "No fence here, skip"}</button>
-            <button type="button" disabled={pts.length < 2} onClick={anotherOn ? () => { if (pts.length >= 2) { setDrawn([...drawn, { key: current!.key, label: current!.label, pts, feet: lengthOf(pts), both: false }]); setPts([]); setAnotherOn(false); } } : finishSide}
+            <button type="button" onClick={anotherOn ? () => { setAnotherOn(false); setPts([]); } : skipSide} className={BTN2}>{anotherOn ? "Never mind" : "No wood fence here, skip"}</button>
+            <button type="button" disabled={pts.length < 2} onClick={anotherOn ? () => { if (pts.length >= 2) { const d: Drawn = { key: current!.key, label: current!.label, pts, feet: lengthOf(pts), both: false }; setDrawn([...drawn, d]); setFaces(d); setPts([]); } } : finishSide}
                     className={cn(BTN2, "bg-[#C9972F] text-[#111110] ring-0")}>
-              {pts.length >= 2 ? `Done · ${Math.round(lengthOf(pts))} ft` : "Done with this side"}
+              {pts.length >= 2 ? `Done, next side · ${Math.round(lengthOf(pts))} ft` : "Done, next side"}
             </button>
           </div>
           <p className="mt-3 text-[13px] text-[#8A877F]">{idx < SIDES.length ? `Side ${Math.min(idx + 1, SIDES.length)} of ${SIDES.length}` : "Extra section"}{drawn.length ? ` · ${total} ft so far` : ""}</p>
@@ -685,7 +704,7 @@ function Notes() {
     "If it's between 8 AM and 8 PM, a real person calls to confirm. Then the number is firm.",
     "No bias up. The range is the straight calculation (Essential to Legacy, tonight's rates).",
     "Height is pictures to tap. Standard (6.5 ft) is the default and marked \"Most fences\".",
-    "Sides: tap a traced side to stain both faces. Neighbor's OK is asked on the call.",
+    "Right after each side is finished it asks: my side only, or both faces? (Oct 27.) A concrete, brick or iron side gets \"No wood fence here, skip\". Neighbor's OK is asked on the call.",
     "Can't or won't draw: type the length, pick a size, or \"Not sure\" → a video link or \"just send my info\".",
     "The satellite photo is shown. Gold lines = what we stain.",
     "Proof under the price: photos (more than three), 4.9 · 41 reviews, 1-year warranty and the touch-up can.",
