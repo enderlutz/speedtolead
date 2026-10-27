@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from "lucide-react";
 import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { cn, errMessage, formatCurrency } from "@/lib/utils";
@@ -70,6 +70,19 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
     setBusy("reopen");
     try { await api.invoiceQueueReopen(r.lead_id); onChanged(); }
     catch (e) { toast.error(errMessage(e, "Couldn't reopen it")); } finally { setBusy(""); }
+  };
+  // Not going ahead (Alan, 2026-10-26, Clarence): the $250 link stops
+  // working, the held day comes off the calendar, and the card leaves the list.
+  const notGoingAhead = async () => {
+    if (!r.deposit_link) return;
+    if (!window.confirm(`${r.name} isn't going ahead? Their $250 link stops working${r.booked_date ? " and their held day comes off the calendar" : ""}. Nothing is sent to them.`)) return;
+    setBusy("void");
+    try {
+      await api.voidPayLink(r.deposit_link.token);
+      if (r.booked_date) await api.cancelBooking(r.lead_id);
+      toast.success(`${r.name} taken off the list`);
+      onChanged();
+    } catch (e) { toast.error(errMessage(e, "Couldn't take it off")); } finally { setBusy(""); }
   };
   const markDone = async () => {
     if (!window.confirm(`Mark ${r.name}'s job as finished? It moves to Ready for invoice and Alan and Olga get the text.`)) return;
@@ -149,6 +162,12 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
           <button type="button" onClick={markDone} disabled={!!busy}
                   className={cn(btn, "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
             {busy === "done" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />} Job finished
+          </button>
+        ) : null}
+        {r.stage === "deposit_sent" && r.deposit_link ? (
+          <button type="button" onClick={notGoingAhead} disabled={!!busy}
+                  className={cn(btn, "border border-[#E4DCCB] bg-white text-[#9B2C2C] hover:bg-[#FBEBEB]")}>
+            {busy === "void" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Not going ahead
           </button>
         ) : null}
         {r.stage !== "closed" && r.stage !== "deposit_sent" ? (
