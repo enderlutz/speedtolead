@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Repeat } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Repeat } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -100,7 +100,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
   { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics", divisions: ["fence"] },
-  { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls", divisions: ["fence"] },
+  { to: "/calls", icon: BookOpen, label: "Call script", perm: "calls", divisions: ["fence"] },  // opens on the script; Call Coach is the second view (2026-10-27)
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
@@ -118,7 +118,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // page and its data stay at /job-map; put this line back to bring it back.
   // { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
-  { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] },
+  // { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] }, // archived 2026-10-27 (Alan: not using an estimator right now). Route/page kept.
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
   { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07

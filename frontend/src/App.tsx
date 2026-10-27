@@ -28,7 +28,7 @@ const OnCall = lazy(() => import("@/pages/OnCall"));
 const CrewStats = lazy(() => import("@/pages/CrewStats"));
 const QuickApprove = lazy(() => import("@/pages/QuickApprove"));
 const AiFenceEstimation = lazy(() => import("@/pages/AiFenceEstimation"));
-const Calls = lazy(() => import("@/pages/Calls"));
+const CallScript = lazy(() => import("@/pages/CallScript"));
 const Training = lazy(() => import("@/pages/Training"));
 const TrainingCourse = lazy(() => import("@/pages/TrainingCourse"));
 const ExteriorCapture = lazy(() => import("@/pages/ExteriorCapture"));
@@ -271,7 +271,7 @@ function AppLayout() {
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
               <Route path="/video-estimates" element={<StaffOnly><VideoEstimates /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
-              <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
+              <Route path="/calls" element={<RequireView view="calls"><CallScript /></RequireView>} />
               <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
