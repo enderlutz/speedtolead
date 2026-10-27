@@ -73,6 +73,7 @@ const ProposalPreview = lazy(() => import("@/pages/ProposalPreview"));
 const TermsPage = lazy(() => import("@/pages/TermsPage"));
 const ProposalLive = lazy(() => import("@/pages/ProposalLive"));
 const PayLink = lazy(() => import("@/pages/PayLink"));
+const PayGo = lazy(() => import("@/pages/PayGo"));
 const AfterPayPage = lazy(() => import("@/pages/AfterPayPage"));
 const BookingPage = lazy(() => import("@/pages/BookingPage"));
 const ReferralPage = lazy(() => import("@/pages/ReferralPage"));
@@ -225,6 +226,7 @@ function AppLayout() {
         <Route path="/capture/:token" element={<ExteriorCapture />} />
         <Route path="/v/:token" element={<VideoEstimate />} />
         <Route path="/preview/proposal/:token" element={<ProposalPreview />} />
+        <Route path="/pay/:token/go" element={<PayGo />} />
         <Route path="/pay/:token" element={<PayLink />} />
         <Route path="/after/:token" element={<AfterPayPage />} />
         <Route path="/b/:token" element={<BookingPage />} />

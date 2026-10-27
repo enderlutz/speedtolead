@@ -45,6 +45,8 @@ HOLD_DAYS = 7
 # No fence staining, other services only (Alan, 2026-10-21: Teila is booked
 # for a pressure wash, no fence): no package, colour, sides or proposal.
 SERVICES_ONLY = "none"
+# The deposit link the one-tap "Send $250 now" hands out (api/quick_deposit).
+QUICK_DESCRIPTION = "Quick $250 to lock in the date"
 
 
 def services_only(b_or_tier) -> bool:
@@ -265,7 +267,7 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         state, "",
         *([f"No fence staining · other services only · {hooks.money(total)}"] if no_fence else []),
     ] + ([] if no_fence else [
-        f"Package: {NAMES.get(b.tier, b.tier)} · {hooks.money(total)}"
+        f"Package: {NAMES.get(b.tier, b.tier) or 'to confirm'} · {hooks.money(total)}"
         + (f" (was {hooks.money((b.price_cents or 0) / 100)}, {hooks.money(b.discount_cents / 100)} off"
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
     ]) + [
@@ -297,8 +299,9 @@ def sync_calendar(db, lead: Lead, b: Booking) -> str:
     the event's link, or "" when Google didn't take it."""
     try:
         summary, desc = _calendar_text(db, lead, b)
-        # Blue while the booking is only held; yellow (a real job) once paid.
-        color = gcal.GCAL_COLOR_BANANA if _confirmed(db, lead) else gcal.GCAL_COLOR_BLUEBERRY
+        # Purple while the booking is only held (Alan, 2026-10-27); yellow (a
+        # real job) once paid.
+        color = gcal.GCAL_COLOR_BANANA if _confirmed(db, lead) else gcal.GCAL_COLOR_GRAPE
         eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
                                                location=lead.address or "", job_date=b.date, color_id=color)
         if eid and eid != b.google_event_id:
@@ -312,17 +315,61 @@ def sync_calendar(db, lead: Lead, b: Booking) -> str:
 
 def on_deposit_paid(lead_id: str) -> None:
     """A deposit (or the whole job) was paid: the calendar event turns to
-    Confirmed. Called from the Stripe webhook; never raises."""
+    Confirmed. A hold that was never texted (the quick $250, 2026-10-27)
+    goes to the customer now as their confirmation; a hold with no package
+    yet, or no hold at all, tells the office instead. Called from the
+    Stripe webhook; never raises."""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         b = _active(db, lead_id) if lead else None
         if b is not None:
             sync_calendar(db, lead, b)
+            if not b.sent_at:
+                _share_after_paid(db, lead, b)
+        elif lead is not None:
+            # Only the quick $250 promises a hold. A Payment-links deposit
+            # with no invite is the ordinary case and stays quiet.
+            paid = _confirmed(db, lead)
+            if paid is not None and (paid.description or "") == QUICK_DESCRIPTION:
+                hooks.alert_alan(f"{lead.contact_name or 'A customer'} paid the $250 but no day is held yet. Send them the booking invite.")
     except Exception as e:  # noqa: BLE001
         logger.warning("booking on_deposit_paid failed for %s: %s", lead_id, e)
     finally:
         db.close()
+
+
+def _share_after_paid(db, lead: Lead, b: Booking) -> None:
+    """The held day was never texted: the customer paid off the quick $250
+    link. With the package known they get their booking page as the
+    confirmation, by text and by email when there is one. Without it the
+    office is told to pick the package and send it."""
+    who = lead.contact_name or "A customer"
+    if not (b.tier in TIERS or services_only(b)) or not b.total_cents:
+        hooks.alert_alan(f"{who} paid the $250 for {_long(b.date)}. Pick the package on their booking and send it.")
+        return
+    paid = _confirmed(db, lead)
+    url = booking_url(b.token)
+    msg = default_message(lead, b.date, paid, b=b).replace(LINK, url).replace(DAY, _long(b.date))
+    ok = False
+    try:
+        ok = bool(ghl.send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("booking confirmation text failed for %s: %s", lead.id, e)
+    if not ok:
+        hooks.alert_alan(f"{who} paid the $250 for {_long(b.date)}, but the confirmation text didn't go through. Send the booking invite.")
+        return
+    if (lead.contact_email or "").strip():
+        try:
+            ghl.send_email(contact_id=lead.ghl_contact_id, subject=f"You're booked: {_job_title(b)} on {_long(b.date)}",
+                           html_body=_email_html(lead, b, url, paid), location_id=lead.ghl_location_id or None)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("booking confirmation email failed for %s: %s", lead.id, e)
+    b.sent_at = _now().isoformat()
+    b.sent_by = "paid"
+    b.sent_count = (b.sent_count or 0) + 1
+    db.commit()
+    log_event(lead.id, "booking_sent", f"{b.date} {b.tier} {b.total_cents / 100:.2f}: confirmed by the $250, texted on its own")
 
 
 # ── Staff ─────────────────────────────────────────────────────────────────

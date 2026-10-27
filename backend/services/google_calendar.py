@@ -421,7 +421,8 @@ def delete_event(db: Session, event_id: str) -> bool:
 # Reference: https://developers.google.com/calendar/api/v3/reference/colors
 GCAL_COLOR_BANANA = "5"   # yellow → fence staining job
 GCAL_COLOR_TOMATO = "11"  # red    → pressure washing job
-GCAL_COLOR_BLUEBERRY = "9"  # blue  → booking held, deposit not paid yet
+GCAL_COLOR_BLUEBERRY = "9"  # blue  → (was) booking held, deposit not paid yet
+GCAL_COLOR_GRAPE = "3"      # purple → booking held, deposit not paid yet (Alan, 2026-10-27)
 JOB_COLOR_IDS = {GCAL_COLOR_BANANA, GCAL_COLOR_TOMATO}
 SERVICE_TYPE_BY_COLOR = {
     GCAL_COLOR_BANANA: "fence_staining",

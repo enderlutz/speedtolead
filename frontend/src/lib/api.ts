@@ -2287,6 +2287,11 @@ export const api = {
   updateBooking: (leadId: string) =>
     request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
+  /** One tap (Alan and Olga, 2026-10-27): text the $250 link that opens straight
+   *  into Stripe, no package needed, and hold the day the call settled on. */
+  quickDeposit: (leadId: string) =>
+    request<{ link: PayLinkEntry; held: { date: string; day: string; tier: string; color: string; source: string; already: boolean } | null; message: string; note: string }>(
+      `/api/leads/${leadId}/deposit/quick`, { method: "POST" }),
   /** Every referred friend, newest first, with who sent them. */
   listReferrals: () =>
     request<{ referrals: { name: string; phone: string; address: string; created_at: string; lead_id: string | null; referrer_name: string; referrer_lead_id: string; texted: boolean; stage: string; paid: boolean }[] }>(`/api/referrals`),

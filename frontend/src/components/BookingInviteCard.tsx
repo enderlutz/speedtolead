@@ -85,6 +85,13 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const first = (lead.contact_name || "").split(" ")[0] || "them";
   const [draft, setDraft] = useState<Draft>(blank);
   const [st, setSt] = useState<BookingState | null>(null);
+  // The quick $250 under Payment links holds a day; this card reloads to show it.
+  const [quickTick, setQuickTick] = useState(0);
+  useEffect(() => {
+    const f = (e: Event) => { if ((e as CustomEvent).detail?.leadId === lead.id) setQuickTick((n) => n + 1); };
+    window.addEventListener("booking-changed", f);
+    return () => window.removeEventListener("booking-changed", f);
+  }, [lead.id]);
   const [busy, setBusy] = useState<null | "save" | "send" | "clear" | "cancel" | "update">(null);
   const [preview, setPreview] = useState(false);
   // "Their page", inside the dashboard: a new tab on a phone's home-screen
@@ -132,7 +139,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
-  }, [lead.id]);
+  }, [lead.id, quickTick]);
   const text = msgEdited ? msg : presetFor();
 
   // Every estimate that has prices, newest first. A lead can get more than

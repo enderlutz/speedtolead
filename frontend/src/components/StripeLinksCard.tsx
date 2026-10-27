@@ -8,7 +8,7 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, Pencil, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, Pencil, CreditCard, Zap, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type SuggestedInvoice, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceSheet } from "@/components/InvoiceSheet";
@@ -75,6 +75,23 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
     try { await navigator.clipboard.writeText(link.url); toast.success("Link copied. Paste it into the text."); }
     catch { toast.message(link.url); }
   };
+  // One tap for the customer who is ready right now (Alan and Olga,
+  // 2026-10-27): no package, no amount, no edit box. The text goes, the
+  // link opens straight into Stripe, the day from the call is held.
+  const [quick, setQuick] = useState(false);
+  const sendQuick = async () => {
+    setQuick(true);
+    try {
+      const out = await api.quickDeposit(leadId);
+      toast.success(out.note, { duration: 9000 });
+      window.dispatchEvent(new CustomEvent("booking-changed", { detail: { leadId } }));
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't send it");
+    } finally {
+      setQuick(false);
+    }
+  };
   // Every text opens in an edit box first (Alan, 2026-10-13).
   const [composing, setComposing] = useState<string | null>(null);
   const text = (link: PayLinkEntry) => { setOther(null); setComposing(composing === link.token ? null : link.token); };
@@ -129,6 +146,11 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
       {data && !data.configured ? (
         <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 ring-1 ring-amber-200">Stripe isn't switched on yet. Links can be made, but the pay page tells the customer to call until the keys are in Railway.</p>
       ) : null}
+      <button type="button" onClick={sendQuick} disabled={quick || busy !== null}
+        className="mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-[15px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+        {quick ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Send $250 now
+      </button>
+      <p className="mt-1 text-xs text-muted-foreground">One tap. Texts a link that opens straight into Stripe and holds the day from the call. No package needed. The booking invite above is for the customer who wants it all written out first.</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <select value={tier} onChange={(e) => setTier(e.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm" title="The package they're buying. The deposit records the sale at this price.">
           <option value="">Package sold…</option>
