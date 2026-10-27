@@ -163,9 +163,11 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
             when = closed_at or max([l.paid_at or "" for l in paid_bills] + [settled.paid_at if settled else ""] + [done_at])
             if (_ts(when) or now) < now - timedelta(days=CLOSED_DAYS):
                 continue
-        elif done_at and open_bills:
+        elif done_at and any(l.sent_at for l in open_bills):
             stage, when = "invoice_sent", max(l.sent_at or l.created_at or "" for l in open_bills)
         elif done_at:
+            # A bill made but never texted is still waiting on us: it stays in
+            # Ready, with the bill on the card (Alan, 2026-10-26, Donnie Beasley).
             stage, when = "ready", done_at
         elif dep_paid_any or full_paid:
             stage, when = "deposit_paid", (b.date if b else "") or (dep_paid.paid_at if dep_paid else "") or ""
@@ -179,7 +181,7 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
             continue
 
         due_cents = max(0, total_cents + max(0, extras_cents) - paid_cents) if total_cents else 0
-        if stage == "invoice_sent":
+        if stage == "invoice_sent" or (stage == "ready" and open_bills):
             due_cents = sum(l.amount_cents or 0 for l in open_bills)
         elif stage == "closed":
             due_cents = 0

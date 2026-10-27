@@ -58,6 +58,10 @@ def test_a_sent_deposit_then_paid_then_done_then_billed_then_paid(db):
     r = _stage(db, lead)
     assert r["stage"] == "ready" and r["due"] == 950 and r["deposit"] == "paid"
     bill = _link(db, lead, kind="balance", cents=95000)
+    r = _stage(db, lead)
+    assert r["stage"] == "ready" and r["bill"] and r["due"] == 950   # made, not texted yet
+    bill.sent_at = "2026-10-20T15:00:00+00:00"
+    db.commit()
     assert _stage(db, lead)["stage"] == "invoice_sent"
     bill.status = "paid"
     db.commit()

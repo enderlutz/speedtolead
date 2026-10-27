@@ -115,6 +115,7 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
                 <Chip tone="ink">Finished {ago(r.done_at)}{r.done_by ? ` · ${r.done_by}` : ""}</Chip>
                 {r.deposit === "paid" ? <Chip tone="green">$250 paid</Chip> : <Chip tone="red">No deposit paid</Chip>}
                 {r.extras ? <Chip tone="gold">Extras {r.extras > 0 ? "+" : "−"}{usd(Math.abs(r.extras))}</Chip> : null}
+                {r.bill ? <Chip tone="gold">Bill made {ago(r.bill.created_at)}, not texted</Chip> : null}
               </>
             ) : null}
             {r.stage === "invoice_sent" && r.bill ? (
@@ -140,7 +141,7 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
         {r.stage === "ready" || r.stage === "invoice_sent" ? (
           <button type="button" onClick={() => setOpen((v) => !v)}
                   className={cn(btn, "bg-[#1F1A14] text-white hover:bg-[#3A3128]")}>
-            <ReceiptText className="h-4 w-4" /> {r.stage === "ready" ? "Make the bill" : "See the bill"}
+            <ReceiptText className="h-4 w-4" /> {r.stage === "ready" && !r.bill ? "Make the bill" : "See the bill"}
             {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         ) : null}
