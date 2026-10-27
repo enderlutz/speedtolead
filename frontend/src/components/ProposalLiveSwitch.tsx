@@ -15,7 +15,9 @@ function when(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function ProposalLiveSwitch({ leadId }: { leadId: string }) {
+/** `variant="dark"`: one compact row for the dark "Estimate sent" card
+ *  (Alan, 2026-10-27: the box under Payment links took up too much space). */
+export function ProposalLiveSwitch({ leadId, variant = "card" }: { leadId: string; variant?: "card" | "dark" }) {
   const [state, setState] = useState<ProposalLiveState | null>(null);
   const [busy, setBusy] = useState(false);
   const isAdmin = getCurrentUser()?.role === "admin";
@@ -62,6 +64,28 @@ export function ProposalLiveSwitch({ leadId }: { leadId: string }) {
       toast.error("Couldn't copy. The link is in the address bar when you open it.");
     }
   };
+
+  if (variant === "dark") {
+    const chip = "inline-flex h-7 items-center gap-1 rounded-md bg-white/10 px-2 text-xs font-semibold text-white ring-1 ring-white/25 hover:bg-white/20 disabled:opacity-50";
+    return (
+      <div className="relative mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-white/80">
+        <span className="inline-flex items-center gap-1"><Sparkles className="h-3 w-3 text-gold-light" /> {p.interactive ? "Interactive page" : "PDF"} <span className="text-white/50">{p.number}</span></span>
+        {p.interactive ? (
+          <>
+            <span className={cn("font-semibold", p.expired ? "text-rose-300" : "text-emerald-300")}>
+              {p.expired ? `Price ended ${when(p.good_through)}` : `Price good through ${when(p.good_through)}`}{p.extended_until ? " (extended)" : ""}
+            </span>
+            <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" /> {p.view_count} {p.view_count === 1 ? "view" : "views"}{p.last_viewed_at ? `, last ${when(p.last_viewed_at)}` : ""}</span>
+            <button type="button" onClick={extend} disabled={busy} className={chip}><CalendarPlus className="h-3 w-3" /> Extend 7 days</button>
+            <button type="button" onClick={copy} className={chip}><Copy className="h-3 w-3" /> Copy link</button>
+          </>
+        ) : null}
+        {isAdmin ? (
+          <button type="button" onClick={flip} disabled={busy} className={chip}>{p.interactive ? "Switch to PDF" : "Switch to interactive"}</button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("rounded-xl p-3 ring-1", p.interactive ? "bg-amber-50 ring-amber-300" : "bg-muted/40 ring-border")}>

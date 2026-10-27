@@ -2451,6 +2451,9 @@ export default function LeadDetail() {
                   {cancelling ? "Cancelling..." : "Cancel Estimate"}
                 </Button>
               </div>
+              {/* The proposal's own facts (price window, views, PDF/interactive)
+                  live here now, not under Payment links (Alan, 2026-10-27). */}
+              <ProposalLiveSwitch leadId={lead.id} variant="dark" />
             </div>
           )}
 
@@ -2492,7 +2495,6 @@ export default function LeadDetail() {
             onToggle={() => toggle("payments", paymentsDefault)}
             bodyClassName="space-y-2 p-3.5"
           >
-            <ProposalLiveSwitch leadId={lead.id} />
             {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
             {SHOW_QB_DEPOSIT && <DepositRow
               lead={lead}
