@@ -938,7 +938,7 @@ function payLabel(j: CamJob): string {
   return j.pay_type === "hourly" ? `${n}/${tr("hr")}` : n;
 }
 
-const TASK_BG: Record<string, string> = { staining: "bg-cedar", cleaning: "bg-ink", pressure_washing: "bg-walnut", "": "bg-walnut/70" };
+const TASK_BG: Record<string, string> = { staining: "bg-cedar", cleaning: "bg-ink", pressure_washing: "bg-walnut", repairs: "bg-stone-600", "": "bg-walnut/70" };
 const dayWords = (iso: string) => {
   if (!iso) return tr("Day not set yet");
   const [y, m, d] = iso.split("-").map(Number);
@@ -950,7 +950,7 @@ function nthOf(j: CamJob, sameDay: CamJob[]): string {
   const i = sameDay.indexOf(j) + 1;
   return isSpanish() ? `${i}º` : `${i}${i === 1 ? "st" : i === 2 ? "nd" : i === 3 ? "rd" : "th"}`;
 }
-const taskWord = (t: string | undefined) => t === "staining" ? tr("Staining") : t === "cleaning" ? tr("Fence cleaning") : t === "pressure_washing" ? tr("Pressure washing") : tr("Job");
+const taskWord = (t: string | undefined) => t === "staining" ? tr("Staining") : t === "cleaning" ? tr("Fence cleaning") : t === "pressure_washing" ? tr("Pressure washing") : t === "repairs" ? tr("Fence repairs") : tr("Job");
 /** One customer, one row (Alan, 2026-10-21): the same day's rows for a job
  *  fold into the first, every task on the badge. */
 function foldByJob(rows: CamJob[]): (CamJob & { tasks: string[] })[] {
@@ -1014,11 +1014,14 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: "today" | "past"; 
           <span>
             <b className="block">{tr("First thing this morning: text each customer below when you'll get there.")}</b>
             {/* The wording follows the job: clean or stain (Alan, 2026-10-19). */}
-            {shown.some((j) => j.tasks.some((t) => t !== "staining" && t !== "pressure_washing")) ? (
+            {shown.some((j) => j.tasks.some((t) => t !== "staining" && t !== "pressure_washing" && t !== "repairs")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to clean your fence.\"")}</span>
             ) : null}
             {shown.some((j) => j.tasks.includes("staining")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to stain your fence.\"")}</span>
+            ) : null}
+            {shown.some((j) => j.tasks.includes("repairs")) ? (
+              <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to fix your fence.\"")}</span>
             ) : null}
             {shown.some((j) => j.tasks.includes("pressure_washing")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] for your pressure washing.\"")}</span>

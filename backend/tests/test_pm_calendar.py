@@ -321,3 +321,19 @@ def test_map_redoes_a_middle_of_texas_pin_and_cleans_the_address():
     assert pm._in_area(29.8, -95.8)                    # Katy
     assert pm._street("6215 North Lazy Meadow Way (Tom & Jerry Anne Clark, Jimmy's parents)") == "6215 North Lazy Meadow Way"
     assert pm._street("7022 Golden Groundsel Dr Katy, TX  77493 United States") == "7022 Golden Groundsel Dr Katy, TX 77493"
+
+
+def test_repairs_day_then_staining_day(db, monkeypatch):
+    """Alan, 2026-10-26: Chris Harrell gets repairs Tuesday and stain
+    Wednesday; a repairs day is a fence day, not a pressure-washing job."""
+    _seed(db)
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-27", username="Chris", task="repairs"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-28", username="Chris", task="staining"), user=ALAN)
+    assert _days(db, "Y") == [("Chris", "2026-10-27", "repairs"), ("Chris", "2026-10-28", "staining")]
+    job = db.query(CompanyCamJob).filter_by(lead_id="Y").first()
+    from services.company_cam import is_pw_job
+    assert not is_pw_job(job, cc._crew_entries(job))
+    with pytest.raises(HTTPException):
+        pm.assign(pm.DayBody(lead_id="Y", date="2026-10-28", username="Chris", task="painting"), user=ALAN)

@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { errMessage } from "@/lib/utils";
 
 const HOUSTON: [number, number] = [29.9, -95.5];
-const TASK: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing" };
+const TASK: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", repairs: "Repairs" };
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const dayName = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });

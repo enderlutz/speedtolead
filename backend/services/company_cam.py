@@ -839,8 +839,12 @@ def sqft_per_gallon(db, job) -> float:
 # the customer bought, and the crew photographs each one before and after.
 # Keys are stable: photo sections are named after them.
 PW_TASK = "pressure_washing"
-CREW_TASKS: tuple[str, ...] = ("cleaning", "staining", PW_TASK)
-FENCE_TASKS: tuple[str, ...] = ("cleaning", "staining")
+# Repairs (Alan, 2026-10-26): a crew day for fixing the fence before the
+# stain, e.g. Jose and Alfredo replacing Chris Harrell's pickets on Tuesday
+# and staining on Wednesday.
+REPAIR_TASK = "repairs"
+CREW_TASKS: tuple[str, ...] = ("cleaning", "staining", PW_TASK, REPAIR_TASK)
+FENCE_TASKS: tuple[str, ...] = ("cleaning", "staining", REPAIR_TASK)
 
 PW_SERVICES: list[dict] = [
     {"key": "house_wash", "label": "House wash"},

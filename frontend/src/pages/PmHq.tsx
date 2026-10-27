@@ -55,7 +55,7 @@ function ago(ts: string): string {
 // Pressure washing is the third kind of day (Alan, 2026-10-19).
 // "Fence cleaning", not "Cleaning", so it never reads like pressure washing
 // (Alan, 2026-10-21: Amir gets the fence cleaned and the house washed).
-const TASK_LABEL: Record<string, string> = { cleaning: "Fence cleaning", staining: "Staining", pressure_washing: "Pressure washing", "": "On the job" };
+const TASK_LABEL: Record<string, string> = { cleaning: "Fence cleaning", staining: "Staining", pressure_washing: "Pressure washing", repairs: "Repairs", "": "On the job" };
 // What a washing job can include; mirrors PW_SERVICES on the server, which
 // the calendar also sends as pw_options.
 const PW_OPTIONS: { key: string; label: string }[] = [
@@ -67,6 +67,7 @@ const TASK_CLS: Record<string, string> = {
   cleaning: "bg-ink/10 text-ink ring-ink/20",
   staining: "bg-cedar/15 text-cedar ring-cedar/30",
   pressure_washing: "bg-walnut/15 text-walnut ring-walnut/30",
+  repairs: "bg-stone-200 text-stone-800 ring-stone-400",
   "": "bg-muted text-foreground ring-border",
 };
 // The Sterling look (2026-10-20): ink for cleaning, cedar for the stain,
@@ -75,6 +76,7 @@ const TASK_ON: Record<string, string> = {
   cleaning: "bg-ink text-white ring-ink",
   staining: "bg-cedar text-white ring-cedar",
   pressure_washing: "bg-walnut text-white ring-walnut",
+  repairs: "bg-stone-600 text-white ring-stone-600",
 };
 
 /** The services on a washing job, as small chips. */
@@ -655,7 +657,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
   const first = (u: string) => nameOf(u).split(/\s+/)[0];
   const flip = (list: string[], u: string) => (list.includes(u) ? list.filter((x) => x !== u) : [...list, u]);
   const pickLead = (u: string) => { setLeads((l) => flip(l, u)); setHelpers((h) => h.filter((x) => x !== u)); };
-  const order: Task[] = ["cleaning", "staining", "pressure_washing"];
+  const order: Task[] = ["repairs", "cleaning", "staining", "pressure_washing"];
   const pickTask = (k: Task) => setTasks((t) => order.filter((x) => (x === k ? !t.includes(k) : t.includes(x))));
   const washingOn = tasks.includes("pressure_washing");
   const same = (a: { key: string; label: string }, b: { key: string; label: string }) => (a.key && a.key === b.key) || a.label.toLowerCase() === b.label.toLowerCase();

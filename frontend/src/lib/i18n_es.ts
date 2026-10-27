@@ -36,6 +36,7 @@ export const ES: Record<string, string> = {
   "First thing this morning: text each customer below when you'll get there.": "A primera hora de la mañana: manda un mensaje a cada cliente de abajo con la hora en que vas a llegar.",
   "\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to clean your fence.\"": "\"Hi, this is [tu nombre] with Sterling Fence Staining. I'm planning to be at your house between [hora] and [hora] to clean your fence.\" (mándalo en inglés)",
   "\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to stain your fence.\"": "\"Hi, this is [tu nombre] with Sterling Fence Staining. I'm planning to be at your house between [hora] and [hora] to stain your fence.\" (mándalo en inglés)",
+  "\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to fix your fence.\"": "\"Hi, this is [tu nombre] with Sterling Fence Staining. I'm planning to be at your house between [hora] and [hora] to fix your fence.\" (mándalo en inglés)",
   "Coming up, flat pay": "Pago fijo de lo que viene",
   "Flat pay, past jobs": "Pago fijo, trabajos pasados",
   "A saw, to cut pickets and boards to size": "Un serrucho, para cortar tablas a la medida",
@@ -478,6 +479,7 @@ export const ES: Record<string, string> = {
   "No cleaning on this job. The fence is already clean: go straight to staining.": "No hay limpieza en este trabajo. La cerca ya está limpia: pasen directo a teñir.",
   // Pressure washing (Alan, 2026-10-19)
   "Pressure washing": "Lavado a presión",
+  "Fence repairs": "Reparación de cerca",
   "Pressure washing services": "Servicios de lavado a presión",
   "What we're washing": "Lo que vamos a lavar",
   "House wash": "Lavado de la casa",

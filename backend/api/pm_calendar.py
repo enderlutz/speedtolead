@@ -228,7 +228,7 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
     except ValueError:
         raise HTTPException(400, "Pick a real day")
     if body.task and body.task not in TASKS:
-        raise HTTPException(400, "Cleaning, staining or pressure washing")
+        raise HTTPException(400, "Cleaning, staining, pressure washing or repairs")
     db = get_db()
     try:
         u = next((x for x in db.query(User).all() if x.username.lower() == body.username.strip().lower()), None)

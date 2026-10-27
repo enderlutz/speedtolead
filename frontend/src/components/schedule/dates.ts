@@ -139,7 +139,7 @@ export type JobGroup = {
   rows: PmDay[];
 };
 
-const TASK_ORDER = ["cleaning", "staining", "pressure_washing"];
+const TASK_ORDER = ["repairs", "cleaning", "staining", "pressure_washing"];
 
 export function groupJobs(items: PmDay[]): JobGroup[] {
   const out: JobGroup[] = [];

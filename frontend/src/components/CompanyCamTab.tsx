@@ -70,13 +70,14 @@ const sectionLook = (key: string) =>
     : { icon: Camera, accent: ACCENT.ink });
 
 /** The crew's kinds of day: cleaning, staining, and pressure washing (Alan, 2026-10-19). */
-const TASKS: Exclude<CrewDayTask, "">[] = ["cleaning", "staining", "pressure_washing"];
+const TASKS: Exclude<CrewDayTask, "">[] = ["repairs", "cleaning", "staining", "pressure_washing"];
 const taskLabel = (t: string) =>
-  t === "cleaning" ? tr("Fence cleaning") : t === "staining" ? tr("Staining") : t === "pressure_washing" ? tr("Pressure washing") : "";
+  t === "cleaning" ? tr("Fence cleaning") : t === "staining" ? tr("Staining") : t === "pressure_washing" ? tr("Pressure washing") : t === "repairs" ? tr("Repairs") : "";
 const TASK_ON: Record<string, string> = {
   cleaning: "bg-ink text-white ring-ink",
   staining: "bg-cedar text-white ring-cedar",
   pressure_washing: "bg-walnut text-white ring-walnut",
+  repairs: "bg-stone-600 text-white ring-stone-600",
 };
 
 /** "House wash · Before", in the crew's language. */

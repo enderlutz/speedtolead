@@ -82,8 +82,8 @@ function JobList() {
                 ) : null}
                 <span className="min-w-0 flex-1">
                   {r.task ? (
-                    <span className={`mb-0.5 inline-block rounded px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white ${r.task === "staining" ? "bg-emerald-700" : r.task === "pressure_washing" ? "bg-indigo-600" : "bg-sky-600"}`}>
-                      {r.task === "staining" ? tr("Staining") : r.task === "pressure_washing" ? tr("Pressure washing") : tr("Fence cleaning")}
+                    <span className={`mb-0.5 inline-block rounded px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white ${r.task === "staining" ? "bg-emerald-700" : r.task === "pressure_washing" ? "bg-indigo-600" : r.task === "repairs" ? "bg-stone-600" : "bg-sky-600"}`}>
+                      {r.task === "staining" ? tr("Staining") : r.task === "pressure_washing" ? tr("Pressure washing") : r.task === "repairs" ? tr("Fence repairs") : tr("Fence cleaning")}
                     </span>
                   ) : null}
                   <span className="block truncate text-base font-semibold capitalize">{(r.name || tr("Customer")).toLowerCase()}</span>
