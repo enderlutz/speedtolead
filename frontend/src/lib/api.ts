@@ -3899,6 +3899,11 @@ export const api = {
     request<{ ok: boolean }>(`/api/pm-hq/map/pins`, { method: "POST", body: JSON.stringify({ lead_id }) }),
   pmHqMapRemove: (lead_id: string) =>
     request<{ ok: boolean }>(`/api/pm-hq/map/pins/${encodeURIComponent(lead_id)}`, { method: "DELETE" }),
+  // What to buy for the coming days (Alan, 2026-10-26).
+  getPmHqShopping: (start = "", end = "") =>
+    request<PmShopping>(`/api/pm-hq/shopping?start=${start}&end=${end}`),
+  pmHqShoppingHave: (b: { lead_id: string; key: string; label: string; have: boolean }) =>
+    request<{ ok: boolean }>(`/api/pm-hq/shopping/have`, { method: "POST", body: JSON.stringify(b) }),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
@@ -6223,6 +6228,15 @@ export interface StainCoverageFile {
 }
 
 /** Pressure washing is the third kind of crew day (Alan, 2026-10-19). */
+export type PmShopLine = {
+  key: string; label: string; need_by: string; have: boolean; have_by: string; note?: string;
+  blocked?: boolean; gallons?: number; on_shelf?: number; buy_gallons?: number; color?: string; qty?: number; item?: string;
+};
+export type PmShopJob = {
+  lead_id: string; name: string; address: string; first_day: string;
+  days: { date: string; task: string; people: string[] }[]; lines: PmShopLine[];
+};
+export type PmShopping = { start: string; end: string; today: string; jobs: PmShopJob[]; week_list: { kind: string; label: string }[] };
 export type CrewDayTask = "" | "cleaning" | "staining" | "pressure_washing" | "repairs";
 export type CrewEntry = { username: string; date: string; task: CrewDayTask; helper?: boolean };
 /** How one person is paid on one job: a flat amount, or hourly at a rate. */

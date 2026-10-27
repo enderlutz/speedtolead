@@ -18,7 +18,7 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Sun, X } from "lucide-react";
 import { api, type CrewDayTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,10 +29,11 @@ import type { JobGroup } from "@/components/schedule/dates";
 import { MultiDayView } from "@/components/schedule/MultiDayView";
 import { MonthView } from "@/components/schedule/MonthView";
 import { WeekMap } from "@/components/schedule/WeekMap";
+import { WhatToBuy } from "@/components/schedule/WhatToBuy";
 import { DayBanner } from "@/components/schedule/bits";
 import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek } from "@/components/schedule/dates";
 
-type Tab = "today" | "calendar" | "past";
+type Tab = "today" | "calendar" | "buy" | "past";
 type Task = CrewDayTask;
 
 function ctToday(): string {
@@ -109,7 +110,7 @@ function usePmParams() {
 export default function PmHq() {
   const [params, set] = usePmParams();
   const raw = params.get("tab");
-  const tab: Tab = raw === "calendar" || raw === "past" ? raw : "today";
+  const tab: Tab = raw === "calendar" || raw === "past" || (raw === "buy" && isOffice()) ? raw : "today";
   const setTab = (k: Tab) => set({ tab: k });
   // Week and Month use the whole screen so seven days have room for names
   // (Alan, 2026-10-21: "I can't see the customer's name" on Week).
@@ -123,7 +124,7 @@ export default function PmHq() {
         <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {([["today", "Today", Sun], ["calendar", "Calendar", CalendarDays], ["past", "Past jobs", History]] as const).map(([k, label, Icon]) => (
+        {([["today", "Today", Sun], ["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History]] as const).map(([k, label, Icon]) => (
           <button key={k} type="button" onClick={() => setTab(k)}
                   className={cn("flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
                     tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
@@ -131,7 +132,7 @@ export default function PmHq() {
           </button>
         ))}
       </div>
-      {tab === "today" ? <TodayView /> : tab === "calendar" ? <CalendarView /> : <PastView />}
+      {tab === "today" ? <TodayView /> : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : <PastView />}
     </div>
   );
 }
