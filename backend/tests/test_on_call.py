@@ -346,3 +346,24 @@ def test_why_no_estimate(db):
     assert '"Inside only"' in texted["why"] and texted["do"] == "Call them, then price it."
     assert talked["why"].startswith("Talked 6 min")
     assert missed["attempts"] == 1 and missed["called_at"]
+
+
+def test_copying_an_empty_week_changes_nothing(db):
+    """The schedule vanished on 2026-10-27: a copy from a week with no shifts
+    deleted the week being filled and added nothing back."""
+    from fastapi import HTTPException
+    from api import on_call as api
+    _user(db, "alan")
+    _shift(db, "alan", day="2026-10-27", start=8 * 60, end=10 * 60)
+    with pytest.raises(HTTPException) as e:
+        api.copy_week(api.CopyIn(from_start="2026-10-20", to_start="2026-10-27"), user={"sub": "alan", "role": "admin"})
+    assert "no shifts to copy" in e.value.detail
+    assert db.query(OnCallShift).filter(OnCallShift.date == "2026-10-27").count() == 1
+    # A week that has shifts still copies over, day by day.
+    _shift(db, "alan", day="2026-10-20", start=8 * 60, end=10 * 60)
+    _shift(db, "alan", day="2026-10-21", start=12 * 60, end=14 * 60)
+    out = api.copy_week(api.CopyIn(from_start="2026-10-20", to_start="2026-10-27"), user={"sub": "alan", "role": "admin"})
+    assert out["copied"] == 2
+    db.expire_all()
+    assert [(s.date, s.start_min) for s in db.query(OnCallShift).filter(OnCallShift.date >= "2026-10-27")
+            .order_by(OnCallShift.date).all()] == [("2026-10-27", 480), ("2026-10-28", 720)]

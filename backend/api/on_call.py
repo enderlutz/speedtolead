@@ -430,6 +430,12 @@ def copy_week(body: CopyIn, user: dict = Depends(require_admin)):
     src, dst = datetime.strptime(_day(body.from_start), "%Y-%m-%d"), datetime.strptime(_day(body.to_start), "%Y-%m-%d")
     db = get_db()
     try:
+        # Copying an empty week used to wipe the week being filled and add
+        # nothing (the whole schedule vanished that way, 2026-10-27).
+        src_end = (src + timedelta(days=6)).strftime("%Y-%m-%d")
+        if not db.query(OnCallShift).filter(OnCallShift.date >= src.strftime("%Y-%m-%d"),
+                                            OnCallShift.date <= src_end).count():
+            raise HTTPException(400, "That week has no shifts to copy, so nothing was changed")
         n = 0
         for i in range(7):
             a, b = (src + timedelta(days=i)).strftime("%Y-%m-%d"), (dst + timedelta(days=i)).strftime("%Y-%m-%d")
