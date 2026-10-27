@@ -1,19 +1,28 @@
 /**
  * "Get my price": the self-serve fence staining quote, as a mock (Alan,
- * 2026-10-26). A customer types their address, we draw the fence from the
- * property lines, they confirm the sides, tap a height and the wood's
- * condition, and get a price range before giving a name. Then name + mobile
- * to get the exact number: a text in 5 minutes and a real person calls
- * between 8 AM and 8 PM to confirm the measurement.
+ * 2026-10-26). A customer types their address, draws their fence on the
+ * satellite photo one side at a time (Alan, 2026-10-27: "they draw it
+ * themselves, each side, but make it really easy"), taps a height and the
+ * wood's condition, and gets a price range before giving a name. Then name
+ * + mobile to get the exact number: a text in 5 minutes and a real person
+ * calls between 8 AM and 8 PM to confirm the measurement.
  *
- * Mock, not live: nothing is saved or sent. What IS real: the lot comes from
- * the City of Houston property-line server for any address typed, the map
- * is Google satellite, and the range uses tonight's rates (Base zone only).
+ * Making the drawing easy: the lot lines from the City of Houston
+ * property-line server show faintly as a guide, the crosshair snaps to the
+ * lot's corners, one side at a time with a plain instruction, two taps for
+ * a straight side, undo, and "I know the length" for anyone who'd rather
+ * not draw. Same crosshair mechanic as the office's satellite tool (no
+ * tap-to-place: the map moves under a fixed crosshair, a button drops the
+ * corner).
+ *
+ * Mock, not live: nothing is sent to a customer. What IS real: the lot
+ * comes from the city for any address typed, the map is Google satellite,
+ * and the range uses tonight's rates (Base zone only).
  * Research and the reasons behind each screen: docs/quote-generator/research.md.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Check, ChevronRight, MapPin, Phone, ShieldCheck, Star, Video } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Crosshair, MapPin, Phone, ShieldCheck, Star, Undo2, Video } from "lucide-react";
 import { api } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { cn } from "@/lib/utils";
@@ -29,6 +38,7 @@ const PHONE = "346-589-7877";
 const PARCELS = "https://geohwp.houstontx.gov/arcgis/rest/services/03_BaseData_External/Parcels_Current/FeatureServer";
 // HCAD, FBCAD, MCAD: the three counties we serve, in the order most leads come.
 const PARCEL_LAYERS = [4, 5, 3];
+const SNAP_FT = 10;
 
 // Tonight's rates, mirrored from backend/services/estimator.py. The mock
 // prices the Base zone only; the real page uses the ZIP zones.
@@ -41,11 +51,17 @@ const SIZE_TIERS: [number, number][] = [[400, 0.45], [700, 0.28], [1000, 0.25], 
 const MIN_JOB = 600;
 
 type Pt = { lat: number; lng: number };
-type Mode = "inside" | "both" | "none";
-type Side = { key: string; label: string; pts: Pt[]; feet: number; mode: Mode };
-type Step = "start" | "measuring" | "map" | "length" | "video" | "height" | "wood" | "price" | "contact" | "done" | "outside";
+type Drawn = { key: string; label: string; pts: Pt[]; feet: number; both: boolean };
+type Step = "start" | "measuring" | "draw" | "length" | "video" | "height" | "wood" | "price" | "contact" | "done" | "outside";
 type Wood = "new" | "grey" | "stained" | "unsure";
 
+// The sides, in the order we ask for them. Plain words, one at a time.
+const SIDES = [
+  { key: "back", label: "Back fence", ask: "Put the crosshair on one back corner and tap Add corner. Then the other back corner." },
+  { key: "left", label: "Left side", ask: "Start at the back corner. End where the fence meets the house." },
+  { key: "right", label: "Right side", ask: "Start at the back corner. End where the fence meets the house." },
+  { key: "gates", label: "Front gate section", ask: "The short piece from the house to the side fence, with the gate. Skip if you don't have one." },
+];
 const HEIGHTS: { key: string; ft: number; name: string; hint: string; img: string }[] = [
   { key: "std", ft: 6.5, name: "Standard", hint: "A cap board on top, or a board along the bottom. Most fences.", img: "/quote-mockup/h-65ft.jpg" },
   { key: "6", ft: 6, name: "6 ft, plain", hint: "Pickets only, nothing on top or bottom.", img: "/quote-mockup/h-6ft.jpg" },
@@ -73,20 +89,14 @@ function feet(a: Pt, b: Pt): number {
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
 }
-/** Local flat coordinates in feet around an origin, for angles and projections. */
 function flat(o: Pt, p: Pt): [number, number] {
   const kx = 364000 * Math.cos((o.lat * Math.PI) / 180), ky = 364000;
   return [(p.lng - o.lng) * kx, (p.lat - o.lat) * ky];
 }
 function lerp(a: Pt, b: Pt, t: number): Pt { return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t }; }
-function segDist(o: Pt, p: Pt, a: Pt, b: Pt): number {
-  const [px, py] = flat(o, p), [ax, ay] = flat(o, a), [bx, by] = flat(o, b);
-  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
-  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
-}
-/** Drop tiny steps and near-straight corners so a lot reads as a few sides. */
-function simplify(ring: Pt[]): Pt[] {
+const lengthOf = (pts: Pt[]) => pts.slice(1).reduce((s, p, i) => s + feet(pts[i], p), 0);
+/** The lot's real corners: tiny steps and near-straight bends dropped, so snapping lands on a corner. */
+function corners(ring: Pt[]): Pt[] {
   let pts = ring.slice();
   if (pts.length > 1 && feet(pts[0], pts[pts.length - 1]) < 1) pts.pop();
   pts = pts.filter((p, i) => i === 0 || feet(pts[i - 1], p) > 4);
@@ -102,68 +112,6 @@ function simplify(ring: Pt[]): Pt[] {
     pts = out;
   }
   return pts;
-}
-
-/**
- * The fence from the lot: the edge nearest the house is the front (Houston
- * lots: the house sits 20–25 ft off the street, the back yard is deeper).
- * The two sides start where the house's front face is, not at the street.
- * Everything else is fence. Expect ±5–10% before the customer touches it.
- */
-function fenceFromParcel(ring: Pt[], house: Pt): Side[] {
-  const pts = simplify(ring);
-  const n = pts.length;
-  if (n < 3) return [];
-  const o = pts[0];
-  const edges = pts.map((a, i) => ({ a, b: pts[(i + 1) % n], len: feet(a, pts[(i + 1) % n]) }));
-  const front = edges.reduce((best, e, i) => (segDist(o, house, e.a, e.b) < segDist(o, house, edges[best].a, edges[best].b) ? i : best), 0);
-  const dir = (e: { a: Pt; b: Pt }) => { const [x, y] = flat(e.a, e.b); const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
-  const fd = dir(edges[front]);
-  const parallel = (e: { a: Pt; b: Pt }) => { const d = dir(e); return Math.abs(d[0] * fd[0] + d[1] * fd[1]) > Math.cos((30 * Math.PI) / 180); };
-  // The front can run over a few short edges on a curved street.
-  const isFront = new Set<number>([front]);
-  for (let k = 1; k < n; k++) { const i = (front + k) % n; if (edges[i].len < 40 && parallel(edges[i])) isFront.add(i); else break; }
-  for (let k = 1; k < n; k++) { const i = (front - k + n) % n; if (edges[i].len < 40 && parallel(edges[i])) isFront.add(i); else break; }
-  // Walk the rest of the ring starting after the front.
-  let start = front; while (isFront.has(start)) start = (start + 1) % n;
-  const rest: number[] = [];
-  for (let k = 0; k < n; k++) { const i = (start + k) % n; if (!isFront.has(i)) rest.push(i); }
-  // Side A until the first edge parallel to the front, the back while parallel, side B after.
-  const groups: { label: "left" | "right" | "back"; idx: number[] }[] = [];
-  let phase: 0 | 1 | 2 = 0;
-  for (const i of rest) {
-    const par = parallel(edges[i]);
-    if (phase === 0 && par && edges[i].len > 20) phase = 1;
-    else if (phase === 1 && !par) phase = 2;
-    const label = phase === 1 ? "back" : phase === 0 ? "right" : "left";
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.idx.push(i); else groups.push({ label, idx: [i] });
-  }
-  // Left and right as seen from the street, facing the house.
-  const fm = lerp(edges[front].a, edges[front].b, 0.5);
-  const [cx, cy] = pts.reduce(([x, y], p) => { const [fx, fy] = flat(fm, p); return [x + fx / n, y + fy / n]; }, [0, 0]);
-  const inward = Math.hypot(cx, cy) ? [cx / Math.hypot(cx, cy), cy / Math.hypot(cx, cy)] : [0, 1];
-  const leftV = [-inward[1], inward[0]];
-  const sideOf = (idx: number[]) => { const m = lerp(edges[idx[0]].a, edges[idx[idx.length - 1]].b, 0.5); const [x, y] = flat(fm, m); return x * leftV[0] + y * leftV[1] > 0 ? "left" : "right"; };
-  // Trim the two sides back to the house's front face.
-  const setback = Math.min(60, segDist(o, house, edges[front].a, edges[front].b) + 10);
-  const out: Side[] = [];
-  for (const grp of groups) {
-    const label = grp.label === "back" ? "back" : sideOf(grp.idx);
-    const line: Pt[] = [edges[grp.idx[0]].a, ...grp.idx.map((i) => edges[i].b)];
-    if (label !== "back") {
-      const touchesFrontAtStart = isFront.has((grp.idx[0] - 1 + n) % n);
-      const touchesFrontAtEnd = isFront.has((grp.idx[grp.idx.length - 1] + 1) % n);
-      if (touchesFrontAtStart && line.length > 1) { const l = feet(line[0], line[1]); line[0] = lerp(line[0], line[1], Math.min(0.6, setback / Math.max(l, 1))); }
-      if (touchesFrontAtEnd && line.length > 1) { const a = line[line.length - 2], b = line[line.length - 1]; const l = feet(a, b); line[line.length - 1] = lerp(b, a, Math.min(0.6, setback / Math.max(l, 1))); }
-    }
-    const f = line.slice(1).reduce((s, p, i) => s + feet(line[i], p), 0);
-    if (f < 8) continue;
-    out.push({ key: `${label}-${out.length}`, label: label === "back" ? "Back" : label === "left" ? "Left side" : "Right side", pts: line, feet: Math.round(f), mode: "inside" });
-  }
-  // One row per label, longest first within a label.
-  const order = { Back: 0, "Left side": 1, "Right side": 2 } as Record<string, number>;
-  return out.sort((a, b) => order[a.label] - order[b.label] || b.feet - a.feet);
 }
 
 // ── pricing (mock) ──────────────────────────────────────────────────────────
@@ -196,9 +144,9 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
   const [zip, setZip] = useState("");
   const [ring, setRing] = useState<Pt[] | null>(null);
   const [yearBuilt, setYearBuilt] = useState<number | null>(null);
-  const [sides, setSides] = useState<Side[]>([]);
-  const [gates, setGates] = useState(true);
+  const [drawn, setDrawn] = useState<Drawn[]>([]);
   const [bucket, setBucket] = useState<string>("");
+  const [typedFeet, setTypedFeet] = useState<number>(0);
   const [height, setHeight] = useState<string>("");
   const [wood, setWood] = useState<Wood | null>(null);
   const [military, setMilitary] = useState(false);
@@ -217,10 +165,10 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
 
   const reset = () => {
     setStep("start"); setNote(""); setHouse(null); setFound(""); setZip(""); setRing(null); setYearBuilt(null);
-    setSides([]); setGates(true); setBucket(""); setHeight(""); setWood(null); setMilitary(false); setMeasureDone(0);
+    setDrawn([]); setBucket(""); setTypedFeet(0); setHeight(""); setWood(null); setMilitary(false); setMeasureDone(0);
   };
 
-  /** Address → house point (Google) → lot (City of Houston) → fence sides. */
+  /** Address → house point (Google) → lot (City of Houston) → the drawing screen. */
   const measure = async () => {
     const q = address.trim();
     if (q.length < 6) { inputRef.current?.focus(); setNote("Type your street address, like 12345 Oak Hollow Ln, Cypress."); return; }
@@ -254,14 +202,10 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
         } catch { /* next county */ }
       }
       tick(2);
-      if (!poly) { setRing(null); await wait(t0, 1800); setNote("We found your house but not the property lines. Tell us about how long the fence is."); setStep("length"); return; }
       setRing(poly); setYearBuilt(yb);
-      const s = fenceFromParcel(poly, h);
-      setSides(s);
       tick(3);
-      await wait(t0, 2400);
-      if (s.length < 2) { setNote("That lot's a tricky shape. Tell us about how long the fence is and a real person will measure it."); setStep("length"); return; }
-      setStep("map");
+      await wait(t0, 2000);
+      setStep("draw");
     } catch {
       await wait(t0, 1200);
       setNote(mapsKey ? "We couldn't find that address. Check the spelling, or tell us about how long the fence is." : "Maps key missing on this login. Tell us about how long the fence is.");
@@ -270,36 +214,38 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
   };
 
   const totalFeet = useMemo(() => {
+    if (typedFeet) return typedFeet;
     if (bucket) return BUCKETS.find((b) => b.key === bucket)?.feet || 0;
-    const f = sides.reduce((s, x) => s + (x.mode === "inside" ? x.feet : x.mode === "both" ? x.feet * 2 : 0), 0);
-    return f + (gates ? 48 : 0);
-  }, [sides, gates, bucket]);
+    return Math.round(drawn.reduce((s, d) => s + (d.both ? d.feet * 2 : d.feet), 0));
+  }, [drawn, bucket, typedFeet]);
   const ft = HEIGHTS.find((h) => h.key === height)?.ft || 6.5;
   const sqft = Math.round(totalFeet * ft);
   const bracket = bracketFor(yearBuilt, wood);
   const range = priceRange(sqft, bracket);
   const low = range.low - (military ? 50 : 0), high = range.high - (military ? 50 : 0);
-
-  const cycle = (key: string) => setSides((ss) => ss.map((s) => (s.key === key ? { ...s, mode: s.mode === "inside" ? "both" : s.mode === "both" ? "none" : "inside" } : s)));
+  const guessed = !!bucket || !!typedFeet;
 
   const body = (
     <div className="flex min-h-[720px] flex-col bg-white text-[#111110]" style={{ fontFamily: SANS }}>
       {step !== "start" && step !== "measuring" && step !== "done" ? (
         <div className="flex items-center justify-between px-4 pt-3">
-          <button type="button" onClick={() => setStep(back(step, !!bucket))} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-medium text-[#55534D]"><ArrowLeft className="h-4 w-4" />Back</button>
+          <button type="button" onClick={() => setStep(back(step, guessed))} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-medium text-[#55534D]"><ArrowLeft className="h-4 w-4" />Back</button>
           <Progress step={step} />
         </div>
       ) : null}
 
       {step === "start" ? <Start address={address} setAddress={setAddress} onGo={measure} note={note} inputRef={inputRef} /> : null}
       {step === "measuring" ? <Measuring done={measureDone} /> : null}
-      {step === "map" && house && ring ? (
-        <MapStep mapsKey={mapsKey} house={house} ring={ring} sides={sides} found={found} gates={gates} setGates={setGates} cycle={cycle} totalFeet={totalFeet}
-                 onOk={() => setStep("height")} onNotMine={reset} onCantSee={() => { setNote(""); setStep("length"); }} />
+      {step === "draw" && house ? (
+        <DrawStep mapsKey={mapsKey} house={house} ring={ring} found={found} drawn={drawn} setDrawn={setDrawn}
+                  onOk={() => { setBucket(""); setTypedFeet(0); setStep("height"); }} onNotMine={reset}
+                  onTypeIt={() => { setNote(""); setStep("length"); }} />
       ) : null}
       {step === "length" ? (
         <Screen title="About how long is your fence?" sub={note || "A rough guess is fine. A real person measures it before anything is scheduled."}>
-          {BUCKETS.map((b) => <Choice key={b.key} on={bucket === b.key} name={b.name} hint={b.hint} onClick={() => { setBucket(b.key); setStep("height"); }} />)}
+          <TypeFeet onGo={(n) => { setTypedFeet(n); setBucket(""); setStep("height"); }} />
+          <p className="pt-2 text-[13px] font-semibold uppercase tracking-wider text-[#8A877F]">Or pick the closest</p>
+          {BUCKETS.map((b) => <Choice key={b.key} on={bucket === b.key} name={b.name} hint={b.hint} onClick={() => { setBucket(b.key); setTypedFeet(0); setStep("height"); }} />)}
           <Choice name="Not sure" hint="No problem. We'll measure it for you." onClick={() => setStep("video")} />
         </Screen>
       ) : null}
@@ -331,11 +277,11 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
         </Screen>
       ) : null}
       {step === "price" ? (
-        <PriceStep totalFeet={totalFeet} ft={ft} sqft={sqft} low={low} high={high} minApplied={range.minApplied} bucket={!!bucket} zip={zip}
+        <PriceStep totalFeet={totalFeet} ft={ft} sqft={sqft} low={low} high={high} minApplied={range.minApplied} guessed={guessed} zip={zip}
                    military={military} setMilitary={setMilitary} onGo={() => setStep("contact")} />
       ) : null}
       {step === "contact" ? (
-        <Screen title={bucket && !sides.length ? "Where should we text your price?" : "Where should we text your exact price?"} sub="A text in the next 5 minutes. A real person calls between 8 AM and 8 PM to confirm the measurement, then it's firm.">
+        <Screen title="Where should we text your exact price?" sub="A text in the next 5 minutes. A real person calls between 8 AM and 8 PM to confirm the measurement, then it's firm.">
           <label className="block text-[14px] font-semibold text-[#55534D]">Your name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="First name is fine" className={INPUT} />
           <label className="mt-3 block text-[14px] font-semibold text-[#55534D]">Mobile number</label>
@@ -378,10 +324,10 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
 }
 
 function wait(t0: number, ms: number) { return new Promise<void>((r) => setTimeout(r, Math.max(0, ms - (Date.now() - t0)))); }
-function back(step: Step, bucket: boolean): Step {
-  if (step === "map" || step === "length") return "start";
+function back(step: Step, guessed: boolean): Step {
+  if (step === "draw" || step === "length") return "start";
   if (step === "video") return "length";
-  if (step === "height") return bucket ? "length" : "map";
+  if (step === "height") return guessed ? "length" : "draw";
   if (step === "wood") return "height";
   if (step === "price") return "wood";
   if (step === "contact") return "price";
@@ -389,10 +335,11 @@ function back(step: Step, bucket: boolean): Step {
 }
 
 const INPUT = "mt-1 h-12 w-full rounded-[10px] border border-[#D8D5CE] bg-white px-3.5 text-[16px] font-medium text-[#111110] outline-none placeholder:text-[#9B9890] focus:border-[#111110] focus:ring-1 focus:ring-[#111110]";
-const BTN = "mt-5 inline-flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[#111110] px-4 text-[17px] font-semibold text-white active:scale-[.99]";
+const BTN = "mt-5 inline-flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[#111110] px-4 text-[17px] font-semibold text-white active:scale-[.99] disabled:opacity-40";
+const BTN2 = "inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[12px] bg-[#F6F5F2] px-4 text-[15px] font-semibold text-[#111110] ring-1 ring-[#E3E1DB] active:scale-[.99] disabled:opacity-40";
 
 function Progress({ step }: { step: Step }) {
-  const n = step === "map" || step === "length" || step === "video" ? 1 : step === "height" ? 2 : step === "wood" ? 3 : 4;
+  const n = step === "draw" || step === "length" || step === "video" ? 1 : step === "height" ? 2 : step === "wood" ? 3 : 4;
   return (
     <div className="flex items-center gap-1.5" aria-label={`Step ${n} of 4`}>
       {[1, 2, 3, 4].map((i) => <span key={i} className={cn("h-1.5 w-6 rounded-full", i <= n ? "bg-[#111110]" : "bg-[#E3E1DB]")} />)}
@@ -429,6 +376,20 @@ function Row({ n, text }: { n: string; text: string }) {
   return <div className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#111110] text-[13px] font-bold text-white">{n}</span><p>{text}</p></div>;
 }
 
+function TypeFeet({ onGo }: { onGo: (n: number) => void }) {
+  const [v, setV] = useState("");
+  const n = parseInt(v.replace(/\D/g, ""), 10) || 0;
+  return (
+    <div className="rounded-2xl bg-[#F6F5F2] p-3">
+      <label className="block text-[14px] font-semibold text-[#55534D]">Know the length? Type it</label>
+      <div className="mt-1 flex gap-2">
+        <input value={v} onChange={(e) => setV(e.target.value)} inputMode="numeric" placeholder="200" className={cn(INPUT, "mt-0 flex-1")} />
+        <button type="button" disabled={n < 20} onClick={() => onGo(n)} className={cn(BTN2, "shrink-0 bg-[#111110] text-white ring-0")}>ft, go</button>
+      </div>
+    </div>
+  );
+}
+
 function Start({ address, setAddress, onGo, note, inputRef }: { address: string; setAddress: (s: string) => void; onGo: () => void; note: string; inputRef: React.RefObject<HTMLInputElement | null> }) {
   return (
     <div className="flex-1">
@@ -439,7 +400,7 @@ function Start({ address, setAddress, onGo, note, inputRef }: { address: string;
       </div>
       <div className="px-5 pb-6">
         <h1 className="text-[34px] font-normal leading-[1.08] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>See your fence staining price in about a minute.</h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-[#55534D]">Type your address. We measure your fence from the satellite photo and show you the price. No sales visit, no pressure, nobody has to be home.</p>
+        <p className="mt-2 text-[15px] leading-relaxed text-[#55534D]">Type your address, trace your fence on the satellite photo, and see the price. No sales visit, no pressure, nobody has to be home.</p>
         <label className="mt-5 block text-[14px] font-semibold text-[#55534D]">Your street address</label>
         <div className="relative">
           <MapPin className="pointer-events-none absolute left-3 top-[18px] h-5 w-5 text-[#9B9890]" />
@@ -459,11 +420,11 @@ function Start({ address, setAddress, onGo, note, inputRef }: { address: string;
 }
 
 function Measuring({ done }: { done: number }) {
-  const steps = ["Finding your property lines", "Looking at the satellite photo", "Measuring your fence"];
+  const steps = ["Finding your house", "Pulling up the satellite photo", "Getting your lot lines"];
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <span className="h-10 w-10 animate-spin rounded-full border-[3px] border-[#111110]/10 border-t-[#C9972F]" />
-      <h2 className="mt-6 text-[26px] leading-tight" style={{ fontFamily: SERIF }}>Measuring from satellite…</h2>
+      <h2 className="mt-6 text-[26px] leading-tight" style={{ fontFamily: SERIF }}>One second…</h2>
       <ul className="mt-5 w-full max-w-[280px] space-y-2.5">
         {steps.map((s, i) => (
           <li key={s} className="flex items-center gap-2.5 text-[15px]">
@@ -476,87 +437,192 @@ function Measuring({ done }: { done: number }) {
   );
 }
 
-function MapStep({ mapsKey, house, ring, sides, found, gates, setGates, cycle, totalFeet, onOk, onNotMine, onCantSee }: {
-  mapsKey: string; house: Pt; ring: Pt[]; sides: Side[]; found: string; gates: boolean; setGates: (b: boolean) => void;
-  cycle: (k: string) => void; totalFeet: number; onOk: () => void; onNotMine: () => void; onCantSee: () => void;
+/**
+ * The customer traces the fence, one side at a time. The map moves under a
+ * fixed crosshair; "Add corner" drops a point where the crosshair is (the
+ * office tool's mechanic). A dotted line from the last corner to the
+ * crosshair shows the next leg and its feet before the point is dropped.
+ * The lot lines are a faint guide and the crosshair snaps to the lot's
+ * corners when it's within 10 ft.
+ */
+function DrawStep({ mapsKey, house, ring, found, drawn, setDrawn, onOk, onNotMine, onTypeIt }: {
+  mapsKey: string; house: Pt; ring: Pt[] | null; found: string; drawn: Drawn[]; setDrawn: (d: Drawn[]) => void;
+  onOk: () => void; onNotMine: () => void; onTypeIt: () => void;
 }) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const drawnRef = useRef<any[]>([]);
+  const previewRef = useRef<any>(null);
+  const [idx, setIdx] = useState(() => Math.min(drawn.length, SIDES.length)); // which side we're on; SIDES.length = the review
+  const [pts, setPts] = useState<Pt[]>([]);
+  const [preview, setPreview] = useState<{ ft: number; snapped: boolean } | null>(null);
+  const [extra, setExtra] = useState(0);
+  const snapPts = useMemo(() => (ring ? corners(ring) : []), [ring]);
+  const side = idx < SIDES.length ? SIDES[idx] : null;
+
+  const snap = (p: Pt): { p: Pt; snapped: boolean } => {
+    let best: Pt | null = null, bd = SNAP_FT;
+    for (const c of snapPts) { const d = feet(p, c); if (d < bd) { bd = d; best = c; } }
+    return best ? { p: best, snapped: true } : { p, snapped: false };
+  };
+
+  // The map, once.
   useEffect(() => {
     let live = true;
     loadGoogleMaps(mapsKey).then(() => {
-      if (!live || !divRef.current) return;
+      if (!live || !divRef.current || mapRef.current) return;
       const G = g().maps;
-      if (!mapRef.current) {
-        mapRef.current = new G.Map(divRef.current, { center: house, zoom: 19, mapTypeId: "satellite", disableDefaultUI: true, gestureHandling: "greedy", tilt: 0, clickableIcons: false });
-        const b = new G.LatLngBounds(); ring.forEach((p) => b.extend(p)); mapRef.current.fitBounds(b, 24);
-      }
-      drawnRef.current.forEach((o) => o.setMap(null)); drawnRef.current = [];
-      const add = (o: any) => { drawnRef.current.push(o); return o; };
-      add(new G.Polygon({ map: mapRef.current, paths: ring, strokeColor: "#ffffff", strokeOpacity: 0.55, strokeWeight: 1.5, fillOpacity: 0 }));
-      for (const s of sides) {
-        const color = s.mode === "none" ? "#9B9890" : GOLD;
-        add(new G.Polyline({ map: mapRef.current, path: s.pts, strokeColor: color, strokeOpacity: s.mode === "none" ? 0.7 : 1, strokeWeight: s.mode === "both" ? 7 : 4, zIndex: 2 }));
-        if (s.mode === "both") add(new G.Polyline({ map: mapRef.current, path: s.pts, strokeColor: "#111110", strokeOpacity: 1, strokeWeight: 2, zIndex: 3 }));
-        const mid = s.pts[Math.floor((s.pts.length - 1) / 2)], nxt = s.pts[Math.min(s.pts.length - 1, Math.floor((s.pts.length - 1) / 2) + 1)];
-        add(new G.Marker({ map: mapRef.current, position: lerp(mid, nxt, 0.5), clickable: false, zIndex: 4,
-          icon: { path: "M0,0", scale: 0 },
-          label: { text: s.mode === "none" ? `${s.label}: skip` : `${s.label} · ${s.mode === "both" ? s.feet * 2 : s.feet} ft`, color: "#ffffff", fontSize: "13px", fontWeight: "700", className: "quote-map-label" } }));
-      }
-      add(new G.Marker({ map: mapRef.current, position: house, clickable: false, icon: { path: G.SymbolPath.CIRCLE, scale: 6, fillColor: "#ffffff", fillOpacity: 1, strokeColor: "#111110", strokeWeight: 2 } }));
+      const map = new G.Map(divRef.current, { center: house, zoom: 19, mapTypeId: "satellite", disableDefaultUI: true, gestureHandling: "greedy", tilt: 0, clickableIcons: false, zoomControl: true });
+      mapRef.current = map;
+      if (ring) { const b = new G.LatLngBounds(); ring.forEach((p) => b.extend(p)); map.fitBounds(b, 30); }
+      map.addListener("center_changed", () => {
+        const c = map.getCenter(); if (!c) return;
+        const s = snap({ lat: c.lat(), lng: c.lng() });
+        setPreview((old) => ({ ft: old?.ft ?? 0, snapped: s.snapped }));
+        // The dotted next leg: from the last corner to the crosshair.
+        const last = ptsRef.current[ptsRef.current.length - 1];
+        if (last) {
+          const path = [last, s.p];
+          if (!previewRef.current) previewRef.current = new G.Polyline({ map, path, strokeOpacity: 0, zIndex: 5,
+            icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3, scale: 3 }, offset: "0", repeat: "14px" }] });
+          else previewRef.current.setPath(path);
+          setPreview({ ft: Math.round(feet(last, s.p)), snapped: s.snapped });
+        } else if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
+      });
     }).catch(() => {});
     return () => { live = false; };
-  }, [mapsKey, house, ring, sides]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsKey]);
+
+  const ptsRef = useRef<Pt[]>([]);
+  ptsRef.current = pts;
+
+  // Redraw the lot guide, finished sides and the side in progress.
+  useEffect(() => {
+    const G = g()?.maps; const map = mapRef.current; if (!G || !map) return;
+    drawnRef.current.forEach((o) => o.setMap(null)); drawnRef.current = [];
+    const add = (o: any) => { drawnRef.current.push(o); return o; };
+    const tag = (at: Pt, text: string) => add(new G.Marker({ map, position: at, clickable: false, zIndex: 4, icon: { path: "M0,0", scale: 0 },
+      label: { text, color: "#ffffff", fontSize: "13px", fontWeight: "700", className: "quote-map-label" } }));
+    if (ring) add(new G.Polygon({ map, paths: ring, strokeColor: "#ffffff", strokeOpacity: 0.5, strokeWeight: 1.5, fillOpacity: 0, clickable: false }));
+    for (const c of snapPts) add(new G.Marker({ map, position: c, clickable: false, zIndex: 3, icon: { path: G.SymbolPath.CIRCLE, scale: 4, fillColor: "#ffffff", fillOpacity: 0.9, strokeColor: "#111110", strokeWeight: 1 } }));
+    for (const d of drawn) {
+      add(new G.Polyline({ map, path: d.pts, strokeColor: GOLD, strokeOpacity: 1, strokeWeight: d.both ? 7 : 4, zIndex: 2, clickable: false }));
+      if (d.both) add(new G.Polyline({ map, path: d.pts, strokeColor: "#111110", strokeOpacity: 1, strokeWeight: 2, zIndex: 3, clickable: false }));
+      const k = Math.floor((d.pts.length - 1) / 2);
+      tag(lerp(d.pts[k], d.pts[Math.min(d.pts.length - 1, k + 1)], 0.5), `${d.label} · ${Math.round(d.both ? d.feet * 2 : d.feet)} ft`);
+    }
+    if (pts.length) {
+      add(new G.Polyline({ map, path: pts, strokeColor: GOLD, strokeOpacity: 1, strokeWeight: 5, zIndex: 4, clickable: false }));
+      for (const p of pts) add(new G.Marker({ map, position: p, clickable: false, zIndex: 5, icon: { path: G.SymbolPath.CIRCLE, scale: 7, fillColor: GOLD, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 2 } }));
+    }
+    add(new G.Marker({ map, position: house, clickable: false, icon: { path: G.SymbolPath.CIRCLE, scale: 5, fillColor: "#ffffff", fillOpacity: 0.9, strokeColor: "#111110", strokeWeight: 2 } }));
+  }, [ring, snapPts, drawn, pts, house, idx]);
+
+  const addCorner = () => {
+    const map = mapRef.current; const c = map?.getCenter(); if (!c) return;
+    const s = snap({ lat: c.lat(), lng: c.lng() });
+    if (pts.length && feet(pts[pts.length - 1], s.p) < 2) return;
+    setPts([...pts, s.p]);
+  };
+  const undo = () => { if (pts.length) setPts(pts.slice(0, -1)); else if (drawn.length) { const last = drawn[drawn.length - 1]; setDrawn(drawn.slice(0, -1)); setPts(last.pts); setIdx(Math.max(0, idx - 1)); } };
+  const finishSide = () => {
+    if (!side || pts.length < 2) return;
+    setDrawn([...drawn, { key: side.key + (extra ? `-${extra}` : ""), label: side.label, pts, feet: lengthOf(pts), both: false }]);
+    setPts([]); setIdx(idx + 1);
+    if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; }
+  };
+  const skipSide = () => { setPts([]); setIdx(idx + 1); if (previewRef.current) { previewRef.current.setMap(null); previewRef.current = null; } };
+  const addAnother = () => { setExtra(extra + 1); setIdx(SIDES.length); setPts([]); setAnotherOn(true); };
+  const [anotherOn, setAnotherOn] = useState(false);
+  const total = Math.round(drawn.reduce((s, d) => s + (d.both ? d.feet * 2 : d.feet), 0));
+  const flipBoth = (key: string) => setDrawn(drawn.map((d) => (d.key === key ? { ...d, both: !d.both } : d)));
+
+  // "Add another section" reuses the drawing controls with a generic label.
+  const current = anotherOn ? { key: `more-${extra}`, label: `Section ${drawn.length + 1}`, ask: "Trace any other piece of fence we should stain." } : side;
+  const drawing = !!current;
 
   return (
     <div className="flex-1 px-5 pb-6 pt-3">
-      <h2 className="text-[26px] leading-[1.1] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>Is this your fence?</h2>
-      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">{found}</p>
+      <h2 className="text-[26px] leading-[1.1] tracking-[-0.01em]" style={{ fontFamily: SERIF }}>
+        {drawing ? `Trace your ${current!.label.toLowerCase()}` : "Does this look right?"}
+      </h2>
+      <p className="mt-1 text-[14px] leading-snug text-[#55534D]">{drawing ? current!.ask : found}</p>
       <div className="relative mt-3 overflow-hidden rounded-2xl ring-1 ring-[#111110]/10">
-        <div ref={divRef} className="h-[300px] w-full bg-[#2b2b2b]" />
+        <div ref={divRef} className="h-[320px] w-full bg-[#2b2b2b]" style={{ touchAction: "none" }} />
+        {drawing ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className={cn("relative block h-9 w-9 rounded-full border-2", preview?.snapped ? "border-[#C9972F]" : "border-white")} style={{ boxShadow: "0 0 0 1px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.5)" }}>
+              <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#C9972F]" />
+              <span className="absolute left-1/2 top-[-10px] h-2.5 w-px -translate-x-1/2 bg-white" /><span className="absolute left-1/2 bottom-[-10px] h-2.5 w-px -translate-x-1/2 bg-white" />
+              <span className="absolute top-1/2 left-[-10px] h-px w-2.5 -translate-y-1/2 bg-white" /><span className="absolute top-1/2 right-[-10px] h-px w-2.5 -translate-y-1/2 bg-white" />
+            </span>
+          </div>
+        ) : null}
+        {drawing && preview?.snapped ? <span className="absolute left-3 top-3 rounded-full bg-[#111110]/80 px-2.5 py-1 text-[12px] font-semibold text-white">On a lot corner</span> : null}
         <style>{`.quote-map-label{text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6)}`}</style>
       </div>
-      <p className="mt-2 text-[13px] text-[#55534D]">Gold lines are what we'd stain. Tap a side to change it.</p>
-      <ul className="mt-3 space-y-2">
-        {sides.map((s) => (
-          <li key={s.key}>
-            <button type="button" onClick={() => cycle(s.key)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
-              <span className="text-[15px] font-semibold">{s.label} <span className="font-normal text-[#55534D]">· {s.feet} ft</span></span>
-              <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", s.mode === "inside" ? "bg-[#111110] text-white" : s.mode === "both" ? "bg-[#C9972F] text-[#111110]" : "bg-[#E3E1DB] text-[#55534D]")}>
-                {s.mode === "inside" ? "My side" : s.mode === "both" ? "Both sides" : "Not mine / skip"}
-              </span>
+
+      {drawing ? (
+        <>
+          <p className="mt-2 text-[13px] text-[#55534D]">Drag the photo so the crosshair sits on a corner, then tap <b>Add corner</b>. Pinch to zoom. The white dots are your lot's corners; the crosshair snaps to them.</p>
+          <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+            <button type="button" onClick={undo} disabled={!pts.length && !drawn.length} className={BTN2} aria-label="Undo"><Undo2 className="h-5 w-5" /></button>
+            <button type="button" onClick={addCorner} className={cn(BTN, "mt-0 min-h-[48px] text-[16px]")}>
+              <Crosshair className="h-5 w-5" /> {pts.length && preview?.ft ? `Add corner · ${preview.ft} ft` : "Add corner"}
             </button>
-          </li>
-        ))}
-        <li>
-          <button type="button" onClick={() => setGates(!gates)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
-            <span className="text-[15px] font-semibold">Front gates <span className="font-normal text-[#55534D]">· both sides · 48 ft</span></span>
-            <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", gates ? "bg-[#111110] text-white" : "bg-[#E3E1DB] text-[#55534D]")}>{gates ? "Yes" : "Skip"}</span>
-          </button>
-        </li>
-      </ul>
-      <p className="mt-3 text-[13px] text-[#8A877F]">"Both sides" of a shared fence needs your neighbor's OK. We'll ask when we call.</p>
-      <div className="mt-3 flex items-baseline justify-between">
-        <span className="text-[15px] text-[#55534D]">About</span>
-        <span className="text-[30px] leading-none tabular-nums" style={{ fontFamily: SERIF }}>{totalFeet} ft</span>
-      </div>
-      <button type="button" onClick={onOk} className={BTN}>That's right <ChevronRight className="h-5 w-5" /></button>
-      <div className="mt-3 flex justify-between text-[14px] font-medium text-[#55534D]">
-        <button type="button" onClick={onNotMine} className="min-h-11 underline">Not my house</button>
-        <button type="button" onClick={onCantSee} className="min-h-11 underline">Can't see my fence</button>
-      </div>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={anotherOn ? () => { setAnotherOn(false); setPts([]); } : skipSide} className={BTN2}>{anotherOn ? "Never mind" : "No fence here, skip"}</button>
+            <button type="button" disabled={pts.length < 2} onClick={anotherOn ? () => { if (pts.length >= 2) { setDrawn([...drawn, { key: current!.key, label: current!.label, pts, feet: lengthOf(pts), both: false }]); setPts([]); setAnotherOn(false); } } : finishSide}
+                    className={cn(BTN2, "bg-[#C9972F] text-[#111110] ring-0")}>
+              {pts.length >= 2 ? `Done · ${Math.round(lengthOf(pts))} ft` : "Done with this side"}
+            </button>
+          </div>
+          <p className="mt-3 text-[13px] text-[#8A877F]">{idx < SIDES.length ? `Side ${Math.min(idx + 1, SIDES.length)} of ${SIDES.length}` : "Extra section"}{drawn.length ? ` · ${total} ft so far` : ""}</p>
+          <button type="button" onClick={onTypeIt} className="mt-2 min-h-11 w-full text-[14px] font-medium text-[#55534D] underline">Rather not draw? Type the length or pick a size</button>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-[13px] text-[#55534D]">Gold lines are what we'd stain. Tap a side to stain both faces of it.</p>
+          <ul className="mt-3 space-y-2">
+            {drawn.map((d) => (
+              <li key={d.key}>
+                <button type="button" onClick={() => flipBoth(d.key)} className="flex min-h-12 w-full items-center justify-between rounded-xl px-3.5 py-2 text-left ring-1 ring-[#E3E1DB]">
+                  <span className="text-[15px] font-semibold">{d.label} <span className="font-normal text-[#55534D]">· {Math.round(d.both ? d.feet * 2 : d.feet)} ft</span></span>
+                  <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-bold", d.both ? "bg-[#C9972F] text-[#111110]" : "bg-[#111110] text-white")}>{d.both ? "Both sides" : "My side"}</span>
+                </button>
+              </li>
+            ))}
+            {!drawn.length ? <li className="rounded-xl bg-[#F6F5F2] px-3.5 py-3 text-[14px] text-[#55534D]">Nothing traced yet. Tap Add another section, or type the length below.</li> : null}
+          </ul>
+          <p className="mt-3 text-[13px] text-[#8A877F]">"Both sides" of a shared fence needs your neighbor's OK. We'll ask when we call.</p>
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-[15px] text-[#55534D]">Your fence</span>
+            <span className="text-[30px] leading-none tabular-nums" style={{ fontFamily: SERIF }}>{total} ft</span>
+          </div>
+          <button type="button" disabled={total < 20} onClick={onOk} className={BTN}>That's right <ChevronRight className="h-5 w-5" /></button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={addAnother} className={BTN2}>Add another section</button>
+            <button type="button" onClick={undo} className={BTN2}><Undo2 className="h-4 w-4" /> Redo last side</button>
+          </div>
+          <div className="mt-3 flex justify-between text-[14px] font-medium text-[#55534D]">
+            <button type="button" onClick={onNotMine} className="min-h-11 underline">Not my house</button>
+            <button type="button" onClick={onTypeIt} className="min-h-11 underline">Type the length instead</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function PriceStep({ totalFeet, ft, sqft, low, high, minApplied, bucket, zip, military, setMilitary, onGo }: {
-  totalFeet: number; ft: number; sqft: number; low: number; high: number; minApplied: boolean; bucket: boolean; zip: string;
+function PriceStep({ totalFeet, ft, sqft, low, high, minApplied, guessed, zip, military, setMilitary, onGo }: {
+  totalFeet: number; ft: number; sqft: number; low: number; high: number; minApplied: boolean; guessed: boolean; zip: string;
   military: boolean; setMilitary: (b: boolean) => void; onGo: () => void;
 }) {
   return (
     <div className="flex-1 px-5 pb-6 pt-3">
-      <p className="text-[14px] text-[#55534D]">{bucket ? "About" : "Your fence:"} {totalFeet} ft × {ft} ft tall = {sqft.toLocaleString()} sq ft</p>
+      <p className="text-[14px] text-[#55534D]">{guessed ? "About" : "Your fence:"} {totalFeet} ft × {ft} ft tall = {sqft.toLocaleString()} sq ft</p>
       <h2 className="mt-1 text-[22px] leading-tight" style={{ fontFamily: SERIF }}>Your fence, cleaned and stained:</h2>
       <p className="mt-2 text-[46px] leading-none tracking-[-0.02em] tabular-nums" style={{ fontFamily: SERIF }}>{money(low)} – {money(high)}</p>
       <p className="mt-2 text-[15px] leading-relaxed text-[#55534D]">
@@ -614,13 +680,13 @@ function PriceStep({ totalFeet, ft, sqft, low, high, minApplied, bucket, zip, mi
 /** The decisions behind the mock, so the whole team reads the same thing. */
 function Notes() {
   const decided = [
+    "The customer traces the fence themselves, one side at a time (Alan, Oct 27). No AI pre-draw. We make it easy instead: lot lines as a guide, the crosshair snaps to lot corners, two taps for a straight side, undo, and \"type the length\" for anyone who'd rather not draw.",
     "A price range first, not three packages. Exact packages come after a real person confirms.",
     "If it's between 8 AM and 8 PM, a real person calls to confirm. Then the number is firm.",
     "No bias up. The range is the straight calculation (Essential to Legacy, tonight's rates).",
     "Height is pictures to tap. Standard (6.5 ft) is the default and marked \"Most fences\".",
-    "The fence is pre-drawn from the property lines (free City of Houston server, all three counties). The customer confirms, never draws from blank.",
-    "Sides: tap to cycle My side / Both sides / Not mine. Front gates both sides on by default. Neighbor's OK is asked on the call.",
-    "Can't see it: \"About how long?\" buckets, then a video link or \"just send my info\".",
+    "Sides: tap a traced side to stain both faces. Neighbor's OK is asked on the call.",
+    "Can't or won't draw: type the length, pick a size, or \"Not sure\" → a video link or \"just send my info\".",
     "The satellite photo is shown. Gold lines = what we stain.",
     "Proof under the price: photos (more than three), 4.9 · 41 reviews, 1-year warranty and the touch-up can.",
     "\"Nobody has to be home. We love it when you are\" (colors and pickets get settled at the fence).",
@@ -630,9 +696,9 @@ function Notes() {
     "Lives at estimate.sterlingfencetx.com/quote. Sterling only for now. Pressure washing is next.",
   ];
   const open = [
+    "Is tracing easy enough on a phone? Try it with one thumb. The research says blank-map drawing is where people quit (95% of configurator sessions), so the real page must track how many finish the trace vs tap \"type the length\".",
     "Below $600: the wording on the price screen. Does it read right?",
     "Is Essential-to-Legacy the right range, or Signature give-or-take 10%?",
-    "The front gates allowance (48 ft, both sides) is a guess. Real page: drawn from the house footprint.",
     "The ZIP zones (+8¢ / +12¢ / +20¢) aren't in the mock. The real page uses them.",
     "Which before/after photos go under the price, and do we pull them by ZIP from Fence Photos?",
     "Follow-up after the text: day 2, day 3, skip, day 5 with an out. Automation or Gio?",
@@ -641,11 +707,11 @@ function Notes() {
   return (
     <aside className="space-y-4 text-[14px]">
       <div className="rounded-2xl border bg-card p-4">
-        <p className="font-semibold">This is a mock. Nothing is saved or sent.</p>
-        <p className="mt-1 text-muted-foreground">What's real: type any Houston address and the lot comes from the city's property-line server, the map is Google satellite, and the range uses tonight's rates (Base zone). Research and sources: <code className="rounded bg-muted px-1 py-0.5 text-[12px]">docs/quote-generator/research.md</code>.</p>
+        <p className="font-semibold">This is a mock. Nothing goes to a customer.</p>
+        <p className="mt-1 text-muted-foreground">What's real: type any Houston address and the lot lines come from the city's property-line server, the map is Google satellite, and the range uses tonight's rates (Base zone). Research and sources: <code className="rounded bg-muted px-1 py-0.5 text-[12px]">docs/quote-generator/research.md</code>.</p>
       </div>
       <div className="rounded-2xl border bg-card p-4">
-        <p className="font-semibold">Decided tonight (Alan, Oct 26)</p>
+        <p className="font-semibold">Decided</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5">{decided.map((d) => <li key={d}>{d}</li>)}</ul>
       </div>
       <div className="rounded-2xl border bg-card p-4">
@@ -656,9 +722,8 @@ function Notes() {
         <p className="font-semibold">Why it's built this way (from the research)</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5">
           <li>70% want a digital estimate before talking to anyone; 51% say no pricing is a dealbreaker.</li>
-          <li>95% of draw-it-yourself sessions get abandoned. Pre-draw, then confirm.</li>
           <li>Precise numbers and narrow ranges are believed. "Starting at" is poison.</li>
-          <li>Showing the work for 2–3 seconds ("Measuring from satellite…") makes people value the result more.</li>
+          <li>Letting people measure it themselves raises what they'll pay (the IKEA effect), as long as it's easy. Make every tap obvious and keep an exit.</li>
           <li>Promise "no sales visit", never "no human". 74% still want a real person to confirm.</li>
           <li>Contact within an hour is 7× more likely to close than the next hour. Text first.</li>
         </ul>
