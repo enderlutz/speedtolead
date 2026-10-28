@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     plaid_client_id: str = ""
     plaid_secret: str = ""
     plaid_env: str = "sandbox"
+    # Chase and most big banks log in through OAuth: Plaid Link jumps to the
+    # bank's page and comes back here. Must be on Plaid's allowed list. Empty
+    # = the dashboard's money page on the public base (production only).
+    plaid_redirect_uri: str = ""
 
     # Google Maps
     # Server key — geocoding lead addresses (server-side only).

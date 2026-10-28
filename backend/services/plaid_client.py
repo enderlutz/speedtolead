@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import httpx
 
-from config import get_settings
+from config import get_settings, proposal_base
 
 HOSTS = {"sandbox": "https://sandbox.plaid.com", "production": "https://production.plaid.com"}
 
@@ -69,7 +69,21 @@ def create_link_token(user_id: str, access_token: str = "") -> str:
         body["products"] = ["transactions"]
         # A year back, so the first pull can answer "where did it go".
         body["transactions"] = {"days_requested": 365}
+    uri = redirect_uri()
+    if uri:
+        body["redirect_uri"] = uri
     return _post("/link/token/create", body)["link_token"]
+
+
+def redirect_uri() -> str:
+    """Where the bank's OAuth page sends the customer back (Chase needs it).
+    Only in production: Plaid rejects a URI that isn't on its allowed list,
+    and sandbox banks don't use one."""
+    s = get_settings()
+    explicit = (getattr(s, "plaid_redirect_uri", "") or "").strip()
+    if explicit:
+        return explicit
+    return f"{proposal_base()}/money-audit" if env() == "production" else ""
 
 
 def exchange_public_token(public_token: str) -> tuple[str, str]:

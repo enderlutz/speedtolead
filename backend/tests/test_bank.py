@@ -251,3 +251,25 @@ def test_no_encryption_key_means_no_connecting(db, monkeypatch):
     with pytest.raises(plaid.PlaidError) as e:
         bank.connect(db, "public-x")
     assert e.value.code == "NO_ENCRYPTION" and called == []
+
+
+def test_link_token_carries_the_oauth_redirect_in_production(plaid_on, monkeypatch):
+    """Chase logs in through OAuth, so the link token has to say where the
+    bank sends the customer back (2026-10-27, Plaid production approved)."""
+    from config import get_settings
+    from services import plaid_client as pc
+    seen: dict = {}
+    monkeypatch.setattr(pc, "_post", lambda path, body: seen.update(body) or {"link_token": "lt"})
+    s = get_settings()
+    monkeypatch.setattr(s, "proposal_base_url", "https://estimate.example.com")
+    monkeypatch.setattr(s, "plaid_env", "production")
+    assert pc.create_link_token("u1") == "lt"
+    assert seen["redirect_uri"] == "https://estimate.example.com/money-audit"
+    monkeypatch.setattr(s, "plaid_redirect_uri", "https://other.example.com/back")
+    pc.create_link_token("u1")
+    assert seen["redirect_uri"] == "https://other.example.com/back"
+    seen.clear()
+    monkeypatch.setattr(s, "plaid_redirect_uri", "")
+    monkeypatch.setattr(s, "plaid_env", "sandbox")
+    pc.create_link_token("u1")
+    assert "redirect_uri" not in seen

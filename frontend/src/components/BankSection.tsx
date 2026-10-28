@@ -13,7 +13,7 @@ type PlaidHandler = { open: () => void; destroy: () => void };
 type PlaidMeta = { institution?: { name?: string } | null };
 declare global {
   interface Window {
-    Plaid?: { create: (o: { token: string; onSuccess: (publicToken: string, meta: PlaidMeta) => void; onExit?: () => void }) => PlaidHandler };
+    Plaid?: { create: (o: { token: string; receivedRedirectUri?: string; onSuccess: (publicToken: string, meta: PlaidMeta) => void; onExit?: () => void }) => PlaidHandler };
   }
 }
 
@@ -86,13 +86,26 @@ export default function BankSection({ start, end }: { start: string; end: string
     finally { setBusy(""); }
   };
 
-  const openLink = async (itemId = "") => {
+  // Chase and most big banks log in through OAuth: Link jumps to the bank's
+  // page, which sends the browser back here with ?oauth_state_id=. Link then
+  // has to reopen with the SAME link token, so it's kept for the round trip
+  // (Plaid production, 2026-10-27).
+  const STASH = "plaid:link";
+  const finishOauth = () => {
+    try { sessionStorage.removeItem(STASH); } catch { /* fine */ }
+    if (window.location.search.includes("oauth_state_id")) window.history.replaceState({}, "", window.location.pathname);
+  };
+  const openLink = async (itemId = "", resume?: { token: string; redirectUri: string }) => {
     setBusy(itemId || "connect");
     try {
-      const [{ link_token }] = await Promise.all([api.bankLinkToken(itemId), loadPlaid()]);
+      await loadPlaid();
+      const link_token = resume ? resume.token : (await api.bankLinkToken(itemId)).link_token;
+      try { sessionStorage.setItem(STASH, JSON.stringify({ token: link_token, item: itemId })); } catch { /* fine */ }
       const handler = window.Plaid!.create({
         token: link_token,
+        receivedRedirectUri: resume?.redirectUri,
         onSuccess: (publicToken, meta) => {
+          finishOauth();
           void (async () => {
             try {
               // Reconnect (update mode) keeps the same bank, so no exchange.
@@ -102,11 +115,21 @@ export default function BankSection({ start, end }: { start: string; end: string
             } catch (e) { toast.error(msg(e, "Couldn't save the bank")); }
           })();
         },
-        onExit: () => setBusy(""),
+        onExit: () => { finishOauth(); setBusy(""); },
       });
       handler.open();
     } catch (e) { toast.error(msg(e, "Couldn't open the bank login")); setBusy(""); }
   };
+
+  // Back from the bank's OAuth page: pick the login back up where it left off.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has("oauth_state_id")) return;
+    let saved: { token?: string; item?: string } | null = null;
+    try { saved = JSON.parse(sessionStorage.getItem(STASH) || "null"); } catch { saved = null; }
+    if (saved?.token) void openLink(saved.item || "", { token: saved.token, redirectUri: window.location.href });
+    else { finishOauth(); toast.error("The bank login didn't come back cleanly. Tap Connect bank again."); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const disconnect = async (id: string, name: string) => {
     if (!window.confirm(`Disconnect ${name}? Its lines leave this page. Your sorting rules stay.`)) return;
