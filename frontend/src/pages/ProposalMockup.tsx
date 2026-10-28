@@ -938,7 +938,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                       {colorsV2 ? <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span> : null}
                     </div>
                     <div className="flex flex-1 flex-col px-1 pb-1.5 pt-1">
-                      <p className="font-heading text-[18px] font-bold leading-[20px]" style={{ color: s.name }}>{p.short}</p>
+                      <p className="font-heading text-[22px] font-bold leading-[24px]" style={{ color: s.name }}>{p.short}</p>
                       <p className="mt-0.5 text-[12px] font-bold uppercase leading-[14px] tracking-[0.02em]" style={{ color: s.muted }}>{p.tag}</p>
                       <p className="text-[12px] font-semibold leading-[14px]" style={{ color: s.muted }}>Lasts {p.lasts}*</p>
                       <ul className="mt-1 flex-1 space-y-0.5">
