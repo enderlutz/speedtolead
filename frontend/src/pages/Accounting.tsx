@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { formatCurrency, timeAgo } from "@/lib/utils";
+import { cn, formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   DollarSign, TrendingUp, Plus, Trash2, Pencil, Check, X, Calculator, Receipt, Users as UsersIcon, FileText, AlertCircle, Wrench,
@@ -25,7 +25,8 @@ const PERIOD_LABELS: Record<Period, string> = {
   all: "All Time",
 };
 
-export default function Accounting() {
+/** `embedded`: a section of Money (2026-10-27), which draws the header. */
+export default function Accounting({ embedded = false }: { embedded?: boolean } = {}) {
   const user = getCurrentUser();
   const navigate = useNavigate();
   const [urlParams] = useSearchParams();
@@ -74,16 +75,18 @@ export default function Accounting() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-7xl">
+    <div className={cn("space-y-4", !embedded && "p-4 sm:p-6 max-w-7xl")}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-primary" /> Accounting
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Revenue, labor, reimbursements, overhead, and per-job margin · owner-only
-          </p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-primary" /> Accounting
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Revenue, labor, reimbursements, overhead, and per-job margin · owner-only
+            </p>
+          </div>
+        )}
         <div className="inline-flex border rounded-md text-xs">
           {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
             <button

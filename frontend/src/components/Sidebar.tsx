@@ -1,14 +1,14 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Landmark } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
 //   matching icon here.
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, type KPIs, type BookedMonth, getCurrentUser, clearToken, hasPerm, getDivision, setDivision, type Division } from "@/lib/api";
+import { api, type KPIs, type BookedMonth, getCurrentUser, clearToken, hasPerm, canSeeRevenue, getDivision, setDivision, type Division } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { tr } from "@/lib/i18n";
 
@@ -76,7 +76,7 @@ function DivisionSwitcher() {
 // when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
 // `divisions` (if set) restricts the item to those divisions (fence | brick).
 // Items without it show in every division.
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string; divisions?: Division[] }[] = [
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string; divisions?: Division[]; show?: () => boolean }[] = [
   // divisions:["fence"] = not division-scoped yet, so hidden in brick mode to
   // avoid showing fence data. Reveal each as it gets scoped for brick.
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard", divisions: ["fence"] },
@@ -104,12 +104,11 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] }, // folded into Call script, third view (2026-10-27)
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
-  { to: "/money-audit", icon: DollarSign, label: "Where the money went", restrictToAny: ["fragned", "alanbonner"] },
+  // Money (2026-10-27): Revenue, Where the money went, Accounting and Payroll in one hub; each person sees their sections.
+  { to: "/money", icon: Landmark, label: "Money", show: () => canSeeRevenue() || hasPerm("accounting") || hasPerm("payroll") },
   { to: "/social", icon: Clapperboard, label: "Social media", perm: "social_media" },
-  { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },
-  { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting", divisions: ["fence"] },
   // Division-aware (scoped) — visible in both fence and brick:
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
@@ -120,7 +119,6 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   // { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] }, // archived 2026-10-27 (Alan: not using an estimator right now). Route/page kept.
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
-  { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
   // The project notes for the interactive proposal (2026-10-09): a page that
@@ -322,6 +320,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             const u = getCurrentUser();
             // Division scope — hide items not meant for the active division.
             if (item.divisions && !item.divisions.includes(getDivision())) return false;
+            if (item.show) return item.show();
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
             // The office runs jobs from Project Manager (its All jobs tab is the

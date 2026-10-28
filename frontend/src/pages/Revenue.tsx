@@ -7,6 +7,7 @@ import {
   type LeanLead,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
@@ -37,7 +38,8 @@ const STATUS_STYLE: Record<string, string> = {
   void: "bg-gray-100 text-gray-500",
 };
 
-export default function Revenue() {
+/** `embedded`: a section of Money (2026-10-27), which draws the header. */
+export default function Revenue({ embedded = false }: { embedded?: boolean } = {}) {
   const [invoices, setInvoices] = useState<QuickbooksInvoice[]>([]);
   const [rollup, setRollup] = useState<QbInvoiceRollup | null>(null);
   const [total, setTotal] = useState(0);
@@ -113,14 +115,16 @@ export default function Revenue() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className={cn("space-y-6", !embedded && "p-6 max-w-6xl mx-auto")}>
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Revenue</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Invoices pulled from QuickBooks. Match each one to a lead to see who's paid and what every lead is worth.
-          </p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <h1 className="text-2xl font-bold">Revenue</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Invoices pulled from QuickBooks. Match each one to a lead to see who's paid and what every lead is worth.
+            </p>
+          </div>
+        )}
         <Button onClick={runSync} disabled={syncing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
           {syncing ? "Syncing…" : "Sync from QuickBooks"}

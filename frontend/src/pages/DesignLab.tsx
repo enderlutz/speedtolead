@@ -27,6 +27,7 @@ import { FOLLOWUP_VIEWS, type FollowUpView } from "@/pages/followUpViews";
 import { DESIGN_CHANGES } from "@/content/design-changes";
 import notes from "@/content/proposal-v2.md?raw";
 import { Panel } from "@/components/Panel";
+import { HubHeader } from "@/components/HubHeader";
 import { ACCENT } from "@/lib/accents";
 import { cn } from "@/lib/utils";
 
@@ -125,44 +126,15 @@ export default function DesignLab() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
-      <div className="overflow-hidden rounded-2xl bg-ink text-ivory shadow-lg">
-        <div className="flex flex-wrap items-center gap-3 px-5 py-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
-            <FlaskConical className="h-5 w-5 text-ink" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-heading text-xl font-bold leading-tight">Design Lab</h1>
-            <p className="text-xs text-ivory/70">Everything a customer sees or hears from us, before they do. Nothing on this page sends anything.</p>
-          </div>
-          {fullScreen ? (
-            <Link to={fullScreen} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
-              <Maximize2 className="h-3.5 w-3.5" /> Full screen
-            </Link>
-          ) : null}
-        </div>
-        {/* The sections, across the top. */}
-        <div className="flex flex-wrap gap-1 border-t border-white/10 px-3 py-2">
-          {TABS.map((t) => (
-            <button key={t.key} type="button" onClick={() => pick(t.key)} title={t.hint}
-              className={cn("inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-[14px] font-bold transition",
-                tab === t.key ? "bg-gold text-ink shadow-sm" : "text-ivory/80 hover:bg-white/10")}>
-              <t.icon className="h-4 w-4" /> {t.label}
-              {count(t.key) ? <span className={cn("rounded-full px-1.5 text-[11px]", tab === t.key ? "bg-ink/15" : "bg-white/10")}>{count(t.key)}</span> : null}
-            </button>
-          ))}
-        </div>
-        {/* The section's own row: its views, or one line on what's below. Always the same height. */}
-        <div className="flex min-h-[52px] flex-wrap items-center gap-1 border-t border-white/10 bg-white/5 px-3 py-1.5">
-          <span className="mr-2 text-[11px] font-bold uppercase tracking-wider text-ivory/50">{TABS.find((t) => t.key === tab)?.label}</span>
-          {subs.length ? subs.map((s) => (
-            <button key={s.key} type="button" onClick={() => pickView(s.key)} title={s.hint}
-              className={cn("inline-flex min-h-10 shrink-0 items-center rounded-lg px-3 text-[14px] font-semibold transition",
-                view === s.key ? "bg-white/15 text-gold" : "text-ivory/75 hover:bg-white/10")}>
-              {s.label}
-            </button>
-          )) : <span className="text-[13px] text-ivory/70">{ROW_NOTE[tab]}</span>}
-        </div>
-      </div>
+      <HubHeader icon={FlaskConical} title="Design Lab"
+        subtitle="Everything a customer sees or hears from us, before they do. Nothing on this page sends anything."
+        tabs={TABS.map((t) => ({ ...t, count: count(t.key) }))} tab={tab} onTab={pick}
+        views={subs} view={view} onView={pickView} note={ROW_NOTE[tab]}
+        action={fullScreen ? (
+          <Link to={fullScreen} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
+            <Maximize2 className="h-3.5 w-3.5" /> Full screen
+          </Link>
+        ) : null} />
 
       {tab === "screens" && view === "proposal" ? (
         <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">

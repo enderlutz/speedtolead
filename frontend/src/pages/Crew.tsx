@@ -4,7 +4,7 @@ import { api, type Employee, type RangeTotals, type LifetimeTotals, getCurrentUs
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { HardHat, Plus, Clock, DollarSign, AlertTriangle, Download, FileText, Eye } from "lucide-react";
 import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/components/CrewModals";
@@ -24,7 +24,8 @@ const RANGE_LABELS: Record<RangeKey, string> = {
 
 type EmployeeRow = Employee & { range_totals: RangeTotals; lifetime: LifetimeTotals };
 
-export default function Crew() {
+/** `embedded`: the Payroll section of Money (2026-10-27), which draws the header. */
+export default function Crew({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const user = getCurrentUser();
   const [urlParams] = useSearchParams();
@@ -88,14 +89,16 @@ export default function Crew() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-6xl">
+    <div className={cn("space-y-4", !embedded && "p-4 sm:p-6 max-w-6xl")}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <HardHat className="h-5 w-5 text-primary" /> Crew
-          </h1>
-          <p className="text-sm text-muted-foreground">Time, pay, and 1099 prep · owner-only</p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <HardHat className="h-5 w-5 text-primary" /> Crew
+            </h1>
+            <p className="text-sm text-muted-foreground">Time, pay, and 1099 prep · owner-only</p>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => window.open(api.getRosterExportUrl(), "_blank")}>
             <Download className="h-3.5 w-3.5 mr-1" /> Roster CSV

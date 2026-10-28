@@ -8,12 +8,16 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 // Where the money went (Alan, 2026-10-17): this month's money in and out of
 // QuickBooks, read-only. Owner-only. Below it, the bank lines themselves
-// through Plaid (components/BankSection.tsx), for the same dates.
+// through Plaid (components/BankSection.tsx), for the same dates. Inside
+// Money (2026-10-27) it's one section with two views, QuickBooks and Bank;
+// on its own it shows both.
 
 const firstOfMonth = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toLocaleDateString("en-CA"); };
 const today = () => new Date().toLocaleDateString("en-CA");
 
-export default function MoneyAudit() {
+export default function MoneyAudit({ embedded = false, view = "all" }: { embedded?: boolean; view?: "all" | "quickbooks" | "bank" } = {}) {
+  const showQb = view !== "bank";
+  const showBank = view !== "quickbooks";
   const [start, setStart] = useState(firstOfMonth());
   const [end, setEnd] = useState(today());
   const [data, setData] = useState<Audit | null>(null);
@@ -28,23 +32,24 @@ export default function MoneyAudit() {
     finally { setLoading(false); }
   }, [start, end]);
    
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // QuickBooks is pulled when its view is on screen, once; the Pull button refreshes.
+  useEffect(() => { if (showQb && !data) void load(); }, [showQb]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => (data?.rows || []).filter((r) => filter === "all" || r.direction === filter)
     .slice().sort((a, b) => b.amount - a.amount), [data, filter]);
   const s = data?.summary;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold">Where the money went</h1>
+    <div className={cn("space-y-4", !embedded && "mx-auto max-w-5xl p-4")}>
+      {embedded ? null : <h1 className="text-2xl font-bold">Where the money went</h1>}
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-muted-foreground">From<Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-10" /></label>
         <label className="text-xs text-muted-foreground">To<Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="h-10" /></label>
-        <button onClick={() => void load()} className="h-10 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground">Pull from QuickBooks</button>
+        {showQb ? <button onClick={() => void load()} className="h-10 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground">Pull from QuickBooks</button> : null}
         {loading && <Loader2 className="h-5 w-5 animate-spin" />}
       </div>
-      {err && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{err}</p>}
-      {data && s && (
+      {showQb && err && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{err}</p>}
+      {showQb && data && s && (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[["Spent", formatCurrency(s.spent)], ["Came in", formatCurrency(s.came_in)], ["Moved between accounts", formatCurrency(s.transfers)], ["Spent, not categorized", formatCurrency(s.uncategorized)]].map(([k, v]) => (
@@ -84,7 +89,7 @@ export default function MoneyAudit() {
           </CardContent></Card>
         </>
       )}
-      <div className="border-t pt-4"><BankSection start={start} end={end} /></div>
+      {showBank ? <div className={cn(view === "all" && "border-t pt-4")}><BankSection start={start} end={end} /></div> : null}
     </div>
   );
 }

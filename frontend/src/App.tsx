@@ -34,7 +34,6 @@ const TrainingCourse = lazy(() => import("@/pages/TrainingCourse"));
 const ExteriorCapture = lazy(() => import("@/pages/ExteriorCapture"));
 const VideoEstimate = lazy(() => import("@/pages/VideoEstimate"));
 const VideoEstimates = lazy(() => import("@/pages/VideoEstimates"));
-const Crew = lazy(() => import("@/pages/Crew"));
 const CrewEmployee = lazy(() => import("@/pages/CrewEmployee"));
 const CalendarPage = lazy(() => import("@/pages/Calendar"));
 const MySchedule = lazy(() => import("@/pages/MySchedule"));
@@ -52,14 +51,14 @@ import { TrainingModeProvider } from "@/lib/training_mode_context";
 import { startPhotoQueue } from "@/lib/photoQueue";
 const JobSops = lazy(() => import("@/pages/JobSops"));
 const InvoiceQueue = lazy(() => import("@/pages/InvoiceQueue"));
-const Revenue = lazy(() => import("@/pages/Revenue"));
+// Money (2026-10-27): revenue, where the money went, accounting and payroll
+// in one hub; the old addresses open it on their section.
+const Money = lazy(() => import("@/pages/Money"));
 const Documents = lazy(() => import("@/pages/Documents"));
 const MetaAds = lazy(() => import("@/pages/MetaAds"));
 const SocialMedia = lazy(() => import("@/pages/SocialMedia"));
-const MoneyAudit = lazy(() => import("@/pages/MoneyAudit"));
 const DailyTasks = lazy(() => import("@/pages/DailyTasks"));
 const Contacts = lazy(() => import("@/pages/Contacts"));
-const Accounting = lazy(() => import("@/pages/Accounting"));
 const StainInventory = lazy(() => import("@/pages/StainInventory"));
 const CompanyCamPage = lazy(() => import("@/pages/CompanyCamPage"));
 const FencePhotos = lazy(() => import("@/pages/FencePhotos"));
@@ -126,6 +125,12 @@ function FragnedOnly({ children }: { children: React.ReactNode }) {
 // only. Backend enforces the same list; this bounces everyone else away.
 function RevenueOnly({ children }: { children: React.ReactNode }) {
   if (!canSeeRevenue()) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+// Money: anyone with revenue, accounting or payroll gets in and sees their sections.
+function MoneyOnly({ children }: { children: React.ReactNode }) {
+  if (!(canSeeRevenue() || hasPerm("accounting") || hasPerm("payroll"))) return <Navigate to={landingFor()} replace />;
   return <>{children}</>;
 }
 
@@ -283,17 +288,19 @@ function AppLayout() {
               <Route path="/training" element={<Navigate to="/calls?view=training" replace />} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
-              <Route path="/money-audit" element={<RevenueOnly><MoneyAudit /></RevenueOnly>} />
+              <Route path="/money" element={<MoneyOnly><Money /></MoneyOnly>} />
+              {/* Plaid's bank login comes back to /money-audit, so it stays a real page. */}
+              <Route path="/money-audit" element={<RevenueOnly><Money forced="audit" /></RevenueOnly>} />
               <Route path="/social" element={<RequireView view="social_media"><SocialMedia /></RequireView>} />
               <Route path="/meta-ads" element={<Navigate to="/marketing" replace />} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
               <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />
               <Route path="/training/:moduleId" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
-              <Route path="/crew" element={<RequireView view="payroll"><Crew /></RequireView>} />
+              <Route path="/crew" element={<RequireView view="payroll"><Money forced="payroll" /></RequireView>} />
               <Route path="/crew/:id" element={<RequireView view="payroll"><CrewEmployee /></RequireView>} />
               <Route path="/stain-inventory" element={<RequireView view="stain_inventory"><StainInventory /></RequireView>} />
           <Route path="/fence-photos" element={<RequireView view="fence_photos"><FencePhotos /></RequireView>} />
-              <Route path="/accounting" element={<RequireView view="accounting"><Accounting /></RequireView>} />
+              <Route path="/accounting" element={<RequireView view="accounting"><Money forced="accounting" /></RequireView>} />
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
@@ -307,7 +314,7 @@ function AppLayout() {
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
               <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
-              <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
+              <Route path="/revenue" element={<RevenueOnly><Money forced="revenue" /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/design-lab" element={<StaffOnly><DesignLab /></StaffOnly>} />
               <Route path="/follow-ups" element={<FollowUpsRedirect />} />
