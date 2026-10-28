@@ -325,6 +325,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             if (item.divisions && !item.divisions.includes(getDivision())) return false;
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
+            // Alan owns the business; he has no crew schedule (2026-10-27).
+            if (item.to === "/my-schedule" && (u?.sub || "").toLowerCase() === "alanbonner") return false;
             if (item.perm === "pm_hq") return hasPerm("pm_hq") && !hasPerm("assign_crew");
             if (item.perm) return hasPerm(item.perm);
             if (item.to === "/on-call") return u?.role === "admin" || u?.role === "va";
