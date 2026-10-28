@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from "lucide-react";
 import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
+import { BookingReviewQueue } from "@/components/BookingReviewQueue";
 import { cn, errMessage, formatCurrency } from "@/lib/utils";
 
 const STAGES: { key: InvoiceStageKey; label: string; short: string; money: string; empty: string; icon: React.ElementType }[] = [
@@ -253,6 +254,9 @@ export default function InvoiceQueue() {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </button>
       </div>
+
+      {/* Olga's quick $250s, for a look-over (Alan, 2026-10-27). Hidden when there's nothing to review. */}
+      <BookingReviewQueue />
 
       {/* The five stages, left to right; two to a row on a phone. */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

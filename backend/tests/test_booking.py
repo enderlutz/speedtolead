@@ -28,7 +28,7 @@ def ghl(monkeypatch):
     def upsert(db, event_id, **kw):
         eid = event_id or f"ev{len(events) + 1}"
         events[eid] = kw
-        sent.append(("cal", eid, kw["summary"], kw["description"], kw["job_date"], kw.get("color_id")))
+        sent.append(("cal", eid, kw["summary"], kw["description"], kw["job_date"], kw.get("color_id"), kw.get("attendee")))
         return eid, f"https://calendar.google.com/{eid}"
     monkeypatch.setattr(bk.gcal, "upsert_internal_event", upsert)
     monkeypatch.setattr(bk.gcal, "delete_event", lambda db, eid: sent.append(("cal-delete", eid)) or True)
@@ -115,13 +115,18 @@ def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(
     # Sending again updates the same event.
     bk.send_booking(lead.id, bk.SendBody(), STAFF)
     assert [x[1] for x in ghl if x[0] == "cal"] == ["ev1", "ev1"]
-    # Paid: the Stripe hook turns it Confirmed.
+    # Paid: the Stripe hook turns the same event yellow, rewrites it in plain
+    # English for the customer, and puts them on it so Google sends the
+    # invite (Alan, 2026-10-27). The office's lead link stays off it.
     db.add(PayLink(token="paidpaidpaidpaidpaid", lead_id=lead.id, kind="deposit", amount_cents=25000, status="paid",
                    created_at=datetime.now(timezone.utc).isoformat(), paid_at=datetime.now(timezone.utc).isoformat(), answers="{}"))
     db.commit()
     bk.on_deposit_paid(lead.id)
     last = [x for x in ghl if x[0] == "cal"][-1]
-    assert last[2].endswith("| Confirmed") and "CONFIRMED" in last[3]
+    assert last[2] == "Sterling Fence Staining · Fence staining · Wes Wehr"
+    assert "Hi Wes, this is your day" in last[3] and "Signature" in last[3] and "Pecan" in last[3] and "Paid: $250.00" in last[3]
+    assert "Lead:" not in last[3] and "CONFIRMED" not in last[3]
+    assert last[6] == ((lead.contact_email, "Wes Wehr") if (lead.contact_email or "").strip() else None)
     assert last[5] == "5"  # yellow once paid
     bk.cancel_booking(lead.id, STAFF)
     assert ("cal-delete", "ev1") in ghl

@@ -39,7 +39,7 @@ def wires(monkeypatch):
 
     def upsert(db, event_id, **kw):
         eid = event_id or f"ev{len([x for x in sent if x[0] == 'cal']) + 1}"
-        sent.append(("cal", eid, kw["summary"], kw["job_date"], kw.get("color_id")))
+        sent.append(("cal", eid, kw["summary"], kw["job_date"], kw.get("color_id"), kw.get("attendee"), kw.get("description", "")))
         return eid, f"https://calendar.google.com/{eid}"
     monkeypatch.setattr(bk.gcal, "upsert_internal_event", upsert)
     return sent
@@ -111,8 +111,13 @@ def test_paying_turns_the_hold_to_confirmed_and_texts_the_booking_page_once(db, 
     sms = [x[1] for x in wires if x[0] == "sms"]
     assert len(sms) == 2 and "booked for" in sms[1] and "/b/" in sms[1]
     assert [x for x in wires if x[0] == "email"]
+    # Paid: the one event turns yellow, reads in plain English, and the
+    # customer is on it so Google sends them the invite (Alan, 2026-10-27).
     cal = [x for x in wires if x[0] == "cal"]
-    assert cal[-1][4] == "5" and cal[-1][2].endswith("| Confirmed")
+    assert cal[-1][4] == "5" and cal[-1][2] == "Sterling Fence Staining · Fence staining · Wes Wehr"
+    assert cal[-1][5] == ("wes@example.com", "Wes Wehr")
+    assert "Hi Wes, this is your day" in cal[-1][6] and "346-589-7877" in cal[-1][6] and "Lead:" not in cal[-1][6]
+    assert cal[0][5] is None and cal[0][2].endswith("Held, deposit pending")   # held: Alan's eyes only
     db.expire_all()
     b = db.query(Booking).filter_by(lead_id=lead.id).first()
     assert b.sent_at and b.sent_by == "paid"
@@ -150,3 +155,31 @@ def test_already_paid_or_blocked_is_refused(db, wires, monkeypatch):
     quiet = _lead(db, contact_phone="")
     with pytest.raises(HTTPException):
         qd.quick_deposit(quiet.id, STAFF)
+
+
+def test_every_quick_250_waits_in_the_review_queue_and_comes_back_when_paid(db, wires, monkeypatch):
+    """Alan, 2026-10-27: "we'll go in and just review it and make sure
+    everything's correct" — every one, paid or not."""
+    lead = _lead(db, contact_name="Wes Wehr", contact_phone="+17135550100")
+    _estimate(db, lead)
+    _call(monkeypatch)      # no day on the call
+    qd.quick_deposit(lead.id, STAFF)
+    rows = bk.review_rows(db)
+    assert [r["lead_id"] for r in rows] == [lead.id]
+    assert rows[0]["status"] == "open" and rows[0]["held"] is None and rows[0]["missing"] == ["a day"]
+
+    bk.mark_reviewed(lead.id, bk.ReviewBody(reviewed=True), STAFF)
+    db.expire_all()
+    assert bk.review_rows(db) == []
+
+    _pay(db, lead.id)
+    bk.on_deposit_paid(lead.id)
+    db.expire_all()
+    rows = bk.review_rows(db)
+    assert len(rows) == 1 and rows[0]["status"] == "paid" and rows[0]["paid_at"]
+    # A payment-links $250 (not the quick one) never lands here.
+    other = _lead(db, contact_phone="+17135550101")
+    db.add(PayLink(token="t-other", lead_id=other.id, kind="deposit", amount_cents=25000, status="open",
+                   created_at=datetime.now(timezone.utc).isoformat(), answers="{}"))
+    db.commit()
+    assert [r["lead_id"] for r in bk.review_rows(db)] == [lead.id]

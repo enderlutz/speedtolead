@@ -2293,6 +2293,10 @@ export const api = {
     request<{ link: PayLinkEntry; held: { date: string; day: string; tier: string; color: string; source: string; already: boolean } | null; message: string; note: string }>(
       `/api/leads/${leadId}/deposit/quick`, { method: "POST" }),
   /** Every referred friend, newest first, with who sent them. */
+  // The quick $250s, for a look-over (Alan, 2026-10-27): every one, paid or not.
+  getBookingReviewQueue: () => request<{ rows: BookingReviewRow[] }>(`/api/bookings/review`),
+  markBookingReviewed: (leadId: string, reviewed = true) =>
+    request<{ ok: boolean }>(`/api/bookings/review/${encodeURIComponent(leadId)}`, { method: "POST", body: JSON.stringify({ reviewed }) }),
   listReferrals: () =>
     request<{ referrals: { name: string; phone: string; address: string; created_at: string; lead_id: string | null; referrer_name: string; referrer_lead_id: string; texted: boolean; stage: string; paid: boolean }[] }>(`/api/referrals`),
   /** Who this customer has referred, and their own referral link. */
@@ -6386,6 +6390,15 @@ export interface PmDay {
 export interface FixJob {
   id: string; lead_id: string; name: string; description: string; date: string; username: string;
   done_at: string; done_by: string; created_at: string; created_by: string;
+}
+/** A quick $250 waiting for the office's look (Alan, 2026-10-27). */
+export interface BookingReviewRow {
+  lead_id: string; name: string; phone: string; email: string; status: "open" | "paid";
+  sent_at: string; paid_at: string; sent_by: string;
+  held: { date: string; day: string; tier: string; color: string; total: number; sent_at: string; shared: boolean } | null;
+  /** What the call didn't settle: "a day", "the package", "the colour". */
+  missing: string[];
+  no_email: boolean;
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;

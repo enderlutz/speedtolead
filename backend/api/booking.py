@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import logging
 import secrets
 from datetime import date as Date, datetime, timedelta, timezone
@@ -294,16 +295,77 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
     return summary, "\n".join(lines)
 
 
-def sync_calendar(db, lead: Lead, b: Booking) -> str:
-    """Put the booking on Alan's calendar, or bring it up to date. Returns
-    the event's link, or "" when Google didn't take it."""
+def _customer_text(db, lead: Lead, b: Booking, paid: PayLink) -> tuple[str, str]:
+    """The invite the customer gets once they've paid (Alan, 2026-10-27:
+    "plain English to the customer, every single time"). Short words, what
+    we're doing, when, what's paid and what's left, who to call. Nothing
+    from the office side (no lead link, no margins)."""
+    name = (lead.contact_name or "Customer").strip()
+    first = _first(lead)
+    total = (b.total_cents or 0) / 100
+    paid_amt = (paid.amount_cents or 0) / 100
     try:
-        summary, desc = _calendar_text(db, lead, b)
-        # Purple while the booking is only held (Alan, 2026-10-27); yellow (a
-        # real job) once paid.
-        color = gcal.GCAL_COLOR_BANANA if _confirmed(db, lead) else gcal.GCAL_COLOR_GRAPE
-        eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
-                                               location=lead.address or "", job_date=b.date, color_id=color)
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:
+        fd = {}
+    raw = fd.get("fence_sides") or []
+    sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
+    no_fence = services_only(b)
+    day = _long(b.date)
+    doing = []
+    if not no_fence:
+        pkg = NAMES.get(b.tier, b.tier) or "Fence staining"
+        doing.append(f"• {pkg} package" + (f" in {b.color}" if (b.color or "").strip() and not re.fullmatch(r"(?i)tbd", b.color.strip()) else ", colour to be picked with you") + " — cleaning, prep, two coats, cleanup")
+        if sides:
+            doing.append(f"• Sides: {', '.join(sides)}")
+    for r in _repairs(b):
+        doing.append(f"• Repair: {r['name']} × {r['qty']}")
+    for sv in _services(b):
+        doing.append(f"• Also: {sv['name']}" + (f" ({sv['description']})" if sv["description"] else ""))
+    doing.append(f"• Price: {hooks.money(total)}" + (f" ({hooks.money(b.discount_cents / 100)} off{(' ' + b.discount_label) if b.discount_label else ''})" if b.discount_cents else ""))
+    due = max(0.0, total - paid_amt)
+    paying = ([f"• Paid: {hooks.money(paid_amt)} on {(paid.paid_at or '')[:10]}. Thank you!"] if paid_amt else []) + \
+             ([f"• The rest, {hooks.money(due)}, is due after the job is done. We'll text you the link."] if due > 0 else ["• Paid in full. Nothing more to pay."])
+    note = (b.notes or "").strip()
+    note_lines = ["", f"A note from us: {note}"] if note and note != QUICK_NOTE_TEXT else []
+    lines = [
+        f"Hi {first}, this is your day with Sterling Fence Staining.", "",
+        "WHAT WE'RE DOING", *doing, "",
+        "THE WEEK OF",
+        *([f"• We clean the fence a day or two before, then come back to stain on {day}. We'll text you when we're heading out."]
+          if not no_fence else [f"• We'll be out on {day}. We'll text you when we're heading out."]),
+        "• No need to be home. Please keep pets inside and leave the gate unlocked.", "",
+        "PAYING", *paying,
+        *note_lines, "",
+        "Questions? Call or text Alan at 346-589-7877.",
+        f"Your booking page: {booking_url(b.token)}",
+    ]
+    what = _job_title(b) if no_fence else "Fence staining"
+    return f"Sterling Fence Staining · {what} · {name}", "\n".join(lines)
+
+
+QUICK_NOTE_TEXT = "Held from the quick $250 on the call"   # the office's own note, never the customer's
+
+
+def sync_calendar(db, lead: Lead, b: Booking) -> str:
+    """Put the booking on Alan's calendar, or bring it up to date. Purple
+    with the office's notes while it's only held; once paid (Alan,
+    2026-10-27) it turns yellow, reads in plain English, and the customer
+    is put on it so Google sends them the invite (when we have their
+    email). Returns the event's link, or "" when Google didn't take it."""
+    try:
+        paid = _confirmed(db, lead)
+        if paid is not None:
+            summary, desc = _customer_text(db, lead, b, paid)
+            email = (lead.contact_email or "").strip()
+            attendee = (email, lead.contact_name or "") if email else None
+            eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
+                                                   location=lead.address or "", job_date=b.date, color_id=gcal.GCAL_COLOR_BANANA,
+                                                   attendee=attendee, send_updates="all")
+        else:
+            summary, desc = _calendar_text(db, lead, b)
+            eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
+                                                   location=lead.address or "", job_date=b.date, color_id=gcal.GCAL_COLOR_GRAPE)
         if eid and eid != b.google_event_id:
             b.google_event_id = eid
             db.commit()
@@ -370,6 +432,98 @@ def _share_after_paid(db, lead: Lead, b: Booking) -> None:
     b.sent_count = (b.sent_count or 0) + 1
     db.commit()
     log_event(lead.id, "booking_sent", f"{b.date} {b.tier} {b.total_cents / 100:.2f}: confirmed by the $250, texted on its own")
+
+
+# ── The review queue (Alan, 2026-10-27) ───────────────────────────────────
+# Every quick $250 goes on a list for the office to look over, whether or
+# not it's paid: "we'll go in and just review it and make sure everything's
+# correct." A row leaves the list when someone taps Looks right, and comes
+# back when the customer pays, for one more look at what went to them.
+
+REVIEW_DAYS = 45
+
+
+def _review_mark(lead: Lead) -> dict:
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:
+        fd = {}
+    m = fd.get("quick_review")
+    return m if isinstance(m, dict) else {}
+
+
+def review_rows(db) -> list[dict]:
+    since = (_now() - timedelta(days=REVIEW_DAYS)).isoformat()
+    links = (db.query(PayLink).filter(PayLink.kind == "deposit", PayLink.description == QUICK_DESCRIPTION,
+                                      PayLink.status.in_(["open", "paid"]), PayLink.created_at >= since)
+             .order_by(PayLink.created_at.desc()).all())
+    out = []
+    for link in links:
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        if lead is None:
+            continue
+        changed = link.paid_at if link.status == "paid" else (link.sent_at or link.created_at)
+        mark = _review_mark(lead)
+        if mark.get("at") and changed and mark["at"] >= changed:
+            continue
+        b = _active(db, lead.id)
+        missing = []
+        if b is None:
+            missing.append("a day")
+        else:
+            if not (b.tier in TIERS or services_only(b)):
+                missing.append("the package")
+            if not (b.color or "").strip() and not services_only(b):
+                missing.append("the colour")
+        out.append({
+            "lead_id": lead.id, "name": lead.contact_name or "", "phone": lead.contact_phone or "",
+            "email": lead.contact_email or "", "status": link.status, "sent_at": link.sent_at or link.created_at or "",
+            "paid_at": link.paid_at or "", "sent_by": link.created_by or "",
+            "held": None if b is None else {
+                "date": b.date, "day": _long(b.date), "tier": NAMES.get(b.tier, b.tier) if b.tier else "",
+                "color": b.color or "", "total": (b.total_cents or 0) / 100, "sent_at": b.sent_at or "",
+                "shared": bool(b.sent_at) and link.status == "paid",
+            },
+            "missing": missing,
+            "no_email": not (lead.contact_email or "").strip(),
+        })
+    return out
+
+
+@router.get("/bookings/review")
+def review_queue(user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        return {"rows": review_rows(db)}
+    finally:
+        db.close()
+
+
+class ReviewBody(BaseModel):
+    reviewed: bool = True
+
+
+@router.post("/bookings/review/{lead_id}")
+def mark_reviewed(lead_id: str, body: ReviewBody, user: dict = Depends(require_staff)):
+    """Looks right: the row leaves the list until the next change (the pay)."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        try:
+            fd = json.loads(lead.form_data or "{}")
+        except Exception:
+            fd = {}
+        if not isinstance(fd, dict):
+            fd = {}
+        fd["quick_review"] = {"at": _now().isoformat(), "by": user.get("name") or user.get("sub") or ""} if body.reviewed else {}
+        lead.form_data = json.dumps(fd)
+        db.commit()
+        log_event(lead.id, "quick_deposit_reviewed" if body.reviewed else "quick_deposit_unreviewed", f"by {user.get('name') or user.get('sub') or ''}")
+        return {"ok": True}
+    finally:
+        db.close()
 
 
 # ── Staff ─────────────────────────────────────────────────────────────────

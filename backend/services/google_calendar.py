@@ -350,11 +350,17 @@ def upsert_internal_event(
     end_time: str = "15:00",
     timezone_str: str = "America/Chicago",
     color_id: str = "5",
+    attendee: tuple[str, str] | None = None,
+    send_updates: str = "none",
 ) -> tuple[str | None, str]:
-    """An event on Alan's calendar only: no guests, so Google never emails
-    anyone and never adds a Meet link (the booking invite, 2026-10-14).
-    Updates the event when it still exists, makes it otherwise. Returns
-    (event_id, html_link); (None, "") when Google isn't reachable."""
+    """An event on Alan's calendar: no guests while it's only held, so
+    Google never emails anyone and never adds a Meet link (the booking
+    invite, 2026-10-14). Once the customer has paid (Alan, 2026-10-27) the
+    same event is shared with them: `attendee` = (email, name) puts them on
+    it and `send_updates="all"` makes Google send the invite, so the one
+    event is both Alan's and theirs. Updates the event when it still exists,
+    makes it otherwise. Returns (event_id, html_link); (None, "") when
+    Google isn't reachable."""
     try:
         access = _get_access_token(db)
     except Exception as e:
@@ -366,18 +372,21 @@ def upsert_internal_event(
         "end": {"dateTime": f"{job_date}T{end_time}:00", "timeZone": timezone_str},
         "colorId": color_id,
     }
+    if attendee and attendee[0]:
+        body["attendees"] = [{"email": attendee[0], "displayName": attendee[1] or attendee[0]}]
+    params = {"sendUpdates": send_updates if attendee and attendee[0] else "none"}
     cal_id = _calendar_id(db)
     headers = {"Authorization": f"Bearer {access}"}
     try:
         if event_id:
             r = _client.patch(f"{CALENDAR_BASE}/calendars/{cal_id}/events/{event_id}",
-                              headers=headers, params={"sendUpdates": "none"}, json={**body, "status": "confirmed"})
+                              headers=headers, params=params, json={**body, "status": "confirmed"})
             if r.status_code not in (404, 410):
                 r.raise_for_status()
                 data = r.json()
                 return (data.get("id"), data.get("htmlLink", "") or "")
         r = _client.post(f"{CALENDAR_BASE}/calendars/{cal_id}/events",
-                         headers=headers, params={"sendUpdates": "none"}, json=body)
+                         headers=headers, params=params, json=body)
         r.raise_for_status()
         data = r.json()
         return (data.get("id"), data.get("htmlLink", "") or "")
