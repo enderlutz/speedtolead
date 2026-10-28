@@ -298,7 +298,7 @@ const PACKAGES: {
     regular: 1813.50, price: 1450.80,
   },
   {
-    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Full color", lasts: "4–7 yrs",
+    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
     // The orange is extended with its own panels at the real post spacing
     // (the next posts fall off the edge); the dark one's boards continue
     // along the slope of its rail. The ?v= changes whenever the files do,
