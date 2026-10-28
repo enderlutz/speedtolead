@@ -665,6 +665,11 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   const hasDrawing = preview ? !!dressed?.scopeUrl : true;
   const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
+  // Colours to look at, both sets out, no Signature/Legacy buttons (Alan,
+  // 2026-10-28: customers weren't finding the Legacy colours; 33 calls in two
+  // weeks walked someone there). Mock first: only the sample page in Design
+  // Lab shows it until Alan says go; a real customer's page keeps the tabs.
+  const colorsV2 = !live;
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -923,6 +928,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                         <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[52px]" : "h-[106px]")} draggable={false} />
                       ))}
                       <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
+                      {colorsV2 ? <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span> : null}
                     </div>
                     <div className="flex flex-1 flex-col px-1.5 pb-2 pt-1.5">
                       <p className="font-heading text-[18px] font-bold leading-[20px]" style={{ color: s.name }}>{p.short}</p>
@@ -982,6 +988,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                             {p.captions?.[i] ? (
                               <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
                             ) : null}
+                            {colorsV2 && i === 0 ? (
+                              <span className="absolute right-1.5 top-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example · all colors below</span>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -1033,6 +1042,40 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             made with us on the phone (Alan, 2026-10-10, after a competitor's
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
+          {colorsV2 ? (
+            <>
+              <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Just to look. Tap any color to see it up close. When you've found the one you like, tell us on the phone or by text and we'll put it on your job." />
+              <p className="mb-4 rounded-xl bg-white px-3 py-2.5 text-[15px] font-semibold ring-1 ring-[#15130F]/10">
+                {SIGNATURE_PHOTOS.length} Signature colors first, then {LEGACY_PHOTOS.length} Legacy colors below them. Keep scrolling to see them all.
+              </p>
+              {([
+                { key: "signature" as const, title: "Signature colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
+                { key: "legacy" as const, title: "Legacy colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
+              ]).map((g) => (
+                <div key={g.key} className={cn(g.key === "legacy" && "mt-6")}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <TierBadge pkg={g.key} />
+                    <div className="min-w-0">
+                      <h3 className="font-heading text-[22px] font-bold leading-tight">{g.title}</h3>
+                      <p className="text-[15px] text-[#15130F]/75">{g.what}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {g.colors.map((c) => (
+                      <button key={c.name} type="button"
+                        onClick={() => setColorOpen({ name: c.name, src: c.src, full: c.full, note: c.note, finish: g.finish })}
+                        className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
+                        <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
+                        <span className="absolute left-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold text-white">{g.key === "signature" ? "Signature" : "Legacy"}</span>
+                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[15px] text-[#15130F]/75">{g.foot}</p>
+                </div>
+              ))}
+            </>
+          ) : (<>
           <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
           {/* The two tabs are the two packages, not two words: the package's
               own photo behind the name, the first few colours fanned out, and
@@ -1086,6 +1129,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <p className="mt-2 text-[15px] text-[#15130F]/75">
             {palette === "signature" ? "Real fences we stained. More colors as photos are added." : `Real fences we stained. ${LEGACY_NO_PHOTO.join(" and ")}: photos coming.`}
           </p>
+          </>)}
 
           {/* The colour they want isn't here. */}
           <div className="mt-4 rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
