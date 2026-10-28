@@ -16,11 +16,11 @@
  * /crew) open the hub on that section; /money-audit stays the page Plaid's
  * bank login comes back to.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Calculator, DollarSign, Gauge, HardHat, Landmark, Loader2, TrendingUp } from "lucide-react";
+import { Calculator, DollarSign, Gauge, HardHat, Landmark, Loader2, RefreshCw, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, canSeeRevenue, hasPerm, type AccountingSummary, type BankStatus, type BankSummary, type QbMonthlyRevenue } from "@/lib/api";
+import { api, canSeeRevenue, hasPerm, type BankStatus, type BankSummary, type MoneyOverview } from "@/lib/api";
 import { HubHeader, type HubTab, type HubView } from "@/components/HubHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatCurrency, timeAgo } from "@/lib/utils";
@@ -51,7 +51,6 @@ const NOTE: Partial<Record<Tab, string>> = {
 const firstOfMonth = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toLocaleDateString("en-CA"); };
 const today = () => new Date().toLocaleDateString("en-CA");
 const money = (n: number | null | undefined) => (n == null ? "—" : formatCurrency(n));
-const pct = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n)}%`);
 
 /** `forced`: the old addresses open the hub on their section, and the
  *  address's ?tab= then belongs to the page inside (Payroll's own tabs). */
@@ -128,62 +127,82 @@ function SectionTitle({ title, sub }: { title: string; sub?: string }) {
 }
 
 function Overview() {
-  const [month, setMonth] = useState<AccountingSummary | null>(null);
-  const [ytd, setYtd] = useState<AccountingSummary | null>(null);
-  const [qb, setQb] = useState<QbMonthlyRevenue | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [o, setO] = useState<MoneyOverview | null>(null);
+  const [failed, setFailed] = useState("");
+  const [syncing, setSyncing] = useState(false);
   const bank = useBankMonth();
-  useEffect(() => {
-    let live = true;
-    const quiet = <T,>(p: Promise<T>) => p.catch(() => null);
-    (async () => {
-      const [m, y, q] = await Promise.all([quiet(api.getAccountingSummary("this_month")), quiet(api.getAccountingSummary("ytd")), quiet(api.getQbMonthlyRevenue())]);
-      if (!live) return;
-      setMonth(m); setYtd(y); setQb(q); setLoaded(true);
-    })();
-    return () => { live = false; };
-  }, []);
-  if (!loaded) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-  const chart = (qb?.months || []).map((r) => ({ name: r.label, Invoiced: Math.round(r.invoiced), Collected: Math.round(r.collected) }));
+  const load = useCallback(() => api.moneyOverview().then((r) => { setO(r); setFailed(""); }).catch((e) => setFailed(e instanceof Error ? e.message : "Couldn't load the numbers")), []);
+  useEffect(() => { void load(); }, [load]);
+  // Pull QuickBooks again, then redraw (the Revenue section's sync).
+  const refresh = async () => {
+    setSyncing(true);
+    try { await api.syncQbInvoices(); } catch { /* the numbers still reload from what we have */ }
+    await load();
+    setSyncing(false);
+  };
+  if (failed && !o) return <Card><CardContent className="p-4 text-sm text-rose-700">{failed}</CardContent></Card>;
+  if (!o) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  const m = o.month, y = o.ytd;
+  const monthName = new Date(m.start + "T12:00:00").toLocaleDateString("en-US", { month: "long" });
+  const chart = o.months.filter((r) => r.booked || r.collected).map((r) => ({ name: r.label, Booked: Math.round(r.booked), Collected: Math.round(r.collected) }));
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
+        <span>QuickBooks last pulled {o.qb_synced_at ? timeAgo(o.qb_synced_at) : "never"} · Stripe is live</span>
+        <button type="button" onClick={() => void refresh()} disabled={syncing}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border bg-background px-3 font-semibold text-foreground hover:bg-muted disabled:opacity-60">
+          <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />{syncing ? "Pulling QuickBooks…" : "Refresh"}
+        </button>
+      </div>
+
       <section className="space-y-2">
-        <SectionTitle title="This month" sub={month ? `${month.start} → ${month.end} · collected money, not promises` : undefined} />
+        <SectionTitle title={`${monthName} so far`} sub={`${m.start} → ${m.end}`} />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Collected" value={money(month?.revenue)} sub={month ? `${month.jobs_count} job${month.jobs_count === 1 ? "" : "s"} · ${money(month.revenue_from_deposits)} of it deposits` : undefined} />
-          <Stat label="Still owed on jobs" value={money(month?.outstanding_revenue)} sub="sold this month, not collected yet" />
-          <Stat label="Gross margin" value={pct(month?.gross_margin_pct)} sub={month ? `after ${money(month.labor_cost)} labor + ${money(month.materials_cost)} materials` : undefined} />
-          <Stat label="Net profit" value={money(month?.net_profit)} sub={month ? `${pct(month.net_margin_pct)} after ${money(month.overhead_cost)} overhead` : undefined}
-                tone={month ? (month.net_profit >= 0 ? "good" : "bad") : undefined} />
+          <Stat label="Booked" value={money(m.booked)} sub={`${m.jobs} jobs · on pace for ${money(m.pace)}`} />
+          <Stat label="Collected" value={money(m.collected.total)} sub={`${money(m.collected.stripe)} Stripe · ${money(m.collected.quickbooks)} QuickBooks`} />
+          <Stat label="Goal" value={money(m.goal)} sub={`${m.goal ? Math.round(m.booked / m.goal * 100) : 0}% there · last month ${money(m.last_month)}`}
+                tone={m.goal && m.pace >= m.goal ? "good" : undefined} />
+          <Stat label="Close rate" value={m.close_rate == null ? "—" : `${m.close_rate}%`} sub="jobs booked ÷ estimates sent this month" />
         </div>
       </section>
 
       <section className="space-y-2">
-        <SectionTitle title="This year" sub={ytd ? `${ytd.start} → ${ytd.end}` : undefined} />
+        <SectionTitle title={`${y.start.slice(0, 4)} so far`} sub={`${y.start} → ${y.end}`} />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Collected" value={money(ytd?.revenue)} sub={ytd ? `${ytd.jobs_count} jobs` : undefined} />
-          <Stat label="Invoiced in QuickBooks" value={money(qb?.totals.invoiced)} sub={qb ? `${qb.totals.count} invoices in ${qb.year}` : undefined} />
-          <Stat label="Outstanding in QuickBooks" value={money(qb?.totals.outstanding)} sub="invoiced, not paid" tone={qb && qb.totals.outstanding > 0 ? "bad" : undefined} />
-          <Stat label="Net margin" value={pct(ytd?.net_margin_pct)} sub={ytd ? `gross ${pct(ytd.gross_margin_pct)} · overhead ${money(ytd.overhead_cost)}` : undefined} />
+          <Stat label="Booked" value={money(y.booked)} sub={`${y.jobs} jobs`} />
+          <Stat label="Collected" value={money(y.collected.total)} sub={`${y.collected.payments} Stripe payments + QuickBooks`} />
+          <Stat label="Average job" value={money(y.avg_job)} sub="booked ÷ jobs" />
+          <Stat label="Still owed" value={money(o.owed.total)} tone={o.owed.total > 0 ? "bad" : undefined}
+                sub={`${o.owed.quickbooks_count} QuickBooks invoices ${money(o.owed.quickbooks)} · ${o.owed.stripe_count} Stripe links ${money(o.owed.stripe)}`} />
         </div>
       </section>
 
       {chart.length ? (
         <section className="space-y-2">
-          <SectionTitle title="Revenue by month" sub="QuickBooks invoices by invoice date" />
+          <SectionTitle title="Month by month" sub="Booked = full job value in the month they first paid · Collected = money that came in" />
           <Card><CardContent className="p-3">
-            <div className="h-56">
+            <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${Math.round(v / 1000)}k`} width={44} />
                   <Tooltip formatter={(v) => formatCurrency(Number(v))} />
-                  <Bar dataKey="Invoiced" fill="#E4DCCB" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Collected" fill="#C9972F" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Booked" fill="#C9972F" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Collected" fill="#15130F" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm tabular-nums">
+                <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1 pr-3 font-semibold">Month</th><th className="py-1 pr-3 text-right font-semibold">Jobs</th><th className="py-1 pr-3 text-right font-semibold">Booked</th><th className="py-1 text-right font-semibold">Collected</th></tr></thead>
+                <tbody>
+                  {o.months.filter((r) => r.booked || r.collected).map((r) => (
+                    <tr key={r.month} className="border-t"><td className="py-1.5 pr-3">{r.label}</td><td className="py-1.5 pr-3 text-right">{r.jobs}</td><td className="py-1.5 pr-3 text-right">{money(r.booked)}</td><td className="py-1.5 text-right">{money(r.collected)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent></Card>
         </section>
@@ -195,7 +214,7 @@ function Overview() {
       </section>
 
       <p className="px-1 text-xs text-muted-foreground">
-        Where these come from: collected money and margins are the jobs' payments in the dashboard (Accounting); invoiced and outstanding are QuickBooks (Revenue); the bank is Plaid.
+        Where these come from: Booked is the sidebar's number (each customer once, full job value, the month they first paid). Collected is Stripe payments by the day they came in plus what QuickBooks marked paid, by invoice date. Still owed counts every open QuickBooks balance, so an invoice paid by Zelle or Stripe but not marked paid in QuickBooks shows here until it is.
       </p>
     </div>
   );

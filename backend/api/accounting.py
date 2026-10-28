@@ -286,9 +286,15 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
         # the deposit invoice was paid (webhook-driven), so this counts
         # real cash. Included in headline revenue + surfaced separately
         # so Alan can see the split.
-        revenue_from_deposits = _deposits_collected_in_period(db, start, end)
-
-        revenue = revenue_from_jobs + revenue_from_deposits
+        # Collected money comes from where it lands now (2026-10-27): Stripe
+        # payments + what QuickBooks marked paid. scheduled_jobs stopped
+        # being written on 2026-09-01, so its "collected" was deposits only.
+        from services.money_overview import collected as _collected, owed as _owed
+        _c = _collected(db, start, end)
+        revenue_from_deposits = _c["deposits"]
+        revenue_from_jobs = round(_c["total"] - _c["deposits"], 2)
+        revenue = _c["total"]
+        outstanding_revenue = max(outstanding_revenue, _owed(db)["total"])
 
         # If period is "all", figure out the span so overhead is sensible.
         if period == "all" and jobs:

@@ -37,3 +37,15 @@ def money_audit(start: str = "", end: str = "", user: dict = Depends(require_rev
     finally:
         db.close()
     return out
+
+
+@router.get("/money/overview")
+def money_overview(user: dict = Depends(require_revenue)):
+    """The Money tab's Overview: booked, collected and owed, this month,
+    this year and month by month, from Stripe + QuickBooks (2026-10-27)."""
+    from services.money_overview import overview
+    db = get_db()
+    try:
+        return overview(db)
+    finally:
+        db.close()

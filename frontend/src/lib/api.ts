@@ -1942,6 +1942,8 @@ export const api = {
     request<ContentItem>(`/api/content/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   removeContent: (id: string) => request<{ ok: boolean }>(`/api/content/${id}`, { method: "DELETE" }),
   moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
+  // Money → Overview (2026-10-27): booked, collected and owed from Stripe + QuickBooks.
+  moneyOverview: () => request<MoneyOverview>(`/api/money/overview`),
   bankStatus: () => request<BankStatus>("/api/bank/status"),
   bankLinkToken: (itemId = "") => request<{ link_token: string }>("/api/bank/link-token", { method: "POST", body: JSON.stringify({ item_id: itemId }) }),
   bankExchange: (publicToken: string, institutionName: string) =>
@@ -6291,6 +6293,15 @@ export type ContentItem = {
   created_at: string; created_by: string; lead: ContentLead | null;
 };
 export type MoneyRow = { date: string; type: string; direction: "in" | "out" | "move"; amount: number; account: string; pay_type: string; payee: string; category: string; memo: string };
+export type MoneyCollected = { total: number; stripe: number; quickbooks: number; deposits: number; payments: number };
+export type MoneyOverview = {
+  today: string;
+  month: { start: string; end: string; booked: number; jobs: number; pace: number; goal: number; last_month: number; close_rate: number | null; collected: MoneyCollected };
+  ytd: { start: string; end: string; booked: number; jobs: number; avg_job: number; collected: MoneyCollected };
+  owed: { total: number; quickbooks: number; quickbooks_count: number; stripe: number; stripe_count: number };
+  months: { month: string; label: string; booked: number; jobs: number; collected: number }[];
+  qb_synced_at: string;
+};
 export type MoneyAudit = {
   start: string; end: string; rows: MoneyRow[];
   accounts: { name: string; type: string; subtype: string; balance: number }[];
