@@ -1,8 +1,9 @@
 /**
  * The week map under the PM HQ calendar (Alan, 2026-10-25): "I don't know
  * how to plot the jobs onto a map." A pin for every customer on the days on
- * screen, plus anyone Alan puts on it by name (an unpaid booking he's
- * planning around). Each pin shows only the name and where the job stands:
+ * screen, by itself, plus anyone Alan puts on it by name (an unpaid booking
+ * he's planning around). Any pin can come off for the week (Alan,
+ * 2026-10-27) and go back on from the row under the map. Each pin shows only the name and where the job stands:
  * the name alone = nothing done yet, 🧽 = cleaned, a green ✓ = cleaned and
  * stained. A 🔧 means there's a job to fix there on one of these days
  * (Alan, 2026-10-27). For planning cleaning and staining routes.
@@ -12,7 +13,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { toast } from "sonner";
-import { Loader2, MapPin, Plus, Search, X } from "lucide-react";
+import { EyeOff, Loader2, MapPin, Plus, Search, Undo2, X } from "lucide-react";
 import { api, type PmMapPin } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { errMessage } from "@/lib/utils";
@@ -68,13 +69,22 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
     return () => { live = false; };
   }, [start, end, refreshKey, tick]);
 
-  const placed = useMemo(() => (pins || []).filter((p) => p.lat != null && p.lng != null), [pins]);
-  const missing = useMemo(() => (pins || []).filter((p) => p.lat == null || p.lng == null), [pins]);
+  const shown = useMemo(() => (pins || []).filter((p) => !p.hidden), [pins]);
+  const hiddenPins = useMemo(() => (pins || []).filter((p) => p.hidden), [pins]);
+  const placed = useMemo(() => shown.filter((p) => p.lat != null && p.lng != null), [shown]);
+  const missing = useMemo(() => shown.filter((p) => p.lat == null || p.lng == null), [shown]);
   const pts = useMemo(() => placed.map((p) => [p.lat!, p.lng!] as [number, number]), [placed]);
 
   const remove = async (p: PmMapPin) => {
     try { await api.pmHqMapRemove(p.lead_id); toast.success(`${p.name} taken off the map`); reload(); }
     catch (e) { toast.error(errMessage(e, "Couldn't take it off")); }
+  };
+  const hide = async (p: PmMapPin, hidden: boolean) => {
+    try {
+      await api.pmHqMapHide(p.lead_id, start, hidden);
+      toast.success(hidden ? `${p.name} is off this week's map` : `${p.name} is back on the map`);
+      reload();
+    } catch (e) { toast.error(errMessage(e, "Couldn't change that")); }
   };
 
   return (
@@ -82,6 +92,9 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="flex items-center gap-1.5 font-semibold"><MapPin className="h-4 w-4 text-primary" />Where they are</p>
+          <p className="text-sm text-muted-foreground">
+            Every job on these days is here by itself, and every job to fix at a customer's. Tap a pin to hide it this week.
+          </p>
           <p className="text-sm text-muted-foreground">
             Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained · 🔧 = a job to fix
           </p>
@@ -107,6 +120,9 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
                   <div className="flex flex-wrap gap-3 pt-1">
                     <a className="font-semibold text-blue-700 underline" target="_blank" rel="noreferrer"
                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address)}`}>Google Maps</a>
+                    {canEdit ? (
+                      <button type="button" className="font-semibold text-red-700 underline" onClick={() => void hide(p, true)}>Hide this week</button>
+                    ) : null}
                     {p.added && canEdit ? (
                       <button type="button" className="font-semibold text-red-700 underline" onClick={() => void remove(p)}>Take off map</button>
                     ) : null}
@@ -117,7 +133,18 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
           ))}
         </MapContainer>
       </div>
-      {pins && !pins.length ? <p className="text-sm text-muted-foreground">Nobody on these days yet. Add a customer above to see where they are.</p> : null}
+      {pins && !pins.length ? <p className="text-sm text-muted-foreground">Nobody on these days yet. Put a customer on a day, or add one above, to see where they are.</p> : null}
+      {hiddenPins.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><EyeOff className="h-3.5 w-3.5" />Hidden this week:</span>
+          {hiddenPins.map((p) => (
+            <button key={p.lead_id} type="button" onClick={() => void hide(p, false)} title="Put it back on the map"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-full border bg-background px-3 text-sm hover:bg-muted">
+              {p.name}<Undo2 className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
+      ) : null}
       {missing.length ? (
         <p className="text-sm text-amber-800">
           Couldn't find on the map (check the address): {missing.map((p) => p.name || "(no name)").join(", ")}

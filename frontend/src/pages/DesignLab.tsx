@@ -111,7 +111,7 @@ export default function DesignLab() {
   const view = subs.some((s) => s.key === rawView) ? rawView! : subs[0]?.key || "";
   const pick = (k: Tab) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", k); n.delete("view"); return n; }, { replace: true });
   const pickView = (v: string) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", tab); n.set("view", v); return n; }, { replace: true });
-  const ideaDoc = useMemo(() => IDEAS.find((i) => i.key === view) || IDEAS[0], [view]);
+  const ideaDoc = IDEAS.find((i) => i.key === view) || IDEAS[0];
   const byDate = useMemo(() => {
     const out: { date: string; items: typeof DESIGN_CHANGES }[] = [];
     for (const c of DESIGN_CHANGES) {

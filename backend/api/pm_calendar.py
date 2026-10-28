@@ -454,6 +454,28 @@ def _save_added(db, ids: list[str]) -> None:
     SystemConfig.set(db, MAP_PINS_KEY, json.dumps(ids))
 
 
+# Every job on the week is on the map by itself; Alan can take any pin off
+# for that week (2026-10-27: "I can always remove them if I would like").
+# Kept per week (the Monday the map shows) so next week's map starts fresh.
+MAP_HIDDEN_KEY = "pm_hq_map_hidden"
+_HIDDEN_WEEKS_KEPT = 12
+
+
+def _hidden(db) -> dict[str, list[str]]:
+    from database import SystemConfig
+    try:
+        raw = json.loads(SystemConfig.get(db, MAP_HIDDEN_KEY, "{}"))
+    except (ValueError, TypeError):
+        raw = {}
+    return {str(k): [str(i) for i in v if i] for k, v in raw.items() if isinstance(v, list)} if isinstance(raw, dict) else {}
+
+
+def _save_hidden(db, data: dict[str, list[str]]) -> None:
+    from database import SystemConfig
+    keep = dict(sorted((k, v) for k, v in data.items() if v)[-_HIDDEN_WEEKS_KEPT:])
+    SystemConfig.set(db, MAP_HIDDEN_KEY, json.dumps(keep))
+
+
 def _in_area(lat, lng) -> bool:
     # Greater Houston, where every job is. Anything else is a wrong lookup and
     # is redone: Michelle Stout (Katy) had the middle of Texas saved, the
@@ -501,6 +523,7 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
                 if f["lead_id"] and f["date"] and start[:10] <= f["date"] <= end[:10]:
                     days.setdefault(f["lead_id"], []).append({"date": f["date"], "task": "fix", "note": f["description"], "done": bool(f["done_at"])})
         added = _added(db)
+        hidden = set(_hidden(db).get(start[:10], []))
         ids = list(dict.fromkeys([*days, *added]))
         leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(ids)).all()} if ids else {}
         jobs = {j.lead_id: j for j in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(ids)).all()} if ids else {}
@@ -531,6 +554,7 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
                 "status": map_status(jobs.get(lid), lid in cleaned, pw.get(lid)),
                 "days": sorted(days.get(lid, []), key=lambda x: x["date"]),
                 "added": lid in added,
+                "hidden": lid in hidden,
             })
         return {"pins": pins, "can_edit": user.get("role") == "admin"}
     finally:
@@ -560,6 +584,31 @@ def remove_pin(lead_id: str, user: dict = Depends(require_admin)):
     db = get_db()
     try:
         _save_added(db, [i for i in _added(db) if i != lead_id])
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+class HideBody(BaseModel):
+    lead_id: str
+    start: str          # the Monday the map is showing
+    hidden: bool = True
+
+
+@router.post("/pm-hq/map/hide")
+def hide_pin(body: HideBody, user: dict = Depends(require_admin)):
+    """Take any pin off this week's map, or put it back. The job itself is untouched."""
+    db = get_db()
+    try:
+        week = body.start[:10]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", week):
+            raise HTTPException(400, "Which week? Send the Monday as YYYY-MM-DD")
+        data = _hidden(db)
+        ids = [i for i in data.get(week, []) if i != body.lead_id]
+        if body.hidden:
+            ids.append(body.lead_id)
+        data[week] = ids
+        _save_hidden(db, data)
         return {"ok": True}
     finally:
         db.close()

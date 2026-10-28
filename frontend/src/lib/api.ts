@@ -3911,6 +3911,9 @@ export const api = {
     request<{ ok: boolean }>(`/api/pm-hq/map/pins`, { method: "POST", body: JSON.stringify({ lead_id }) }),
   pmHqMapRemove: (lead_id: string) =>
     request<{ ok: boolean }>(`/api/pm-hq/map/pins/${encodeURIComponent(lead_id)}`, { method: "DELETE" }),
+  /** Take any pin off one week's map (start = that Monday), or put it back. */
+  pmHqMapHide: (lead_id: string, start: string, hidden = true) =>
+    request<{ ok: boolean }>(`/api/pm-hq/map/hide`, { method: "POST", body: JSON.stringify({ lead_id, start, hidden }) }),
   // What to buy for the coming days (Alan, 2026-10-26).
   getPmHqShopping: (start = "", end = "") =>
     request<PmShopping>(`/api/pm-hq/shopping?start=${start}&end=${end}`),
@@ -6365,6 +6368,8 @@ export interface PmMapPin {
   /** A "fix" day is a go-back; `note` says what, `done` once it's marked. */
   days: { date: string; task: string; note?: string; done?: boolean }[];
   added: boolean;
+  /** Taken off this week's map by hand; the job is untouched. */
+  hidden?: boolean;
 }
 
 export interface PmDay {

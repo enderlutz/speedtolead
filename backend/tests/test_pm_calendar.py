@@ -337,3 +337,26 @@ def test_repairs_day_then_staining_day(db, monkeypatch):
     assert not is_pw_job(job, cc._crew_entries(job))
     with pytest.raises(HTTPException):
         pm.assign(pm.DayBody(lead_id="Y", date="2026-10-28", username="Chris", task="painting"), user=ALAN)
+
+
+def test_a_pin_hidden_for_a_week_stays_off_that_weeks_map_only(db, monkeypatch):
+    """Alan, 2026-10-27: every job is on the map by itself, and any pin can
+    come off for the week; next week starts fresh."""
+    _seed(db)
+    db.query(Lead).filter_by(id="Y").update({"lat": 29.95, "lng": -95.65})
+    db.add(CompanyCamJob(id="J", lead_id="Y", crew_json=json.dumps([
+        {"username": "Chris", "date": "2026-10-27", "task": "cleaning"},
+        {"username": "Chris", "date": "2026-11-03", "task": "staining"}])))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    import services.geocoder as g
+    monkeypatch.setattr(g, "geocode_address", lambda *a, **k: None)
+    week1, week2 = ("2026-10-26", "2026-11-01"), ("2026-11-02", "2026-11-08")
+    assert pm.week_map(*week1, user=ALAN)["pins"][0]["hidden"] is False
+    pm.hide_pin(pm.HideBody(lead_id="Y", start=week1[0]), user=ALAN)
+    assert pm.week_map(*week1, user=ALAN)["pins"][0]["hidden"] is True
+    assert pm.week_map(*week2, user=ALAN)["pins"][0]["hidden"] is False
+    pm.hide_pin(pm.HideBody(lead_id="Y", start=week1[0], hidden=False), user=ALAN)
+    assert pm.week_map(*week1, user=ALAN)["pins"][0]["hidden"] is False
+    with pytest.raises(HTTPException):
+        pm.hide_pin(pm.HideBody(lead_id="Y", start="next week"), user=ALAN)
