@@ -3,22 +3,26 @@
 // the AI review) is the second view on the same page.
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BookOpen, Check, CornerDownRight, Mic, Quote } from "lucide-react";
+import { BookOpen, Check, CornerDownRight, GraduationCap, Mic, Quote } from "lucide-react";
+import { hasPerm } from "@/lib/api";
 import Calls from "@/pages/Calls";
+import TrainingCourse from "@/pages/TrainingCourse";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   CHEAT_SHEET, OBJECTIONS, SCRIPT_RULES, SCRIPT_SOURCES, SCRIPT_STEPS, SCRIPT_VERSION,
   type ScriptLine,
 } from "@/content/call-script";
 
-type View = "script" | "coach";
+type View = "script" | "coach" | "training";
 
 export default function CallScript() {
   const [params, setParams] = useSearchParams();
-  const view: View = params.get("view") === "coach" ? "coach" : "script";
+  const canTrain = hasPerm("training");
+  const asked = params.get("view");
+  const view: View = asked === "coach" ? "coach" : asked === "training" && canTrain ? "training" : "script";
   const setView = (v: View) => {
     const next = new URLSearchParams(params);
-    if (v === "coach") next.set("view", "coach"); else next.delete("view");
+    if (v !== "script") next.set("view", v); else next.delete("view");
     setParams(next, { replace: true });
   };
 
@@ -30,16 +34,18 @@ export default function CallScript() {
           <p className="text-sm text-muted-foreground">
             {view === "script"
               ? `What to say on the first call, word for word. ${SCRIPT_VERSION}, from Alan's last five closed jobs.`
-              : "The recordings, transcripts and the AI review of every call."}
+              : view === "coach" ? "The recordings, transcripts and the AI review of every call."
+              : "The training modules: videos and steps for every part of the job."}
           </p>
         </div>
         <div className="flex rounded-lg border bg-muted/40 p-1">
           <ViewButton active={view === "script"} onClick={() => setView("script")} icon={<BookOpen className="h-4 w-4" />} label="Call script" />
           <ViewButton active={view === "coach"} onClick={() => setView("coach")} icon={<Mic className="h-4 w-4" />} label="Call coach" />
+          {canTrain ? <ViewButton active={view === "training"} onClick={() => setView("training")} icon={<GraduationCap className="h-4 w-4" />} label="Training" /> : null}
         </div>
       </div>
 
-      {view === "coach" ? <CoachEmbed /> : <ScriptView />}
+      {view === "coach" ? <CoachEmbed /> : view === "training" ? <TrainingEmbed /> : <ScriptView />}
     </div>
   );
 }
@@ -63,6 +69,15 @@ function CoachEmbed() {
   return (
     <div className="[&>div>div:first-child]:hidden -mx-4 sm:-mx-6 -mt-2">
       <Calls />
+    </div>
+  );
+}
+
+/** The course list keeps its header: it holds the admin's Add module button. */
+function TrainingEmbed() {
+  return (
+    <div className="-mx-4 sm:-mx-6 -mt-2">
+      <TrainingCourse />
     </div>
   );
 }

@@ -233,7 +233,7 @@ function ModuleView({ id }: { id: string }) {
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <Link to="/training" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><ArrowLeft className="h-4 w-4" /> All modules</Link>
+        <Link to="/calls?view=training" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><ArrowLeft className="h-4 w-4" /> All modules</Link>
         {isAdmin && <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
       </div>
 
@@ -391,7 +391,7 @@ function ModuleEditor({ m, onDone }: { m: CourseModule; onDone: (saved: boolean)
     try {
       await api.saveCourseModule(m.id, { ...f, checklist: lines(checklistText), ...(status ? { status } : {}) });
       toast.success(status === "published" ? "Published. The VAs can see it." : status === "archived" ? "Archived" : "Saved");
-      if (status === "archived") navigate("/training");
+      if (status === "archived") navigate("/calls?view=training");
       else onDone(true);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save");

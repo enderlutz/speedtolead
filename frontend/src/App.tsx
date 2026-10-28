@@ -274,7 +274,7 @@ function AppLayout() {
               <Route path="/video-estimates" element={<StaffOnly><VideoEstimates /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
               <Route path="/calls" element={<RequireView view="calls"><CallScript /></RequireView>} />
-              <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
+              <Route path="/training" element={<Navigate to="/calls?view=training" replace />} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
               <Route path="/money-audit" element={<RevenueOnly><MoneyAudit /></RevenueOnly>} />

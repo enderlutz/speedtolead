@@ -101,7 +101,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
   { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics", divisions: ["fence"] },
   { to: "/calls", icon: BookOpen, label: "Call script", perm: "calls", divisions: ["fence"] },  // opens on the script; Call Coach is the second view (2026-10-27)
-  { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
+  // { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] }, // folded into Call script, third view (2026-10-27)
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/money-audit", icon: DollarSign, label: "Where the money went", restrictToAny: ["fragned", "alanbonner"] },
