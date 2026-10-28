@@ -905,7 +905,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             that each carry the whole story, the way a pricing page does. */}
         <section id="mock-packages" className="scroll-mt-14 bg-white px-1 py-6 sm:px-4">
           <div className="px-1">
-            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Each one stains your whole fence. Higher ones last longer." />
+            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer. Cleaning is included with all three." />
           </div>
 
           {phone ? (

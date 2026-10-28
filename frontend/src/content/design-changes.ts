@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-28", title: "Step 1 drops \"stains your whole fence\"",
+    what: "Under \"Choose 1 of these 3\" it now says \"Higher ones last longer. Cleaning is included with all three.\" (the sides included are already listed above, so \"whole fence\" was wrong for inside-only jobs)." },
   { date: "2026-10-28", title: "The package lines read like the printed proposal",
     what: "Essential: \"Refresh for newer fences without adding color\", \"Slows early moisture damage\". Signature: \"Natural finish showing the wood grains\", \"Protects against sun, moisture & aging\". Legacy: \"Bold finish\", \"Hides imperfections & aging\", \"Maximum sun protection (Texas-grade)\"." },
   { date: "2026-10-28", title: "Legacy says Solid color",
