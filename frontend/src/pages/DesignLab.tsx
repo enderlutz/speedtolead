@@ -1,36 +1,45 @@
-// Design Lab (Alan, 2026-10-23): one tab for everything a customer sees,
-// before they see it. "We're gonna have a lot of things like this that come
-// up, so I want to be able to easily access them." It replaces the New
-// Proposal and Cardone's Follow-Ups tabs:
-//   Screens     the tap-through mockup of every customer screen
-//   Follow-ups  Cardone's year of touches, the way the customer meets them
+// Design Lab (Alan, 2026-10-23): one tab for everything a customer sees or
+// hears from us, before they do. "We're gonna have a lot of things like this
+// that come up, so I want to be able to easily access them." Five sections
+// across the top; two of them have their own row underneath (Alan,
+// 2026-10-27: the Follow-Up Engine tab folds in here, "very organized and
+// very simple"):
+//   Screens     Proposal (the tap-through mockup) · Quote generator
+//   Follow-ups  Overview · Sterling · A&T's · Helpers · Both boards ·
+//               The plan (Cardone's year of touches) · Engine
 //   Ideas       the save-for-later folder (docs/ideas), readable here
 //   Changes     what went live on customer screens, newest first
 //   Notes       the proposal project notes
-// Nothing on this page sends anything to anyone.
+// The section and its row live in the address (?tab=followups&view=sterling)
+// so a link lands on the right one. Nothing on this page sends anything.
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Calculator, FlaskConical, History, Lightbulb, Maximize2, NotebookPen, Repeat, ShieldAlert, Smartphone } from "lucide-react";
+import { FlaskConical, History, Lightbulb, Maximize2, NotebookPen, Repeat, ShieldAlert, Smartphone } from "lucide-react";
 import ProposalMockup from "@/pages/ProposalMockup";
 import QuoteMockup from "@/pages/QuoteMockup";
-import CardoneFollowUps from "@/pages/CardoneFollowUps";
+import FollowUpEngine, { FOLLOWUP_VIEWS, type FollowUpView } from "@/pages/FollowUpEngine";
 import { DESIGN_CHANGES } from "@/content/design-changes";
 import notes from "@/content/proposal-v2.md?raw";
 import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
 import { cn } from "@/lib/utils";
 
-type Tab = "screens" | "quote" | "followups" | "ideas" | "changes" | "notes";
+type Tab = "screens" | "followups" | "ideas" | "changes" | "notes";
 const TABS: { key: Tab; label: string; icon: React.ElementType; hint: string }[] = [
   { key: "screens", label: "Screens", icon: Smartphone, hint: "Every customer screen, tap through it" },
-  { key: "quote", label: "Quote generator", icon: Calculator, hint: "Get my price: the self-serve quote, as a mock" },
-  { key: "followups", label: "Follow-ups", icon: Repeat, hint: "Cardone's year of touches" },
+  { key: "followups", label: "Follow-ups", icon: Repeat, hint: "Every follow-up: what runs today, and the plan" },
   { key: "ideas", label: "Ideas", icon: Lightbulb, hint: "Saved for later" },
   { key: "changes", label: "Changes", icon: History, hint: "What went live, newest first" },
   { key: "notes", label: "Notes", icon: NotebookPen, hint: "The proposal project notes" },
 ];
+// The row under a section, where it has one.
+const SCREEN_VIEWS = [
+  { key: "proposal", label: "Proposal", hint: "The interactive proposal and the pay page, as the customer taps through them" },
+  { key: "quote", label: "Quote generator", hint: "Get my price: the self-serve quote, as a mock" },
+];
+const SUBS: Partial<Record<Tab, { key: string; label: string; hint?: string }[]>> = { screens: SCREEN_VIEWS, followups: FOLLOWUP_VIEWS };
 
 // The save-for-later folder, bundled in at build time so it reads here
 // without a server. Each file's first heading is its title.
@@ -75,8 +84,14 @@ const day = (ymd: string) => {
 
 export default function DesignLab() {
   const [params, setParams] = useSearchParams();
-  const tab = (TABS.some((t) => t.key === params.get("tab")) ? params.get("tab") : "screens") as Tab;
-  const pick = (k: Tab) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", k); return n; }, { replace: true });
+  const rawTab = params.get("tab");
+  // Old addresses still open: ?tab=quote was the quote mock before it moved under Screens.
+  const tab: Tab = rawTab === "quote" ? "screens" : TABS.some((t) => t.key === rawTab) ? (rawTab as Tab) : "screens";
+  const subs = SUBS[tab] || [];
+  const rawView = rawTab === "quote" ? "quote" : params.get("view");
+  const view = subs.some((s) => s.key === rawView) ? rawView! : subs[0]?.key || "";
+  const pick = (k: Tab) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", k); n.delete("view"); return n; }, { replace: true });
+  const pickView = (v: string) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", tab); n.set("view", v); return n; }, { replace: true });
   const [idea, setIdea] = useState(IDEAS[0]?.key || "");
   const ideaDoc = useMemo(() => IDEAS.find((i) => i.key === idea) || IDEAS[0], [idea]);
   const byDate = useMemo(() => {
@@ -87,9 +102,11 @@ export default function DesignLab() {
     }
     return out;
   }, []);
+  const fullScreen = tab === "screens" ? (view === "quote" ? "/quote-mockup" : "/new-proposal/mockup") : "";
+  const count = (k: Tab) => (k === "changes" ? DESIGN_CHANGES.length : k === "ideas" ? IDEAS.length : 0);
 
   return (
-    <div className={cn("mx-auto space-y-4 p-4 md:p-6", tab === "screens" || tab === "quote" ? "max-w-6xl" : "max-w-4xl")}>
+    <div className={cn("mx-auto space-y-4 p-4 md:p-6", tab === "screens" ? "max-w-6xl" : "max-w-4xl")}>
       <div className="overflow-hidden rounded-2xl bg-ink text-ivory shadow-lg">
         <div className="flex flex-wrap items-center gap-3 px-5 py-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
@@ -97,15 +114,10 @@ export default function DesignLab() {
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-heading text-xl font-bold leading-tight">Design Lab</h1>
-            <p className="text-xs text-ivory/70">Everything a customer sees, before they see it. Nothing on this page sends anything.</p>
+            <p className="text-xs text-ivory/70">Everything a customer sees or hears from us, before they do. Nothing on this page sends anything.</p>
           </div>
-          {tab === "quote" ? (
-            <Link to="/quote-mockup" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
-              <Maximize2 className="h-3.5 w-3.5" /> Full screen
-            </Link>
-          ) : null}
-          {tab === "screens" ? (
-            <Link to="/new-proposal/mockup" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
+          {fullScreen ? (
+            <Link to={fullScreen} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95">
               <Maximize2 className="h-3.5 w-3.5" /> Full screen
             </Link>
           ) : null}
@@ -117,22 +129,34 @@ export default function DesignLab() {
               className={cn("inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[13px] font-bold transition",
                 tab === t.key ? "bg-gold text-ink" : "text-ivory/80 hover:bg-white/10")}>
               <t.icon className="h-4 w-4" /> {t.label}
-              {t.key === "changes" ? <span className={cn("rounded-full px-1.5 text-[11px]", tab === t.key ? "bg-ink/15" : "bg-white/10")}>{DESIGN_CHANGES.length}</span> : null}
-              {t.key === "ideas" ? <span className={cn("rounded-full px-1.5 text-[11px]", tab === t.key ? "bg-ink/15" : "bg-white/10")}>{IDEAS.length}</span> : null}
+              {count(t.key) ? <span className={cn("rounded-full px-1.5 text-[11px]", tab === t.key ? "bg-ink/15" : "bg-white/10")}>{count(t.key)}</span> : null}
             </button>
           ))}
         </div>
+        {/* The section's own row, where it has one. */}
+        {subs.length ? (
+          <div className="flex flex-wrap items-center gap-1 border-t border-white/10 bg-white/5 px-3 py-1.5">
+            <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-ivory/50">{TABS.find((t) => t.key === tab)?.label}</span>
+            {subs.map((s) => (
+              <button key={s.key} type="button" onClick={() => pickView(s.key)} title={s.hint}
+                className={cn("inline-flex min-h-9 shrink-0 items-center rounded-lg px-2.5 text-[13px] font-semibold transition",
+                  view === s.key ? "bg-white/15 text-gold" : "text-ivory/75 hover:bg-white/10")}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      {tab === "screens" ? (
+      {tab === "screens" && view === "proposal" ? (
         <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">
           <ProposalMockup />
         </div>
       ) : null}
 
-      {tab === "quote" ? <QuoteMockup embedded /> : null}
+      {tab === "screens" && view === "quote" ? <QuoteMockup embedded /> : null}
 
-      {tab === "followups" ? <CardoneFollowUps embedded /> : null}
+      {tab === "followups" ? <FollowUpEngine embedded view={view as FollowUpView} /> : null}
 
       {tab === "ideas" ? (
         <Panel icon={Lightbulb} title="Ideas, saved for later" sub='Say "save that for later" in chat and it lands in the matching file' accent={ACCENT.gold} bodyClassName="p-4 md:p-5">

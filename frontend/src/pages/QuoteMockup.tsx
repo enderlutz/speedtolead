@@ -324,7 +324,7 @@ export default function QuoteMockup({ embedded = false }: { embedded?: boolean }
         </div>
         <Notes />
       </div>
-      {embedded ? null : <p className="mt-4 text-center text-xs text-muted-foreground"><Link to="/design-lab?tab=quote" className="underline">Back to Design Lab</Link></p>}
+      {embedded ? null : <p className="mt-4 text-center text-xs text-muted-foreground"><Link to="/design-lab?tab=screens&view=quote" className="underline">Back to Design Lab</Link></p>}
     </div>
   );
 }

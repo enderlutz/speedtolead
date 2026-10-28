@@ -1,6 +1,9 @@
-// Follow-Up Engine (Alan, 2026-10-24): its own tab, out of Settings, because
-// moving the customer-facing follow-ups (texts first, then calls, email and
-// maybe handwritten cards) off GHL and into the dashboard is the big job.
+// Follow-Up Engine (Alan, 2026-10-24): out of Settings, because moving the
+// customer-facing follow-ups (texts first, then calls, email and maybe
+// handwritten cards) off GHL and into the dashboard is the big job. Since
+// 2026-10-27 it lives inside Design Lab as the Follow-ups section ("just
+// integrate it together, very organized and very simple"); Design Lab draws
+// the row of views and hands the picked one in. /follow-ups still lands here.
 //
 // Written so Olga's daughter could read it: the story first, the GHL names
 // in small print, every text drawn as the bubble the customer sees, and a
@@ -13,6 +16,8 @@
 //   * Helpers — the GHL Home-folder workflows, and the ones switched off.
 //   * Both boards — live: everyone with a card on both boards, and whether
 //     GHL could be texting them from both (the thing never to make worse).
+//   * The plan — Cardone's year of touches, the way the customer meets them
+//     (the Design Lab Follow-ups tab before the two merged).
 //   * Engine — the dashboard's own engine (master switch, sequences), moved
 //     here from Settings unchanged. It stays off until the move is planned.
 import { useEffect, useState } from "react";
@@ -21,15 +26,25 @@ import { AlertTriangle, ArrowRight, Bell, CheckCircle2, Clock, GitBranch, Loader
 import { api, type BoardOverlap } from "@/lib/api";
 import { BOARDS, DECIDED, ISSUES, JOURNEY, NOT_RUNNING, SHARED, WORDS, type Chain, type Step } from "@/lib/ghlFollowupMap";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
+import CardoneFollowUps from "@/pages/CardoneFollowUps";
 import { cn } from "@/lib/utils";
 
 const LINE = "#E4DCCB";
 
-type TabKey = "overview" | "sterling" | "at" | "helpers" | "both" | "engine";
-const TABS: [TabKey, string][] = [
-  ["overview", "Overview"], ["sterling", "Sterling"], ["at", "A&T's"],
-  ["helpers", "Helpers"], ["both", "Both boards"], ["engine", "Engine"],
+// The story, then what runs today, then where it's going.
+type TabKey = "overview" | "sterling" | "at" | "helpers" | "both" | "plan" | "engine";
+const TABS: [TabKey, string, string][] = [
+  ["overview", "Overview", "The story in five pictures, what's changing, what Alan decided"],
+  ["sterling", "Sterling", "Every Sterling follow-up today, day by day, word for word"],
+  ["at", "A&T's", "Every A&T follow-up today, day by day, word for word"],
+  ["helpers", "Helpers", "The GHL Home-folder workflows, and the ones switched off"],
+  ["both", "Both boards", "Live: everyone with a card on both boards"],
+  ["plan", "The plan", "Cardone's year of touches, the way the customer meets them"],
+  ["engine", "Engine", "The dashboard's own text sender, off until the move is planned"],
 ];
+export type FollowUpView = TabKey;
+/** The views, for Design Lab to draw as its row. */
+export const FOLLOWUP_VIEWS: { key: TabKey; label: string; hint: string }[] = TABS.map(([key, label, hint]) => ({ key, label, hint }));
 
 const card = "rounded-2xl border bg-white shadow-sm";
 
@@ -376,28 +391,36 @@ function BothTab() {
   );
 }
 
-export default function FollowUpEngine() {
+/** `embedded`: inside Design Lab, which draws the header and the row of
+ *  views and hands the picked one in as `view`. On its own, the view comes
+ *  from ?tab=. */
+export default function FollowUpEngine({ embedded = false, view }: { embedded?: boolean; view?: TabKey } = {}) {
   const [params, setParams] = useSearchParams();
-  const tab = (TABS.find(([k]) => k === params.get("tab"))?.[0] || "overview") as TabKey;
+  const tab: TabKey = view && TABS.some(([k]) => k === view) ? view : (TABS.find(([k]) => k === params.get("tab"))?.[0] || "overview");
   return (
-    <div className="mx-auto max-w-4xl space-y-4 px-4 py-5">
-      <div>
-        <h1 className="font-heading text-[28px] font-semibold text-ink">Follow-Up Engine</h1>
-        <p className="text-[15px] text-muted-foreground">How we keep in touch with every customer, from first hello to the last check-in.</p>
-      </div>
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {TABS.map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setParams({ tab: k }, { replace: true })}
-            className={cn("min-h-11 shrink-0 rounded-full px-4 text-[15px] font-bold ring-1 transition", tab === k ? "bg-ink text-white ring-ink" : "bg-white text-ink ring-[#E4DCCB] hover:bg-ivory")}>
-            {label}
-          </button>
-        ))}
-      </div>
+    <div className={cn("space-y-4", !embedded && "mx-auto max-w-4xl px-4 py-5")}>
+      {embedded ? null : (
+        <div>
+          <h1 className="font-heading text-[28px] font-semibold text-ink">Follow-Up Engine</h1>
+          <p className="text-[15px] text-muted-foreground">How we keep in touch with every customer, from first hello to the last check-in.</p>
+        </div>
+      )}
+      {embedded ? null : (
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+          {TABS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setParams({ tab: k }, { replace: true })}
+              className={cn("min-h-11 shrink-0 rounded-full px-4 text-[15px] font-bold ring-1 transition", tab === k ? "bg-ink text-white ring-ink" : "bg-white text-ink ring-[#E4DCCB] hover:bg-ivory")}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {tab === "overview" ? <Overview /> : null}
       {tab === "sterling" ? <BoardTab k="sterling" /> : null}
       {tab === "at" ? <BoardTab k="at" /> : null}
       {tab === "helpers" ? <HelpersTab /> : null}
       {tab === "both" ? <BothTab /> : null}
+      {tab === "plan" ? <CardoneFollowUps embedded /> : null}
       {tab === "engine" ? (
         <div className="space-y-3">
           <div className={cn(card, "flex gap-3 p-4")} style={{ borderColor: LINE }}>

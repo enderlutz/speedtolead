@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate, useSearchParams } from "react-router-dom";
 import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
@@ -66,7 +66,13 @@ const FencePhotos = lazy(() => import("@/pages/FencePhotos"));
 const Agents = lazy(() => import("@/pages/Agents"));
 const Internal = lazy(() => import("@/pages/Internal"));
 const DesignLab = lazy(() => import("@/pages/DesignLab"));
-const FollowUpEngine = lazy(() => import("@/pages/FollowUpEngine"));
+// The Follow-Up Engine is Design Lab's Follow-ups section now (Alan, 2026-10-27);
+// an old link keeps the view it pointed at.
+function FollowUpsRedirect() {
+  const [p] = useSearchParams();
+  const v = p.get("tab");
+  return <Navigate to={`/design-lab?tab=followups${v ? `&view=${encodeURIComponent(v)}` : ""}`} replace />;
+}
 const ProposalMockup = lazy(() => import("@/pages/ProposalMockup"));
 const QuoteMockup = lazy(() => import("@/pages/QuoteMockup"));
 const ProposalPreview = lazy(() => import("@/pages/ProposalPreview"));
@@ -304,11 +310,11 @@ function AppLayout() {
               <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/design-lab" element={<StaffOnly><DesignLab /></StaffOnly>} />
-              <Route path="/follow-ups" element={<StaffOnly><FollowUpEngine /></StaffOnly>} />
+              <Route path="/follow-ups" element={<FollowUpsRedirect />} />
               <Route path="/new-proposal" element={<Navigate to="/design-lab?tab=notes" replace />} />
               <Route path="/new-proposal/mockup" element={<StaffOnly><ProposalMockup /></StaffOnly>} />
               <Route path="/quote-mockup" element={<StaffOnly><QuoteMockup /></StaffOnly>} />
-              <Route path="/cardone" element={<Navigate to="/design-lab?tab=followups" replace />} />
+              <Route path="/cardone" element={<Navigate to="/design-lab?tab=followups&view=plan" replace />} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
               <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />

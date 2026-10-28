@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Repeat } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -125,10 +125,9 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
   // The project notes for the interactive proposal (2026-10-09): a page that
   // renders src/content/proposal-v2.md, so the plan can be read from anywhere.
-  // Design Lab (2026-10-23): the customer screens mockup, Cardone's follow-ups, the ideas folder, the change log and the proposal notes, in one tab.
+  // Design Lab (2026-10-23): the customer screens mockup, the ideas folder, the change log and the proposal notes, in one tab.
+  // The Follow-Up Engine (2026-10-24, every GHL follow-up mapped + the engine that will take them over) folded in as its Follow-ups section on 2026-10-27; /follow-ups redirects there.
   { to: "/design-lab", icon: FlaskConical, label: "Design Lab", restrictToAny: ["fragned", "alanbonner", "olga"], divisions: ["fence"] },
-  // Follow-Up Engine (2026-10-24): out of Settings into its own tab — every GHL follow-up mapped, the both-boards check, and the engine that will take them over.
-  { to: "/follow-ups", icon: Repeat, label: "Follow-Up Engine", restrictToAny: ["fragned", "alanbonner", "olga"], divisions: ["fence"] },
   // Every follow-up touch of the year drawn out as the customer meets it
   // (2026-10-12): the playbook in docs/follow-up-playbook.md as pictures.
   // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
