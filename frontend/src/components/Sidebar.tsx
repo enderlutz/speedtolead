@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Repeat } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Calculator, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Repeat } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
