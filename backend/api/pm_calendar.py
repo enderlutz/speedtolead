@@ -201,8 +201,12 @@ def calendar(start: str, end: str, user: dict = Depends(_office)):
         if not _sees_all(user):
             for r in rows:
                 r["pay_type"], r["pay"] = "", 0.0
+        from api.pm_fixes import fixes_for
         return {"days": rows, "crew_options": _crew_options(db), "show_pay": _sees_all(user),
                 "pw_options": PW_SERVICES,   # what a washing job can include, for the add form
+                # The go-backs (Alan, 2026-10-27): the open ones for the side
+                # list, and the done ones on days in this range.
+                "fixes": fixes_for(db, start[:10], end[:10]),
                 "can_edit": user.get("role") == "admin", "today": _today_ct()}
     finally:
         db.close()
@@ -382,7 +386,9 @@ def today(user: dict = Depends(_office)):
         first = {}
         for r in rows:
             first.setdefault(r["lead_id"], r["order"] or 999)
-        return {"today": day, "jobs": sorted(cards.values(), key=lambda c: (first[c["lead_id"]], c["name"].lower()))}
+        from api.pm_fixes import fixes_for
+        return {"today": day, "jobs": sorted(cards.values(), key=lambda c: (first[c["lead_id"]], c["name"].lower())),
+                "fixes": [f for f in fixes_for(db, day, day) if f["date"] == day]}
     finally:
         db.close()
 
@@ -488,6 +494,12 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
             d = days.setdefault(r["lead_id"], [])
             if not any(x["date"] == r["date"] and x["task"] == r["task"] for x in d):
                 d.append({"date": r["date"], "task": r["task"]})
+        # A go-back at one of our customers pins them too (Alan, 2026-10-27).
+        if start and end:
+            from api.pm_fixes import fixes_for
+            for f in fixes_for(db, start[:10], end[:10]):
+                if f["lead_id"] and f["date"] and start[:10] <= f["date"] <= end[:10]:
+                    days.setdefault(f["lead_id"], []).append({"date": f["date"], "task": "fix", "note": f["description"], "done": bool(f["done_at"])})
         added = _added(db)
         ids = list(dict.fromkeys([*days, *added]))
         leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(ids)).all()} if ids else {}

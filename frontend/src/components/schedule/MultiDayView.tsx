@@ -9,6 +9,9 @@
  * to move to Thursday). A drag on a laptop starts after the mouse moves a
  * little, on a phone after holding the chip for a moment, so a plain tap
  * still opens the job and a swipe still scrolls.
+ *
+ * A job to fix on a day (Alan, 2026-10-27) sits under the real jobs as a
+ * dashed 🔧 placeholder, and drags to another day the same way.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import {
@@ -16,9 +19,10 @@ import {
   type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import { Plus } from "lucide-react";
-import type { PmDay } from "@/lib/api";
+import type { FixJob, PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, JobChip, type JobLinkComponent } from "./bits";
+import { FixChip } from "./FixJobs";
 import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "./look";
 import { groupJobs, groupKey, type JobGroup } from "./dates";
 
@@ -51,12 +55,21 @@ function Draggable({ g, children, on }: { g: JobGroup; children: ReactNode; on: 
   );
 }
 
+function DraggableFix({ f, children, on }: { f: FixJob; children: ReactNode; on: boolean }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `fix:${f.id}`, data: { fix: f }, disabled: !on });
+  return (
+    <div ref={setNodeRef} {...(on ? listeners : {})} {...(on ? attributes : {})} className={cn("rounded-xl", on && "touch-manipulation", isDragging && "opacity-30")}>
+      {children}
+    </div>
+  );
+}
+
 function DropDay({ day, className, children }: { day: string; className: string; children: ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: day });
   return <div ref={setNodeRef} className={cn(className, isOver && "bg-[#C9972F]/15 ring-2 ring-inset ring-[#C9972F]")}>{children}</div>;
 }
 
-export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onReorder, onAdd, stacked, showPay }: {
+export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onReorder, onAdd, stacked, showPay, fixesByDay, onMoveFix, onOpenFix, whoOf }: {
   dates: string[]; byDay: Map<string, PmDay[]>; today: string; Link: JobLinkComponent;
   onPickDay: (d: string) => void;
   /** Week shows this many chips a day, then "+N more" (tap → that day). */
@@ -72,16 +85,24 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   stacked?: boolean;
   /** Each worker's pay on the card (office only). */
   showPay?: boolean;
+  /** The jobs to fix on each day, shown under the real jobs. */
+  fixesByDay?: Map<string, FixJob[]>;
+  /** Drop a job to fix on another day. */
+  onMoveFix?: (f: FixJob, toDate: string) => void;
+  /** Tap a job to fix. */
+  onOpenFix?: (f: FixJob) => void;
+  /** A worker's first name from their username, for the fix chip. */
+  whoOf?: (username: string) => string;
 }) {
   const last = dates.length - 1;
-  const dnd = !!(canEdit && onMove);
+  const dnd = !!(canEdit && (onMove || onMoveFix));
   const wide = useWide();
-  const [dragging, setDragging] = useState<JobGroup | null>(null);
+  const [dragging, setDragging] = useState<{ g?: JobGroup; fix?: FixJob } | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
-  const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { g: JobGroup } | undefined)?.g || null);
+  const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { g?: JobGroup; fix?: FixJob } | undefined) || null);
   // A card under the finger wins over the day around it.
   const collide: CollisionDetection = (args) => {
     const hits = pointerWithin(args);
@@ -90,11 +111,14 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   };
   const onEnd = (e: DragEndEvent) => {
     setDragging(null);
-    const g = (e.active.data.current as { g: JobGroup } | undefined)?.g;
-    if (!g || !e.over) return;
+    const data = e.active.data.current as { g?: JobGroup; fix?: FixJob } | undefined;
+    if (!data || !e.over) return;
     const overId = String(e.over.id);
     const t = overId.startsWith("chip:") ? (e.over.data.current as { g: JobGroup } | undefined)?.g : undefined;
     const to = t ? t.x.date : overId;
+    if (data.fix) { if (to !== data.fix.date) onMoveFix?.(data.fix, to); return; }
+    const g = data.g;
+    if (!g) return;
     if (to !== g.x.date) { onMove?.(g, to); return; }
     if (!t || t.key === g.key || !onReorder) return;
     // Same day: take the dropped-on card's spot.
@@ -107,6 +131,11 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   };
   const chip = (g: JobGroup) => (
     <Draggable key={groupKey(g)} g={g} on={dnd}><JobChip g={g} Link={Link} stacked={stacked && wide} showPay={showPay} /></Draggable>
+  );
+  const fixChip = (f: FixJob) => (
+    <DraggableFix key={`fix:${f.id}`} f={f} on={dnd && !!onMoveFix}>
+      <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} stacked={stacked && wide} onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
+    </DraggableFix>
   );
   const moreBtn = "flex min-h-11 w-full items-center rounded-lg px-2 text-left text-[14px] font-bold text-[#8C6224] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60";
   const addBtn = (d: string) => canEdit && onAdd ? (
@@ -132,6 +161,7 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
               <DropDay key={d} day={d} className={cn("min-h-[220px] space-y-1.5 p-1.5 transition-colors", i < last && cn("border-r", LINE), d === today && "bg-[#C9972F]/5")}>
                 {groups.slice(0, cap).map(chip)}
                 {groups.length > cap ? <button type="button" onClick={() => onPickDay(d)} className={moreBtn}>+{groups.length - cap} more</button> : null}
+                {(fixesByDay?.get(d) || []).map(fixChip)}
                 {addBtn(d)}
               </DropDay>
             );
@@ -143,14 +173,16 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
       <div className={cn("rounded-2xl", PAPER, RING)}>
         {dates.map((d, i) => {
           const groups = groupJobs(byDay.get(d) || []);
+          const fixes = fixesByDay?.get(d) || [];
           return (
             <DropDay key={d} day={d} className={cn("grid grid-cols-[56px_1fr] gap-1.5 px-2 py-1.5 transition-colors", i > 0 && cn("border-t", LINE),
                                          i === 0 && "rounded-t-2xl", i === last && "rounded-b-2xl", d === today && TODAY_WASH)}>
               <DayStamp day={d} today={today} onClick={() => onPickDay(d)} />
               <div className="min-w-0 space-y-1.5 py-1">
-                {groups.length
+                {groups.length || fixes.length
                   ? groups.map(chip)
                   : <p className={cn("flex min-h-11 items-center px-1 text-[15px]", MUTED)}>Nothing on.</p>}
+                {fixes.map(fixChip)}
                 {addBtn(d)}
               </div>
             </DropDay>
@@ -165,7 +197,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
       <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(null)}>
         {body}
         <DragOverlay dropAnimation={null}>
-          {dragging ? <div className="w-56 rotate-1 shadow-xl"><JobChip g={dragging} /></div> : null}
+          {dragging?.g ? <div className="w-56 rotate-1 shadow-xl"><JobChip g={dragging.g} /></div>
+            : dragging?.fix ? <div className="w-56 rotate-1 shadow-xl"><FixChip f={dragging.fix} /></div> : null}
         </DragOverlay>
       </DndContext>
     </>

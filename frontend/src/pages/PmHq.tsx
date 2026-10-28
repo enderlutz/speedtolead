@@ -1,11 +1,15 @@
 /**
  * Project Manager HQ (Alan, 2026-10-18): the project manager's own job
- * calendar, separate from Google Calendar. Three tabs:
- *   Today     what's on today, who's there, how far along (live).
- *   Calendar  Google Calendar's shapes (Alan, 2026-10-21): Schedule (a
- *             vertical list), Day, 3 days, Week, Month. Day is where the
- *             editing lives: add a customer, pick who's cleaning or staining,
- *             drag the morning order. The views are in components/schedule/.
+ * calendar, separate from Google Calendar. The page opens on the Calendar's
+ * Week view (Alan, 2026-10-27: "the best way I can actually see everything
+ * at once"). Tabs:
+ *   Calendar  Google Calendar's shapes (Alan, 2026-10-21): Today (the live
+ *             board: who's there, how far along), Day, 3 days, Week, Month,
+ *             List. Day is where the editing lives: add a customer, pick
+ *             who's cleaning or staining, drag the morning order. The views
+ *             are in components/schedule/. Beside the calendar, "Jobs to fix"
+ *             (Alan, 2026-10-27): the small go-backs, waiting on a list until
+ *             they're put on a day as placeholders next to the real jobs.
  *   Past jobs the jobs that are done.
  * Every day here is a crew day on the customer's Company Cam job, the same
  * thing the profile's "Who's on this job?" edits, and what the crew see on
@@ -18,8 +22,8 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Sun, X, Camera } from "lucide-react";
-import { api, type CrewDayTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
+import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import { api, type CrewDayTask, type FixJob, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
@@ -30,11 +34,12 @@ import { MultiDayView } from "@/components/schedule/MultiDayView";
 import { MonthView } from "@/components/schedule/MonthView";
 import { WeekMap } from "@/components/schedule/WeekMap";
 import { WhatToBuy } from "@/components/schedule/WhatToBuy";
+import { FixCard, FixList, type FixActions } from "@/components/schedule/FixJobs";
 import { JobList } from "@/pages/CompanyCamPage";
 import { DayBanner } from "@/components/schedule/bits";
-import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek } from "@/components/schedule/dates";
+import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek, whoOf } from "@/components/schedule/dates";
 
-type Tab = "today" | "calendar" | "buy" | "past" | "jobs";
+type Tab = "calendar" | "buy" | "past" | "jobs";
 type Task = CrewDayTask;
 
 function ctToday(): string {
@@ -111,13 +116,16 @@ function usePmParams() {
 export default function PmHq() {
   const [params, set] = usePmParams();
   const raw = params.get("tab");
-  const tab: Tab = raw === "calendar" || raw === "past" || raw === "jobs" || (raw === "buy" && isOffice()) ? raw : "today";
+  // Today was a tab; now it's the calendar's first view, and the page opens
+  // on the calendar (Alan, 2026-10-27).
+  const tab: Tab = raw === "past" || raw === "jobs" || (raw === "buy" && isOffice()) ? raw : "calendar";
   const setTab = (k: Tab) => set({ tab: k });
   // Week and Month use the whole screen so seven days have room for names
-  // (Alan, 2026-10-21: "I can't see the customer's name" on Week).
-  const wide = tab === "calendar" && ["week", "month"].includes(params.get("view") || "");
+  // (Alan, 2026-10-21: "I can't see the customer's name" on Week). The other
+  // calendar views get a little more than the rest, for the list beside them.
+  const wide = tab === "calendar" && ["week", "month"].includes(parseView(params.get("view")));
   return (
-    <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : "max-w-5xl")}>
+    <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : tab === "calendar" ? "max-w-7xl" : "max-w-5xl")}>
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
           <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
@@ -125,7 +133,7 @@ export default function PmHq() {
         <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {([["today", "Today", Sun], ["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera]] as const).map(([k, label, Icon]) => (
+        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera]] as const).map(([k, label, Icon]) => (
           <button key={k} type="button" onClick={() => setTab(k)}
                   className={cn("flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
                     tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
@@ -133,7 +141,7 @@ export default function PmHq() {
           </button>
         ))}
       </div>
-      {tab === "today" ? <TodayView /> : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : <PastView />}
+      {tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : <PastView />}
     </div>
   );
 }
@@ -166,7 +174,9 @@ function TaskChip({ task, who }: { task: string; who: string }) {
 }
 
 // ── Today ─────────────────────────────────────────────────────────────────
-function TodayView() {
+// The live board: one card per job on today, who's there, how far along.
+// The top bar says the day; the jobs to fix dated today sit under the jobs.
+function TodayView({ fixes, crew, canEdit, actions }: { fixes: FixJob[]; crew: { username: string; name: string }[]; canEdit: boolean; actions: FixActions }) {
   const [data, setData] = useState<{ today: string; jobs: PmTodayJob[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const fetchToday = useCallback(
@@ -183,11 +193,11 @@ function TodayView() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold">{fmtDay(data.today, { weekday: "long", month: "long", day: "numeric" })}</p>
-        <Button variant="outline" size="sm" onClick={load} disabled={busy}><RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} /></Button>
+        <p className="text-sm text-muted-foreground">Live · the crew's photos and checklists, refreshed every minute</p>
+        <Button variant="outline" size="sm" onClick={load} disabled={busy} aria-label="Refresh"><RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} /></Button>
       </div>
       {data.jobs.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No jobs on today. Add one from the Calendar tab.</p>
+        <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No jobs on today. Add one from the Week or Day view.</p>
       ) : data.jobs.map((j) => (
         <JobLink key={j.lead_id} leadId={j.lead_id} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -206,12 +216,19 @@ function TodayView() {
           </p>
         </JobLink>
       ))}
+      {fixes.length ? (
+        <section className="space-y-2 rounded-2xl border border-dashed border-[#8C6224]/50 bg-card p-3">
+          <p className="flex items-center gap-1.5 px-1 text-sm font-bold"><Wrench className="h-4 w-4 text-[#8C6224]" />Also today: jobs to fix</p>
+          {fixes.map((f) => <FixCard key={f.id} f={f} crew={crew} canEdit={canEdit} actions={actions} startOpen Link={JobLink} />)}
+        </section>
+      ) : null}
     </div>
   );
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────
 // The view and the day live in the address: ?tab=calendar&view=week&day=….
+//   today     the live board of today's jobs (TodayView)
 //   schedule  a vertical list, today −7 days to +35, Earlier/Later add 4 weeks
 //   day       the picked day, with the editing (DayPanel)
 //   3day      the picked day and the two after it
@@ -232,15 +249,18 @@ function CalendarView() {
 
   const range = useMemo(() => {
     switch (view) {
+      case "today": return { start: today, end: today };
       case "day": return { start: day, end: day };
       case "3day": return { start: day, end: plusDays(day, 2) };
       case "week": { const mon = startOfWeek(day); return { start: mon, end: plusDays(mon, 6) }; }
       case "month": { const g = monthGrid(day); return { start: g[0], end: g[g.length - 1] }; }
       default: return { start: plusDays(day, -7 - 28 * before), end: plusDays(day, 35 + 28 * after) };
     }
-  }, [view, day, before, after]);
+  }, [view, day, before, after, today]);
 
   const [days, setDays] = useState<PmDay[] | null>(null);
+  // The jobs to fix (Alan, 2026-10-27): the open ones, plus done ones on days in range.
+  const [fixes, setFixes] = useState<FixJob[]>([]);
   const [crew, setCrew] = useState<{ username: string; name: string }[]>([]);
   const [pwOptions, setPwOptions] = useState(PW_OPTIONS);
   const [canEdit, setCanEdit] = useState(false);
@@ -251,7 +271,7 @@ function CalendarView() {
     api.getPmHqCalendar(range.start, range.end)
       .then((r) => {
         if (n !== seq.current) return;
-        setDays(r.days); setCrew(r.crew_options); setCanEdit(r.can_edit); setLoaded(`${range.start}|${range.end}`);
+        setDays(r.days); setFixes(r.fixes || []); setCrew(r.crew_options); setCanEdit(r.can_edit); setLoaded(`${range.start}|${range.end}`);
         if (r.pw_options?.length) setPwOptions(r.pw_options);
       })
       .catch((e) => toast.error(errMessage(e, "Something went wrong")));
@@ -294,9 +314,37 @@ function CalendarView() {
     load();
   };
   const byDay = useMemo(() => groupByDay(days || []), [days]);
+  const fixesByDay = useMemo(() => {
+    const m = new Map<string, FixJob[]>();
+    for (const f of fixes) { if (!f.date) continue; if (!m.has(f.date)) m.set(f.date, []); m.get(f.date)!.push(f); }
+    return m;
+  }, [fixes]);
+  const who = useCallback((u: string) => whoOf(crew, u), [crew]);
+  // What the list and the cards do; each says what went wrong and answers
+  // whether it worked, then the calendar reloads so every view agrees.
+  const fixActions = useMemo<FixActions>(() => ({
+    onAdd: async (b) => {
+      try { await api.pmHqFixAdd(b); toast.success(b.date ? `${b.name} is on ${fmtDay(b.date, { weekday: "long", month: "short", day: "numeric" })}` : `${b.name} is on the list`); load(); return true; }
+      catch (e) { toast.error(errMessage(e, "Couldn't add it")); return false; }
+    },
+    onUpdate: async (id, patch) => {
+      try { await api.pmHqFixUpdate(id, patch); load(); return true; }
+      catch (e) { toast.error(errMessage(e, "Couldn't save that")); load(); return false; }
+    },
+    onDelete: async (id) => {
+      try { await api.pmHqFixDelete(id); toast.success("Taken off the list"); load(); return true; }
+      catch (e) { toast.error(errMessage(e, "Couldn't take it off")); return false; }
+    },
+  }), [load]);
+  // Drag a job to fix to another day: it moves on screen at once.
+  const moveFix = async (f: FixJob, to: string) => {
+    setFixes((fs) => fs.map((x) => (x.id === f.id ? { ...x, date: to } : x)));
+    if (await fixActions.onUpdate(f.id, { date: to })) toast.success(`${f.name} moved to ${fmtDay(to, { weekday: "long", month: "short", day: "numeric" })}`);
+  };
   const pickDay = useCallback((d: string) => set({ view: "day", day: d }), [set]);
   // One unit of the view: a day, 3 days, a week, a month; 4 weeks on the list.
-  const step = (n: -1 | 1) => set({
+  // From Today, the arrows step into the Day view of yesterday or tomorrow.
+  const step = (n: -1 | 1) => view === "today" ? set({ view: "day", day: plusDays(today, n) }) : set({
     day: view === "month" ? addMonths(day, n)
       : plusDays(day, n * (view === "day" ? 1 : view === "3day" ? 3 : view === "week" ? 7 : 28)),
   });
@@ -306,38 +354,54 @@ function CalendarView() {
     <div className="space-y-3">
       <ScheduleTopBar view={view} label={rangeLabel(view, day, range.start, range.end, today)} loading={loading}
                       onToday={goToday} onStep={step} onView={(v) => set({ view: v })} />
-      {!days ? <Spinner /> : view === "schedule" ? (
-        <AgendaView days={days} start={range.start} end={range.end} today={today} Link={JobLink} onPickDay={pickDay} showPay={false}
-                    onEarlier={() => setExt({ anchor: day, before: before + 1, after })}
-                    onLater={() => setExt({ anchor: day, before, after: after + 1 })} />
-      ) : view === "day" ? (
-        <>
-          <DayBanner day={day} today={today} items={byDay.get(day) || []} />
-          <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} pwOptions={pwOptions} canEdit={canEdit} onChange={load} />
-        </>
-      ) : view === "month" ? (
-        <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} />
-      ) : (
-        <>
-          {addDay ? (
-            <div className="space-y-2 rounded-2xl border bg-card p-4">
-              <p className="font-semibold">Add a customer to {fmtDay(addDay, { weekday: "long", month: "long", day: "numeric" })}</p>
-              <AddToDay key={addDay} day={addDay} crew={crew} pwOptions={pwOptions} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
-            </div>
-          ) : null}
-          <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
-                        onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={false}
-                        canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-          {/* The week's customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
-          {view === "week" ? <WeekMap start={range.start} end={range.end} refreshKey={days} /> : null}
-        </>
-      )}
+      {/* The calendar, with Jobs to fix beside it on a wide screen and under it on a phone. */}
+      <div className="space-y-3 xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4 xl:space-y-0">
+        <div className="min-w-0 space-y-3">
+          {!days ? <Spinner /> : view === "today" ? (
+            <TodayView fixes={fixesByDay.get(today) || []} crew={crew} canEdit={canEdit} actions={fixActions} />
+          ) : view === "schedule" ? (
+            <AgendaView days={days} start={range.start} end={range.end} today={today} Link={JobLink} onPickDay={pickDay} showPay={false}
+                        fixesByDay={fixesByDay} whoOf={who}
+                        onEarlier={() => setExt({ anchor: day, before: before + 1, after })}
+                        onLater={() => setExt({ anchor: day, before, after: after + 1 })} />
+          ) : view === "day" ? (
+            <>
+              <DayBanner day={day} today={today} items={byDay.get(day) || []} />
+              <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} pwOptions={pwOptions} canEdit={canEdit} onChange={load}
+                        fixes={fixesByDay.get(day) || []} fixActions={fixActions} />
+            </>
+          ) : view === "month" ? (
+            <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} fixesByDay={fixesByDay} />
+          ) : (
+            <>
+              {addDay ? (
+                <div className="space-y-2 rounded-2xl border bg-card p-4">
+                  <p className="font-semibold">Add a customer to {fmtDay(addDay, { weekday: "long", month: "long", day: "numeric" })}</p>
+                  <AddToDay key={addDay} day={addDay} crew={crew} pwOptions={pwOptions} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
+                </div>
+              ) : null}
+              <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
+                            onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={false}
+                            canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                            fixesByDay={fixesByDay} onMoveFix={(f, to) => void moveFix(f, to)} onOpenFix={(f) => pickDay(f.date)} whoOf={who} />
+              {/* The week's customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
+              {view === "week" ? <WeekMap start={range.start} end={range.end} refreshKey={[days, fixes]} /> : null}
+            </>
+          )}
+        </div>
+        {days ? (
+          <FixList fixes={fixes} crew={crew} canEdit={canEdit} actions={fixActions} Link={JobLink}
+                   className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto" />
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function DayPanel({ day, items, crew, pwOptions, canEdit, onChange }: {
+function DayPanel({ day, items, crew, pwOptions, canEdit, onChange, fixes, fixActions }: {
   day: string; items: PmDay[]; crew: { username: string; name: string }[]; pwOptions: { key: string; label: string }[]; canEdit: boolean; onChange: () => void;
+  /** The jobs to fix on this day (Alan, 2026-10-27), with their own editing. */
+  fixes: FixJob[]; fixActions: FixActions;
 }) {
   const [adding, setAdding] = useState(false);
   // One column per worker (Alan, 2026-10-18): their jobs top to bottom in the
@@ -361,12 +425,18 @@ function DayPanel({ day, items, crew, pwOptions, canEdit, onChange }: {
         {canEdit && !adding ? <Button size="sm" onClick={() => setAdding(true)}><Plus className="mr-1 h-4 w-4" />Add a customer to this day</Button> : null}
       </div>
       {adding ? <AddToDay day={day} crew={crew} pwOptions={pwOptions} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
-      {lanes.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
+      {lanes.length === 0 && !adding && !fixes.length ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
       {lanes.length && canEdit ? <p className="text-[11px] text-muted-foreground">Hold the dots on a job and drag it up or down. Number 1 is where they start in the morning.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {lanes.map((l) => <WorkerLane key={l.username} day={day} username={l.username} person={l.person} rows={l.rows} canEdit={canEdit} onChange={onChange}
                                       crew={crew} dayItems={items} />)}
       </div>
+      {fixes.length ? (
+        <div className="space-y-2 rounded-xl border border-dashed border-[#8C6224]/50 p-2.5">
+          <p className="flex items-center gap-1.5 px-1 text-sm font-bold"><Wrench className="h-4 w-4 text-[#8C6224]" />Jobs to fix this day</p>
+          {fixes.map((f) => <FixCard key={f.id} f={f} crew={crew} canEdit={canEdit} actions={fixActions} startOpen Link={JobLink} />)}
+        </div>
+      ) : null}
     </div>
   );
 }

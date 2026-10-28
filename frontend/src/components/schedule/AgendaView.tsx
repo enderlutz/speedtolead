@@ -5,20 +5,24 @@
  * stamp on the left, one line per worker-and-job on the right.
  */
 import { ChevronDown, ChevronUp } from "lucide-react";
-import type { PmDay } from "@/lib/api";
+import type { FixJob, PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, type JobLinkComponent } from "./bits";
+import { FixLine } from "./FixJobs";
 import { INK, IVORY, LINE, MUTED, PAPER, RING, TASK_DOT, TASK_WORD, isDone } from "./look";
 import { fmt, groupByDay, groupJobs, groupKey, monthBand, monthKey, payLine, type JobGroup } from "./dates";
 
 const shortDay = (d: string) => fmt(d, { month: "short", day: "numeric" });
 
-export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier, onLater, showPay }: {
+export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier, onLater, showPay, fixesByDay, whoOf }: {
   days: PmDay[]; start: string; end: string; today: string; Link: JobLinkComponent;
   onPickDay: (d: string) => void; onEarlier: () => void; onLater: () => void; showPay?: boolean;
+  /** The jobs to fix on each day (Alan, 2026-10-27), listed under the real jobs. */
+  fixesByDay?: Map<string, FixJob[]>;
+  whoOf?: (username: string) => string;
 }) {
   const byDay = groupByDay(days);
-  const dates = [...byDay.keys()].filter((d) => d >= start && d <= end);
+  const dates = [...new Set([...byDay.keys(), ...(fixesByDay?.keys() || [])])].filter((d) => d >= start && d <= end);
   if (today >= start && today <= end && !byDay.has(today)) dates.push(today);
   dates.sort();
   const months: { key: string; dates: string[] }[] = [];
@@ -40,7 +44,7 @@ export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier
           <h3 className={cn("sticky top-0 z-10 border-y px-4 py-2 text-[12px] font-bold uppercase tracking-[0.16em]", IVORY, LINE, MUTED)}>
             {monthBand(m.dates[0])}
           </h3>
-          {m.dates.map((d, i) => <DayRow key={d} day={d} today={today} first={i === 0} items={byDay.get(d) || []} Link={Link} onPick={() => onPickDay(d)} showPay={showPay} />)}
+          {m.dates.map((d, i) => <DayRow key={d} day={d} today={today} first={i === 0} items={byDay.get(d) || []} fixes={fixesByDay?.get(d) || []} whoOf={whoOf} Link={Link} onPick={() => onPickDay(d)} showPay={showPay} />)}
         </section>
       ))}
       <button type="button" onClick={onLater} className={cn(more, "rounded-b-2xl border-t", LINE)}>
@@ -50,17 +54,19 @@ export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier
   );
 }
 
-function DayRow({ day, today, first, items, Link, onPick, showPay }: {
-  day: string; today: string; first: boolean; items: PmDay[]; Link: JobLinkComponent; onPick: () => void; showPay?: boolean;
+function DayRow({ day, today, first, items, fixes, whoOf, Link, onPick, showPay }: {
+  day: string; today: string; first: boolean; items: PmDay[]; fixes: FixJob[]; whoOf?: (username: string) => string;
+  Link: JobLinkComponent; onPick: () => void; showPay?: boolean;
 }) {
   const groups = groupJobs(items);
   return (
     <div className={cn("grid grid-cols-[56px_1fr] gap-1 px-2 py-1.5", !first && cn("border-t", LINE), day === today && "bg-[#C9972F]/10")}>
       <DayStamp day={day} today={today} onClick={onPick} />
       <div className="min-w-0 py-0.5">
-        {groups.length === 0
+        {groups.length === 0 && fixes.length === 0
           ? <p className={cn("flex min-h-11 items-center px-2 text-[15px]", MUTED)}>Nothing on today.</p>
           : groups.map((g) => <JobLine key={groupKey(g)} g={g} Link={Link} showPay={showPay} />)}
+        {fixes.map((f) => <FixLine key={f.id} f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} onClick={onPick} />)}
       </div>
     </div>
   );

@@ -9,18 +9,22 @@
  */
 import type { PmDay } from "@/lib/api";
 
-export type ScheduleView = "schedule" | "day" | "3day" | "week" | "month";
+// Today is a view of the calendar, not a tab of its own (Alan, 2026-10-27):
+// the live board of today's jobs. The page opens on Week, "the best way I
+// can actually see everything at once".
+export type ScheduleView = "today" | "day" | "3day" | "week" | "month" | "schedule";
 
 export const VIEWS: { key: ScheduleView; label: string }[] = [
-  { key: "schedule", label: "Schedule" },
+  { key: "today", label: "Today" },
   { key: "day", label: "Day" },
   { key: "3day", label: "3 days" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
+  { key: "schedule", label: "List" },
 ];
 
 export function parseView(s: string | null | undefined): ScheduleView {
-  return VIEWS.some((v) => v.key === s) ? (s as ScheduleView) : "schedule";
+  return VIEWS.some((v) => v.key === s) ? (s as ScheduleView) : "week";
 }
 
 export const isDay = (s: string | null | undefined): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s || "");
@@ -92,6 +96,7 @@ export function monthsLabel(start: string, end: string): string {
 export function rangeLabel(view: ScheduleView, anchor: string, start: string, end: string, today: string): string {
   const otherYear = year(anchor) !== year(today);
   switch (view) {
+    case "today": return fmt(today, { weekday: "long", month: "long", day: "numeric" });
     case "day": return fmt(anchor, { weekday: "short", month: "short", day: "numeric" }) + (otherYear ? `, ${year(anchor)}` : "");
     case "3day": return spanLabel(start, end, otherYear);
     case "week": return spanLabel(start, end, true);
@@ -124,6 +129,9 @@ export function rankDay(items: PmDay[]): RankedJob[] {
 }
 
 export const firstName = (s: string) => (s || "").trim().split(/\s+/)[0] || s;
+/** A worker's first name from their username, off the crew list the calendar carries. */
+export const whoOf = (crew: { username: string; name: string }[], username: string) =>
+  firstName(crew.find((c) => c.username.toLowerCase() === username.toLowerCase())?.name || username);
 
 /**
  * One card per job per task (Alan, 2026-10-21): the lead tech(s) and the

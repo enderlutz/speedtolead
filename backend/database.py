@@ -4586,6 +4586,29 @@ class BankRule(Base):
     created_at = Column(Text, default="")
 
 
+class FixJob(Base):
+    """A small job to go back for (Alan, 2026-10-27): pick up the leftover
+    wood at a customer's house, screw the decorative pieces back on, a gallon
+    more of stain on the inside. Lives on the Project Manager calendar's
+    "Jobs to fix" list until it's put on a day, then shows on that day as a
+    placeholder next to the real jobs. Not a crew day on a Company Cam job:
+    nothing here touches crew_json, pay or progress."""
+    __tablename__ = "fix_jobs"
+    __table_args__ = (Index("idx_fix_jobs_date", "date"), Index("idx_fix_jobs_lead", "lead_id"))
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, default="")        # the customer, when it's one of ours
+    name = Column(Text, default="")           # who / where, as typed or the customer's name
+    description = Column(Text, default="")    # what to do there
+    date = Column(Text, default="")           # "YYYY-MM-DD", or "" while it waits on the list
+    username = Column(Text, default="")       # who's going, or ""
+    done_at = Column(Text, default="")
+    done_by = Column(Text, default="")
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 def init_db():
     global _engine, _SessionLocal
     settings = get_settings()

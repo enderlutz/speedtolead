@@ -4,7 +4,8 @@
  * screen, plus anyone Alan puts on it by name (an unpaid booking he's
  * planning around). Each pin shows only the name and where the job stands:
  * the name alone = nothing done yet, 🧽 = cleaned, a green ✓ = cleaned and
- * stained. For planning cleaning and staining routes.
+ * stained. A 🔧 means there's a job to fix there on one of these days
+ * (Alan, 2026-10-27). For planning cleaning and staining routes.
  */
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
@@ -17,16 +18,17 @@ import { Input } from "@/components/ui/input";
 import { errMessage } from "@/lib/utils";
 
 const HOUSTON: [number, number] = [29.9, -95.5];
-const TASK: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", repairs: "Repairs" };
+const TASK: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", repairs: "Repairs", fix: "Fix" };
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const dayName = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
 /** A dot on the house and a name tag above it. */
 function pinIcon(p: PmMapPin): L.DivIcon {
-  const mark = p.status === "done"
+  const fix = p.days.some((d) => d.task === "fix" && !d.done) ? `<span style="font-size:15px;line-height:1;">🔧</span>` : "";
+  const mark = fix + (p.status === "done"
     ? `<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:#15803d;color:#fff;font-size:12px;font-weight:900;align-items:center;justify-content:center;">✓</span>`
-    : p.status === "cleaned" ? `<span style="font-size:15px;line-height:1;">🧽</span>` : "";
+    : p.status === "cleaned" ? `<span style="font-size:15px;line-height:1;">🧽</span>` : "");
   const dot = p.status === "done" ? "#15803d" : p.status === "cleaned" ? "#9a6a26" : "#1c1917";
   const html = `
     <div style="position:absolute;left:0;bottom:0;transform:translate(-50%,0);display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
@@ -81,7 +83,7 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
         <div>
           <p className="flex items-center gap-1.5 font-semibold"><MapPin className="h-4 w-4 text-primary" />Where they are</p>
           <p className="text-sm text-muted-foreground">
-            Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained
+            Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained · 🔧 = a job to fix
           </p>
         </div>
         {!pins ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -100,7 +102,7 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
                   <p className="font-semibold">{p.name}</p>
                   {p.address ? <p className="text-muted-foreground">{p.address}</p> : null}
                   {p.days.length
-                    ? p.days.map((d) => <p key={d.date + d.task}>{dayName(d.date)} · {TASK[d.task] || d.task}</p>)
+                    ? p.days.map((d) => <p key={d.date + d.task + (d.note || "")}>{dayName(d.date)} · {TASK[d.task] || d.task}{d.note ? `: ${d.note}` : ""}{d.done ? " ✓" : ""}</p>)
                     : <p className="text-muted-foreground">Not on the calendar yet</p>}
                   <div className="flex flex-wrap gap-3 pt-1">
                     <a className="font-semibold text-blue-700 underline" target="_blank" rel="noreferrer"

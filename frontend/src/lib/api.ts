@@ -3887,9 +3887,16 @@ export const api = {
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
   // PM HQ (Alan, 2026-10-18): the project manager's job calendar.
   getPmHqCalendar: (start: string, end: string) =>
-    request<{ days: PmDay[]; crew_options: { username: string; name: string }[]; pw_options?: { key: string; label: string }[]; can_edit: boolean; today: string }>(
+    request<{ days: PmDay[]; fixes: FixJob[]; crew_options: { username: string; name: string }[]; pw_options?: { key: string; label: string }[]; can_edit: boolean; today: string }>(
       `/api/pm-hq/calendar?start=${start}&end=${end}`),
-  getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[] }>(`/api/pm-hq/today`),
+  getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[]; fixes: FixJob[] }>(`/api/pm-hq/today`),
+  // Jobs to fix (Alan, 2026-10-27): the go-backs beside the calendar.
+  pmHqFixAdd: (b: { lead_id?: string; name?: string; description: string; date?: string; username?: string }) =>
+    request<FixJob>(`/api/pm-hq/fixes`, { method: "POST", body: JSON.stringify(b) }),
+  pmHqFixUpdate: (id: string, patch: { description?: string; date?: string; username?: string; done?: boolean; lead_id?: string; name?: string }) =>
+    request<FixJob>(`/api/pm-hq/fixes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  pmHqFixDelete: (id: string) =>
+    request<{ ok: boolean }>(`/api/pm-hq/fixes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
   pmHqAssign: (b: { lead_id: string; date: string; username: string; task: CrewDayTask; helper?: boolean }) =>
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
@@ -6355,7 +6362,8 @@ export interface PmMapPin {
   lat: number | null;
   lng: number | null;
   status: "pending" | "cleaned" | "done";
-  days: { date: string; task: string }[];
+  /** A "fix" day is a go-back; `note` says what, `done` once it's marked. */
+  days: { date: string; task: string; note?: string; done?: boolean }[];
   added: boolean;
 }
 
@@ -6367,6 +6375,12 @@ export interface PmDay {
   pw_services?: string[];
   /** This person's pay on the job: "flat" | "hourly" | "" (not set). Office only. */
   pay_type?: string; pay?: number;
+}
+/** A go-back (Alan, 2026-10-27): a small job to fix at a customer's, on the
+ *  list beside the calendar until it's put on a day. Not a crew day. */
+export interface FixJob {
+  id: string; lead_id: string; name: string; description: string; date: string; username: string;
+  done_at: string; done_by: string; created_at: string; created_by: string;
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;

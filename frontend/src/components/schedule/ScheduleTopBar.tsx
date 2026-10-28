@@ -1,7 +1,7 @@
 /**
  * Google Calendar's top bar in the brand's black band: Today, ‹ ›, the range
  * ("October 2026", "Oct 19 – 25, 2026", "Wed, Oct 21"), and the view switcher
- * (Schedule · Day · 3 days · Week · Month). On a phone the switcher is a full
+ * (Today · Day · 3 days · Week · Month · List). On a phone the switcher is a full
  * width segmented control under the arrows, so nothing scrolls sideways.
  */
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
@@ -28,7 +28,7 @@ export function ScheduleTopBar({ view, label, loading, onToday, onStep, onView }
             {loading ? <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-white/70" aria-label="Loading" /> : null}
           </p>
         </div>
-        <div className="grid grid-cols-5 gap-0.5 rounded-xl bg-white/10 p-1 sm:flex" role="tablist" aria-label="View">
+        <div className="grid grid-cols-6 gap-0.5 rounded-xl bg-white/10 p-1 sm:flex" role="tablist" aria-label="View">
           {VIEWS.map((v) => (
             <button key={v.key} type="button" role="tab" aria-selected={view === v.key} onClick={() => onView(v.key)}
                     className={cn("min-h-11 rounded-lg px-0.5 text-[14px] font-semibold leading-none tracking-tight transition-colors sm:px-3",
