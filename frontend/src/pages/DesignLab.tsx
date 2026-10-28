@@ -11,8 +11,11 @@
 //   Changes     what went live on customer screens, newest first
 //   Notes       the proposal project notes
 // The section and its row live in the address (?tab=followups&view=sterling)
-// so a link lands on the right one. Nothing on this page sends anything.
-import { useMemo, useState } from "react";
+// so a link lands on the right one. The page is one width in every section
+// and the second row is always there (Alan, 2026-10-27: "I want everything
+// to stay the same size"), so nothing jumps when you move around. Nothing on
+// this page sends anything.
+import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -40,8 +43,6 @@ const SCREEN_VIEWS = [
   { key: "proposal", label: "Proposal", hint: "The interactive proposal and the pay page, as the customer taps through them" },
   { key: "quote", label: "Quote generator", hint: "Get my price: the self-serve quote, as a mock" },
 ];
-const SUBS: Partial<Record<Tab, { key: string; label: string; hint?: string }[]>> = { screens: SCREEN_VIEWS, followups: FOLLOWUP_VIEWS };
-
 // The save-for-later folder, bundled in at build time so it reads here
 // without a server. Each file's first heading is its title.
 const IDEA_FILES = import.meta.glob("../../../docs/ideas/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -57,6 +58,23 @@ const IDEAS = Object.entries(IDEA_FILES)
 // The "Status:" line near the top of the notes, so the pill and the file
 // can never disagree.
 const STATUS = notes.match(/^Status:\s*(.+)$/m)?.[1]?.trim() || "Planning";
+
+// What the second row holds for each section: views to pick, or one line
+// saying what's below, so the row is always the same height.
+const SUBS: Record<Tab, { key: string; label: string; hint?: string }[]> = {
+  screens: SCREEN_VIEWS,
+  followups: FOLLOWUP_VIEWS,
+  ideas: IDEAS.map((i) => ({ key: i.key, label: i.title })),
+  changes: [],
+  notes: [],
+};
+const ROW_NOTE: Partial<Record<Tab, string>> = {
+  ideas: "Nothing saved yet",
+  changes: `${DESIGN_CHANGES.length} changes, newest first · the day is when it went live`,
+  notes: `The proposal project notes · Status: ${STATUS} · read-only here`,
+};
+/** A card's text stays a comfortable reading width even though the page is wide. */
+const READ = "max-w-3xl";
 
 const PROSE = [
   "text-sm leading-relaxed text-foreground/90",
@@ -93,8 +111,7 @@ export default function DesignLab() {
   const view = subs.some((s) => s.key === rawView) ? rawView! : subs[0]?.key || "";
   const pick = (k: Tab) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", k); n.delete("view"); return n; }, { replace: true });
   const pickView = (v: string) => setParams((p) => { const n = new URLSearchParams(p); n.set("tab", tab); n.set("view", v); return n; }, { replace: true });
-  const [idea, setIdea] = useState(IDEAS[0]?.key || "");
-  const ideaDoc = useMemo(() => IDEAS.find((i) => i.key === idea) || IDEAS[0], [idea]);
+  const ideaDoc = useMemo(() => IDEAS.find((i) => i.key === view) || IDEAS[0], [view]);
   const byDate = useMemo(() => {
     const out: { date: string; items: typeof DESIGN_CHANGES }[] = [];
     for (const c of DESIGN_CHANGES) {
@@ -107,7 +124,7 @@ export default function DesignLab() {
   const count = (k: Tab) => (k === "changes" ? DESIGN_CHANGES.length : k === "ideas" ? IDEAS.length : 0);
 
   return (
-    <div className={cn("mx-auto space-y-4 p-4 md:p-6", tab === "screens" ? "max-w-6xl" : "max-w-4xl")}>
+    <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
       <div className="overflow-hidden rounded-2xl bg-ink text-ivory shadow-lg">
         <div className="flex flex-wrap items-center gap-3 px-5 py-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-bronze shadow-sm">
@@ -124,34 +141,32 @@ export default function DesignLab() {
           ) : null}
         </div>
         {/* The sections, across the top. */}
-        <div className="flex flex-wrap gap-1 border-t border-white/10 px-2 py-2">
+        <div className="flex flex-wrap gap-1 border-t border-white/10 px-3 py-2">
           {TABS.map((t) => (
             <button key={t.key} type="button" onClick={() => pick(t.key)} title={t.hint}
-              className={cn("inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[13px] font-bold transition",
-                tab === t.key ? "bg-gold text-ink" : "text-ivory/80 hover:bg-white/10")}>
+              className={cn("inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-[14px] font-bold transition",
+                tab === t.key ? "bg-gold text-ink shadow-sm" : "text-ivory/80 hover:bg-white/10")}>
               <t.icon className="h-4 w-4" /> {t.label}
               {count(t.key) ? <span className={cn("rounded-full px-1.5 text-[11px]", tab === t.key ? "bg-ink/15" : "bg-white/10")}>{count(t.key)}</span> : null}
             </button>
           ))}
         </div>
-        {/* The section's own row, where it has one. */}
-        {subs.length ? (
-          <div className="flex flex-wrap items-center gap-1 border-t border-white/10 bg-white/5 px-3 py-1.5">
-            <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-ivory/50">{TABS.find((t) => t.key === tab)?.label}</span>
-            {subs.map((s) => (
-              <button key={s.key} type="button" onClick={() => pickView(s.key)} title={s.hint}
-                className={cn("inline-flex min-h-9 shrink-0 items-center rounded-lg px-2.5 text-[13px] font-semibold transition",
-                  view === s.key ? "bg-white/15 text-gold" : "text-ivory/75 hover:bg-white/10")}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {/* The section's own row: its views, or one line on what's below. Always the same height. */}
+        <div className="flex min-h-[52px] flex-wrap items-center gap-1 border-t border-white/10 bg-white/5 px-3 py-1.5">
+          <span className="mr-2 text-[11px] font-bold uppercase tracking-wider text-ivory/50">{TABS.find((t) => t.key === tab)?.label}</span>
+          {subs.length ? subs.map((s) => (
+            <button key={s.key} type="button" onClick={() => pickView(s.key)} title={s.hint}
+              className={cn("inline-flex min-h-10 shrink-0 items-center rounded-lg px-3 text-[14px] font-semibold transition",
+                view === s.key ? "bg-white/15 text-gold" : "text-ivory/75 hover:bg-white/10")}>
+              {s.label}
+            </button>
+          )) : <span className="text-[13px] text-ivory/70">{ROW_NOTE[tab]}</span>}
+        </div>
       </div>
 
       {tab === "screens" && view === "proposal" ? (
         <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">
-          <ProposalMockup />
+          <ProposalMockup embedded />
         </div>
       ) : null}
 
@@ -160,26 +175,16 @@ export default function DesignLab() {
       {tab === "followups" ? <FollowUpEngine embedded view={view as FollowUpView} /> : null}
 
       {tab === "ideas" ? (
-        <Panel icon={Lightbulb} title="Ideas, saved for later" sub='Say "save that for later" in chat and it lands in the matching file' accent={ACCENT.gold} bodyClassName="p-4 md:p-5">
-          {IDEAS.length ? (
-            <>
-              <div className="mb-4 flex flex-wrap gap-1.5">
-                {IDEAS.map((i) => (
-                  <button key={i.key} type="button" onClick={() => setIdea(i.key)}
-                    className={cn("min-h-10 rounded-full px-3.5 text-[13px] font-bold ring-1 transition", ideaDoc?.key === i.key ? "bg-ink text-gold ring-ink" : "bg-white text-ink ring-ink/15 hover:bg-muted")}>
-                    {i.title}
-                  </button>
-                ))}
-              </div>
-              <article className={PROSE}><ReactMarkdown remarkPlugins={[remarkGfm]}>{ideaDoc?.text || ""}</ReactMarkdown></article>
-            </>
-          ) : <p className="text-sm text-muted-foreground">Nothing saved yet.</p>}
+        <Panel icon={Lightbulb} title={ideaDoc ? ideaDoc.title : "Ideas, saved for later"} sub='Say "save that for later" in chat and it lands in the matching file' accent={ACCENT.gold} bodyClassName="p-4 md:p-5">
+          {ideaDoc
+            ? <article className={cn(PROSE, READ)}><ReactMarkdown remarkPlugins={[remarkGfm]}>{ideaDoc.text}</ReactMarkdown></article>
+            : <p className="text-sm text-muted-foreground">Nothing saved yet.</p>}
         </Panel>
       ) : null}
 
       {tab === "changes" ? (
         <Panel icon={History} title="What changed on customer screens" sub="Newest first. The day is when it went live." accent={ACCENT.gold} bodyClassName="p-4 md:p-5">
-          <ol className="space-y-5">
+          <ol className={cn("space-y-5", READ)}>
             {byDate.map((g) => (
               <li key={g.date}>
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-bronze">{day(g.date)}</p>
@@ -207,7 +212,7 @@ export default function DesignLab() {
             <p>These notes are read-only here; edits land through the chat and a deploy. Status: <b>{STATUS}</b>.</p>
           </div>
           <Panel icon={NotebookPen} title="Project notes" sub="The interactive proposal, as planned and as built" accent={ACCENT.gold} bodyClassName="p-4 md:p-5">
-            <article className={PROSE}><ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown></article>
+            <article className={cn(PROSE, READ)}><ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown></article>
           </Panel>
         </>
       ) : null}

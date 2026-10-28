@@ -549,7 +549,10 @@ async function previewOptions(leadId: string, urls: string[]): Promise<LiveOptio
   }
 }
 
-export default function ProposalMockup({ preview = false, dressed, doors, staffPeek = false }: { preview?: boolean; dressed?: Live; doors?: Doors; staffPeek?: boolean } = {}) {
+/** `embedded`: inside Design Lab (Alan, 2026-10-27), whose header already
+ *  says nothing here is sent and has its own way to the notes, so the staff
+ *  bar keeps only the screen buttons and whose estimate it's dressed in. */
+export default function ProposalMockup({ preview = false, dressed, doors, staffPeek = false, embedded = false }: { preview?: boolean; dressed?: Live; doors?: Doors; staffPeek?: boolean; embedded?: boolean } = {}) {
   const [base, setLive] = useState<Live | null>(dressed ?? null);
   // Which option she's looking at. A reserved job opens on the option it was
   // reserved under. Everything below reads `live`, which is the proposal
@@ -750,14 +753,16 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <Link to={`/leads/${previewLead}`} className="inline-flex h-12 items-center gap-2 rounded-xl px-5 text-base font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>
             <ArrowLeft className="h-5 w-5" /> Back to the lead
           </Link>
-        ) : (
+        ) : embedded ? null : (
           <Link to="/new-proposal" className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
             <ArrowLeft className="h-3.5 w-3.5" /> Notes
           </Link>
         )}
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-200 ring-1 ring-rose-400/40">
-          <Lightbulb className="h-3 w-3" /> {previewLead ? "Preview · what they get when you send · nothing is sent" : "Mockup · nothing here is sent to anyone"}
-        </span>
+        {embedded && !previewLead ? null : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-200 ring-1 ring-rose-400/40">
+            <Lightbulb className="h-3 w-3" /> {previewLead ? "Preview · what they get when you send · nothing is sent" : "Mockup · nothing here is sent to anyone"}
+          </span>
+        )}
         <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-ivory/80">
           {live ? `Dressed in ${live.name}'s real estimate` : "Sample customer"}
         </span>
