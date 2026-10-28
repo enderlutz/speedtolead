@@ -905,7 +905,15 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             that each carry the whole story, the way a pricing page does. */}
         <section id="mock-packages" className="scroll-mt-14 bg-white px-1 py-6 sm:px-4">
           <div className="px-1">
-            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer. Cleaning is included with all three." />
+            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer." />
+            {/* The things people ask about before they pick, in one line each
+                (Alan, 2026-10-28: "the main three things people want to know
+                that it's included"), plus tax. */}
+            <ul className="-mt-1 mb-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug text-[#15130F]">
+              {["Cleaning, if it needs it", "Two coats of stain", "Loose boards screwed back in", "Tax"].map((t) => (
+                <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#2F5137" }} />{t} <span className="font-normal text-[#15130F]/60">· included</span></li>
+              ))}
+            </ul>
           </div>
 
           {phone ? (
@@ -1041,7 +1049,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               })}
             </div>
           )}
-          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every price includes tax. Every package: two coats of stain and a 1-year warranty on our work. Choose based on the condition of your wood and the look you want.</p>
+          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every price includes tax. Every package comes with our 1-year warranty on the work.</p>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
