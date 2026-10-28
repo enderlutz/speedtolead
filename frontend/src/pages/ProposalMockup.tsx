@@ -22,7 +22,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { PayPageMock } from "@/components/proposal/PayPageMock";
 import { api } from "@/lib/api";
 import { sidesInWords } from "@/lib/fenceSides";
-import { klarnaLine, monthlyFrom } from "@/lib/klarna";
+import { klarnaLine, monthlyFrom, fourPayments } from "@/lib/klarna";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
@@ -670,6 +670,12 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // weeks walked someone there). Mock first: only the sample page in Design
   // Lab shows it until Alan says go; a real customer's page keeps the tabs.
   const colorsV2 = !live;
+  // The phone's package cards: wide (one under the other, photo beside the
+  // words, the price big) or the three narrow columns (Alan, 2026-10-28:
+  // "they look too vertical… I want them wider, I want people to see
+  // more"). Mock first: the sample page opens wide with the old look a tap
+  // away to compare; a real customer's page keeps the columns for now.
+  const [cardLook, setCardLook] = useState<"wide" | "columns">(live ? "columns" : "wide");
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -904,6 +910,14 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <div className="px-1">
             <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Each one stains your whole fence. Higher ones last longer." />
           </div>
+          {phone && !live ? (
+            <div className="mb-3 flex items-center gap-1 rounded-full bg-[#15130F]/5 p-1 text-[13px] font-bold" aria-label="Mock-up: how the cards sit">
+              {([["wide", "Wide"], ["columns", "Side by side"]] as const).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setCardLook(k)}
+                  className={cn("min-h-9 flex-1 rounded-full px-3", cardLook === k ? "bg-[#15130F] text-white" : "text-[#15130F]/70")}>{label}</button>
+              ))}
+            </div>
+          ) : null}
 
           {phone ? (
             // Three columns, side by side, like the printed proposal (Alan,
@@ -913,6 +927,55 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             // price as the biggest thing, the monthly — so nothing hides
             // behind a tap. The tap only picks. Same rows in the same order
             // on all three so the names and the prices line up.
+            cardLook === "wide" ? (
+            // One card under the other, each the full width of the phone:
+            // the photo down the left, the name, what it is and the two
+            // benefits beside it, the price the biggest thing on the card.
+            <div className="space-y-2.5">
+              {packages.map((p) => {
+                const on = pkg === p.key;
+                const s = SKINS[p.key];
+                return (
+                  <button key={p.key} type="button" onClick={() => choose(p.key)} aria-pressed={on}
+                    className={cn("relative flex w-full overflow-hidden rounded-2xl text-left shadow-md transition duration-200 active:scale-[0.99]",
+                      on ? cn("ring-4 shadow-xl", s.onRing) : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
+                    style={{ ...s.card, color: s.text }}>
+                    {s.frame ? <GoldFrame /> : null}
+                    <div className="relative w-[38%] shrink-0 self-stretch" style={{ background: s.rule }}>
+                      <img src={p.photos[p.photos.length - 1]} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+                      <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
+                      <span className="absolute bottom-1.5 right-1.5 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span>
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col px-3 pb-2.5 pt-2.5">
+                      <p className="font-heading text-[24px] font-bold leading-[26px]" style={{ color: s.name }}>{p.short}</p>
+                      <p className="mt-0.5 text-[13px] font-bold uppercase leading-[15px] tracking-[0.02em]" style={{ color: s.muted }}>{p.tag} · Lasts {p.lasts}*</p>
+                      <ul className="mt-1.5 space-y-1">
+                        {p.lines.map((l) => (
+                          <li key={l.text} className="flex items-start gap-1.5 text-[14px] font-medium leading-[17px]"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-2 rounded-lg px-2 py-1.5" style={s.priceBox}>
+                        {discount ? (
+                          <p className="flex flex-wrap items-center gap-1.5 text-[13px] leading-[15px]">
+                            <span className="rounded px-1 py-px text-[11px] font-bold uppercase" style={s.offChip}>20% off</span>
+                            <s className="opacity-75">{formatCurrency(p.regular)}</s>
+                          </p>
+                        ) : <p className="text-[13px] leading-[15px] opacity-75">Regular price</p>}
+                        <p className="mt-1 font-heading text-[30px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-1 text-[13px] font-semibold leading-[15px] opacity-85">or 4 payments of {formatCurrency(fourPayments(p.price))}</p>
+                      </div>
+                      <p className="mt-2 flex items-center gap-1.5 text-[14px] font-bold leading-[16px]" style={{ color: s.name }}>
+                        {on
+                          ? <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
+                          : <span className="h-7 w-7 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
+                        {on ? "Picked" : "Tap to pick"}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            ) : (
             <div className="grid grid-cols-3 gap-1.5">
               {packages.map((p) => {
                 const on = pkg === p.key;
@@ -947,7 +1010,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                           </p>
                         ) : <p className="text-[12px] leading-[14px] opacity-75">Regular price</p>}
                         <p className="mt-1 font-heading text-[21px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                        <p className="mt-1 text-[12px] font-semibold leading-[14px] opacity-85">or {formatCurrency(monthlyFrom(p.price))}/mo</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-[14px] opacity-85">or 4 payments of {formatCurrency(fourPayments(p.price))}</p>
                       </div>
                       {/* The tick means picked, never just "open" (Alan, 2026-10-14). */}
                       <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold leading-[14px]" style={{ color: s.name }}>
@@ -961,6 +1024,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 );
               })}
             </div>
+            )
           ) : (
             <div className="grid gap-3 sm:grid-cols-3">
               {packages.map((p) => {

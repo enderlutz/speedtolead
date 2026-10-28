@@ -17,3 +17,8 @@ export function monthlyFrom(total: number): number {
 export function klarnaLine(total: number): string {
   return `From ${formatCurrency(monthlyFrom(total))}/month, or 4 payments at 0% interest with Klarna`;
 }
+
+/** One of Klarna's four interest-free payments, rounded up to the cent. */
+export function fourPayments(total: number): number {
+  return Math.ceil((total / 4) * 100) / 100;
+}
