@@ -929,10 +929,12 @@ function DailyCheckInCard() {
   );
 }
 
-type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: "" | "flat" | "hourly"; pay?: number };
+type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: "" | "flat" | "hourly" | "included"; pay?: number };
 
-/** "$100" for a flat job, "$16/hr" hourly, "" when the office hasn't set it. */
+/** "$100" for a flat day, "$16/hr" hourly, "in the flat" for a day that's
+ *  part of a flat on another day of the same job, "" when the office hasn't set it. */
 function payLabel(j: CamJob): string {
+  if (j.pay_type === "included") return tr("in the flat");
   if (!j.pay_type || !j.pay) return "";
   const n = `$${j.pay % 1 ? j.pay.toFixed(2) : j.pay}`;
   return j.pay_type === "hourly" ? `${n}/${tr("hr")}` : n;

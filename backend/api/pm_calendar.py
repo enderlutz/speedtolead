@@ -240,8 +240,12 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
             raise HTTPException(400, "No crew account with that name")
         job = _job_for(db, body.lead_id)
         entries = _crew_entries(job)
-        # Pay is per person per job: a new day for someone already on it keeps their pay.
-        pay = next(({"pay_type": e["pay_type"], "pay": e["pay"]} for e in entries if e["username"].lower() == u.username.lower()),
+        # Pay belongs to a line (person, day, task). A new day on the same
+        # task keeps that task's pay; a different task starts blank, so the
+        # worker's hourly rate applies until the office sets it (Alan,
+        # 2026-10-28: a flat for the cleaning, hourly for helping stain).
+        pay = next(({"pay_type": e["pay_type"], "pay": e["pay"]} for e in entries
+                    if e["username"].lower() == u.username.lower() and e["task"] == body.task and e["pay_type"]),
                    {"pay_type": "", "pay": 0.0})
         # A day with no day picked yet (set on the profile) is this one, not a second line.
         blank = next((e for e in entries if e["username"].lower() == u.username.lower() and not e["date"]), None)

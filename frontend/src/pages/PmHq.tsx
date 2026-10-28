@@ -467,7 +467,8 @@ function PayChip({ x }: { x: PmDay }) {
   if (!isOffice()) return null;
   const amount = x.pay ? `$${Number(x.pay).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "";
   const text = !x.pay_type ? "Pay not set"
-    : x.pay_type === "hourly" ? (amount ? `${amount}/hr` : "Hourly") : `${amount || "$0"} flat`;
+    : x.pay_type === "hourly" ? (amount ? `${amount}/hr` : "Hourly")
+    : x.pay_type === "included" ? "in the flat" : `${amount || "$0"} flat`;
   return (
     <span className={cn("mt-1 inline-flex min-h-6 items-center rounded-full px-2 text-xs font-semibold ring-1",
                         x.pay_type ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-amber-50 text-amber-900 ring-amber-200")}>

@@ -110,11 +110,21 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
     return out
 
 
-# How each person on a job is paid (Alan, 2026-10-17): a flat amount for the
-# job ("I told Brent $100"), or hourly at a rate. Stored on the crew entry, but
-# never in the job everyone on it can read: the office sees every line, a
-# crew member sees only their own.
-PAY_TYPES = ("flat", "hourly")
+# How each person on a job is paid (Alan, 2026-10-17): a flat amount ("I told
+# Brent $100"), or hourly at a rate. Pay belongs to a LINE — one person, one
+# day, one task — not to the person (Alan, 2026-10-28: Chris cleans for a
+# flat price on Monday and helps stain by the hour on Thursday, on the same
+# job). "included" is a day that's part of a flat already on another line of
+# the job (clean Monday + stain Tuesday for one flat $200: Monday flat 200,
+# Tuesday included), so nothing counts twice. Stored on the crew entry, never
+# in the job everyone on it can read: the office sees every line, a crew
+# member sees only their own.
+PAY_TYPES = ("flat", "hourly", "included")
+
+
+def pay_key(e: dict) -> str:
+    """The line a pay belongs to: who, which day, which task."""
+    return f"{e['username']}|{e.get('date') or ''}|{e.get('task') or ''}"
 
 
 def effective_order(entries: list[dict], e: dict) -> int:
@@ -131,7 +141,7 @@ def _pay_of(x: dict) -> dict:
         amount = round(float(x.get("pay") or 0), 2)
     except (TypeError, ValueError):
         amount = 0.0
-    return {"pay_type": kind, "pay": amount if kind else 0.0}
+    return {"pay_type": kind, "pay": amount if kind and kind != "included" else 0.0}
 
 
 def _public_crew(entries: list[dict]) -> list[dict]:
@@ -155,12 +165,19 @@ def default_pay(db, entries: list[dict]) -> list[dict]:
 
 
 def _crew_pay(db, job: CompanyCamJob | None, user: dict) -> dict:
-    """username -> {pay_type, pay}: every line for the office, only your own
-    for the crew. Crew pay only, never the job's price."""
+    """Pay per line, keyed "username|date|task" (and, for older screens, by
+    username alone: that person's first line). Every line for the office,
+    only your own for the crew. Crew pay only, never the job's price."""
     me = (user.get("sub") or "").lower()
     office = _sees_all(user)
-    return {e["username"]: {"pay_type": e["pay_type"], "pay": e["pay"]}
-            for e in default_pay(db, _crew_entries(job)) if office or e["username"].lower() == me}
+    out: dict = {}
+    for e in default_pay(db, _crew_entries(job)):
+        if not (office or e["username"].lower() == me):
+            continue
+        pay = {"pay_type": e["pay_type"], "pay": e["pay"]}
+        out[pay_key(e)] = pay
+        out.setdefault(e["username"], pay)
+    return out
 
 
 def _crew_of(job: CompanyCamJob | None) -> list[str]:
@@ -665,7 +682,9 @@ class CompanyCamPatch(BaseModel):
     # Crew on this job (office only): usernames, or {username, date, task}
     # with task "cleaning" | "staining".
     crew: list | None = None
-    # One person's pay on this job: {"username", "pay_type": flat|hourly|"", "pay"}.
+    # One line's pay on this job: {"username", "date", "task", "pay_type":
+    # flat|hourly|included|"", "pay"}. Without date and task, every line that
+    # person has on the job (older screens).
     crew_pay: dict | None = None
     neighbor_first_name: str | None = None
     neighbor_last_name: str | None = None
@@ -849,7 +868,13 @@ def update_company_cam(
             names = {u.username.lower(): u.username for u in db.query(User).all()}
             # The crew list comes back without pay (nobody's pay is in the
             # shared job), so keep what each person was already set to.
-            old_pay = {e["username"]: _pay_of(e) for e in _crew_entries(job)}
+            old_lines = _crew_entries(job)
+            # Pay stays with its line when the list is re-sent; a line that
+            # changed day or task falls back to that person's pay on the same
+            # task, then to any of their lines.
+            old_pay = {pay_key(e): _pay_of(e) for e in old_lines}
+            old_task_pay = {(e["username"], e["task"]): _pay_of(e) for e in reversed(old_lines)}
+            old_any_pay = {e["username"]: _pay_of(e) for e in reversed(old_lines)}
             # The day's running order set in PM HQ stays when the profile saves.
             old_order = {(e["username"], e["date"]): e["order"] for e in _crew_entries(job)}
             old_helper = {(e["username"], e["date"]): e["helper"] for e in _crew_entries(job)}
@@ -873,20 +898,25 @@ def update_company_cam(
                 helper = bool(e["helper"]) if "helper" in e else old_helper.get((name, day), False)
                 entries.append({"username": name, "date": day, "task": task, "order": old_order.get((name, day), 0),
                                 "helper": helper,
-                                **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
+                                **(old_pay.get(f"{name}|{day}|{task}") or old_task_pay.get((name, task))
+                                   or old_any_pay.get(name) or {"pay_type": "", "pay": 0.0})})
             job.crew_json = json.dumps(entries)
         if body.crew_pay is not None:
             if not _sees_all(user):
                 raise HTTPException(403, "Only the office sets crew pay")
             who = str(body.crew_pay.get("username") or "").lower()
+            line_day = str(body.crew_pay.get("date") or "")[:10]
+            line_task = str(body.crew_pay.get("task") or "")
+            one_line = "date" in body.crew_pay or "task" in body.crew_pay
             entries = _crew_entries(job)
-            hits = [e for e in entries if e["username"].lower() == who]
+            hits = [e for e in entries if e["username"].lower() == who
+                    and (not one_line or (e["date"] == line_day and e["task"] == line_task))]
             if not hits:
                 raise HTTPException(400, "Put them on the job first, then set their pay")
             pay = _pay_of(body.crew_pay)
             if pay["pay"] < 0 or pay["pay"] > 5000:
                 raise HTTPException(400, "Pay has to be between $0 and $5,000")
-            for hit in hits:  # pay is per person per job, on every day they're on it
+            for hit in hits:  # one line, or (older screens) every line that person has on the job
                 hit.update(pay)
             job.crew_json = json.dumps(entries)
         neighbor_alert = neighbor_alert_flag

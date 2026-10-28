@@ -770,7 +770,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); throw e; }
   };
   const patch = async (
-    p: Partial<CompanyCamJob> & { pw_items?: { key?: string; label: string; note?: string }[]; upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string } & CrewPay },
+    p: Partial<CompanyCamJob> & { pw_items?: { key?: string; label: string; note?: string }[]; upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string; date?: string; task?: CrewDayTask } & CrewPay },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -1335,54 +1335,70 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {manager ? (
         <div className="rounded-2xl border border-border bg-card p-3">
           <p className="text-sm font-bold">{tr("Who's on this job?")}</p>
-          <p className="text-sm text-muted-foreground">{tr("Tap a name, then their day and whether they're cleaning, staining or pressure washing. It shows on their My Schedule. Crew only see the jobs they're on.")}</p>
+          <p className="text-sm text-muted-foreground">{tr("Tap a name to put them on the job. Each day they work is its own line: the day, what they're doing, whether they're helping, and their pay for that day. Cleaning Monday for a flat price and helping stain Thursday by the hour is two lines. It shows on their My Schedule; crew only see the jobs they're on.")}</p>
           <div className="mt-2 space-y-2">
             {(data.crew_options || []).map((c) => {
               const crew = job.crew || [];
-              const mine = crew.find((x) => x.username.toLowerCase() === c.username.toLowerCase());
-              const setMine = (patchE: Partial<CrewEntry> | null) => void patch({
-                crew: patchE === null
-                  ? crew.filter((x) => x !== mine)
-                  : mine ? crew.map((x) => (x === mine ? { ...x, ...patchE } : x)) : [...crew, { username: c.username, date: "", task: "", ...patchE }],
+              const lines = crew.filter((x) => x.username.toLowerCase() === c.username.toLowerCase());
+              const on = lines.length > 0;
+              const addLine = () => void patch({ crew: [...crew, { username: c.username, date: "", task: "" }] });
+              const removeAll = () => void patch({ crew: crew.filter((x) => x.username.toLowerCase() !== c.username.toLowerCase()) });
+              const setLine = (line: CrewEntry, patchE: Partial<CrewEntry> | null) => void patch({
+                crew: patchE === null ? crew.filter((x) => x !== line) : crew.map((x) => (x === line ? { ...x, ...patchE } : x)),
               });
+              const first = (c.name || c.username).split(" ")[0];
               return (
-                <div key={c.username} className={cn("rounded-xl p-2", mine ? "bg-emerald-50 ring-1 ring-emerald-200" : "")}>
-                  <button type="button" onClick={() => setMine(mine ? null : {})}
+                <div key={c.username} className={cn("rounded-xl p-2", on ? "bg-emerald-50 ring-1 ring-emerald-200" : "")}>
+                  <button type="button" onClick={() => (on ? removeAll() : addLine())}
                           className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold ring-1",
-                            mine ? "bg-emerald-600 text-white ring-emerald-600" : "bg-background ring-border hover:bg-muted")}>
-                    {mine ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{c.name}
+                            on ? "bg-emerald-600 text-white ring-emerald-600" : "bg-background ring-border hover:bg-muted")}>
+                    {on ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{c.name}
+                    {lines.length > 1 ? <span className="rounded-full bg-white/25 px-1.5 text-xs">{lines.length} {tr("days")}</span> : null}
                   </button>
-                  {mine ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <label className="flex min-h-11 items-center gap-1.5 rounded-lg bg-background px-2.5 text-sm ring-1 ring-border">
-                        <span className="font-semibold">{tr("Day")}</span>
-                        <input type="date" value={mine.date} onChange={(e) => setMine({ date: e.target.value })}
-                               className="h-9 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
-                      </label>
-                      {!mine.date ? <span className="w-full text-sm font-semibold text-amber-700">{tr("Pick their day, or it won't show under Today on their schedule.")}</span> : null}
-                      {TASKS.map((t) => (
-                        <button key={t} type="button" onClick={() => setMine({ task: mine.task === t ? "" : t })}
+                  {lines.map((line, i) => (
+                    <div key={i} className="mt-2 rounded-lg bg-background/70 p-2 ring-1 ring-emerald-200/70">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {lines.length > 1 ? <span className="text-xs font-bold uppercase tracking-wide text-emerald-800">{tr("Day")} {i + 1}</span> : null}
+                        <label className="flex min-h-11 items-center gap-1.5 rounded-lg bg-background px-2.5 text-sm ring-1 ring-border">
+                          <span className="font-semibold">{tr("Day")}</span>
+                          <input type="date" value={line.date} onChange={(e) => setLine(line, { date: e.target.value })}
+                                 className="h-9 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
+                        </label>
+                        {TASKS.map((t) => (
+                          <button key={t} type="button" onClick={() => setLine(line, { task: line.task === t ? "" : t })}
+                                  className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
+                                    line.task === t ? TASK_ON[t] : "bg-background ring-border")}>
+                            {taskLabel(t)}
+                          </button>
+                        ))}
+                        {/* Helper: rides with the lead tech that day and follows their order
+                            (Alan, 2026-10-25: Alfredo helping Jose on Shelley's). */}
+                        <button type="button" onClick={() => setLine(line, { helper: !line.helper })} aria-pressed={!!line.helper}
                                 className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
-                                  mine.task === t ? TASK_ON[t] : "bg-background ring-border")}>
-                          {taskLabel(t)}
+                                  line.helper ? "bg-amber-100 text-amber-900 ring-amber-300" : "bg-background ring-border")}>
+                          {line.helper ? <><Check className="mr-1 inline h-4 w-4" />{tr("Helper")}</> : tr("Helper?")}
                         </button>
-                      ))}
-                      {/* Helper: rides with the lead tech that day and follows their order
-                          (Alan, 2026-10-25: Alfredo helping Jose on Shelley's). */}
-                      <button type="button" onClick={() => setMine({ helper: !mine.helper })} aria-pressed={!!mine.helper}
-                              className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
-                                mine.helper ? "bg-amber-100 text-amber-900 ring-amber-300" : "bg-background ring-border")}>
-                        {mine.helper ? <><Check className="mr-1 inline h-4 w-4" />{tr("Helper")}</> : tr("Helper?")}
-                      </button>
-                      <CrewPayPicker username={mine.username} value={data.crew_pay?.[mine.username]} onSave={(v) => void patch({ crew_pay: { username: mine.username, ...v } })} />
-                      {/* More days for the same person, set from PM HQ's calendar (Alan, 2026-10-18). */}
-                      {crew.filter((x) => x !== mine && x.username.toLowerCase() === c.username.toLowerCase()).map((x, i) => (
-                        <span key={i} className="w-full text-sm font-semibold text-emerald-800">
-                          {tr("Also")}: {x.date ? new Date(x.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : tr("no day")}
-                          {x.task ? ` · ${taskLabel(x.task)}` : ""}
-                        </span>
-                      ))}
+                        {lines.length > 1 ? (
+                          <button type="button" onClick={() => setLine(line, null)}
+                                  className="min-h-11 rounded-lg px-3 text-sm font-semibold text-red-700 ring-1 ring-border hover:bg-red-50">
+                            {tr("Remove this day")}
+                          </button>
+                        ) : null}
+                      </div>
+                      {!line.date ? <p className="mt-1 text-sm font-semibold text-amber-700">{tr("Pick their day, or it won't show under Today on their schedule.")}</p> : null}
+                      {/* Pay is for this line only: this person, this day, this task. */}
+                      <div className="mt-1.5">
+                        <CrewPayPicker key={`${line.date}|${line.task}`} username={c.username}
+                                       value={data.crew_pay?.[`${c.username}|${line.date}|${line.task}`]}
+                                       onSave={(v) => void patch({ crew_pay: { username: c.username, date: line.date, task: line.task, ...v } })} />
+                      </div>
                     </div>
+                  ))}
+                  {on ? (
+                    <button type="button" onClick={addLine}
+                            className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-background px-3.5 text-sm font-semibold ring-1 ring-border hover:bg-muted">
+                      <Plus className="h-4 w-4" />{tr("Another day for")} {first}
+                    </button>
                   ) : null}
                 </div>
               );
@@ -3033,21 +3049,23 @@ function CrewPayPicker({ username, value, onSave }: { username: string; value?: 
   };
   return (
     <div className="flex w-full flex-wrap items-center gap-1.5">
-      <span className="text-sm font-semibold">{tr("Pay")}</span>
-      {(["flat", "hourly"] as const).map((k) => (
+      <span className="text-sm font-semibold">{tr("Pay this day")}</span>
+      {(["flat", "hourly", "included"] as const).map((k) => (
         <button key={k} type="button" aria-pressed={kind === k}
+                title={k === "included" ? tr("This day is part of a flat price on another day of this job, so it adds nothing") : undefined}
                 onClick={() => { const next = kind === k ? "" : k; setKind(next); save(next, amount); }}
                 className={cn("min-h-11 rounded-lg px-3 text-sm font-semibold ring-1", kind === k ? "bg-ink text-gold-light ring-ink" : "bg-background ring-border")}>
-          {k === "flat" ? tr("Flat for the job") : tr("Hourly")}
+          {k === "flat" ? tr("Flat") : k === "hourly" ? tr("Hourly") : tr("In the flat")}
         </button>
       ))}
-      {kind ? (
+      {kind === "included" ? <span className="text-sm text-muted-foreground">{tr("part of a flat on another day of this job")}</span> : null}
+      {kind && kind !== "included" ? (
         <label className="flex min-h-11 items-center gap-1 rounded-lg bg-background px-2.5 text-sm ring-1 ring-border">
           <span className="font-semibold">$</span>
           <input inputMode="decimal" value={amount} placeholder={kind === "flat" ? "100" : "16"} aria-label={`Pay for ${username}`}
                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => save(kind, amount)}
                  className="h-9 w-20 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
-          <span className="text-muted-foreground">{kind === "hourly" ? tr("an hour") : tr("for the job")}</span>
+          <span className="text-muted-foreground">{kind === "hourly" ? tr("an hour") : tr("for this day")}</span>
         </label>
       ) : null}
     </div>

@@ -3944,7 +3944,7 @@ export const api = {
       fence_sides?: string[];
       neighbor_send?: boolean;
       crew?: CrewEntry[];
-      crew_pay?: { username: string } & CrewPay;
+      crew_pay?: { username: string; date?: string; task?: CrewDayTask } & CrewPay;
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
@@ -6265,7 +6265,9 @@ export type PmShopping = { start: string; end: string; today: string; jobs: PmSh
 export type CrewDayTask = "" | "cleaning" | "staining" | "pressure_washing" | "repairs";
 export type CrewEntry = { username: string; date: string; task: CrewDayTask; helper?: boolean };
 /** How one person is paid on one job: a flat amount, or hourly at a rate. */
-export type CrewPay = { pay_type: "" | "flat" | "hourly"; pay: number };
+// Pay belongs to a line (one person, one day, one task). "included" = a day
+// that's part of a flat on another line of the same job, so it counts nothing.
+export type CrewPay = { pay_type: "" | "flat" | "hourly" | "included"; pay: number };
 
 export type CourseVideo = { label: string; url: string };
 export type CourseQuizQ = { q: string; options: string[]; answer?: number };

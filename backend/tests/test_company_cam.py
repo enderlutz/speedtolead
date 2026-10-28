@@ -1011,7 +1011,10 @@ def test_crew_pay_is_set_by_the_office_and_each_worker_sees_only_their_own(db, m
     # The shared job never carries pay.
     assert "pay" not in str(r["job"]["crew"])
     brent = {"sub": "BrentBrown", "role": "worker", "perms": []}
-    assert cc.get_company_cam(lead.id, user=brent)["crew_pay"] == {"BrentBrown": {"pay_type": "flat", "pay": 100.0}}
+    # Keyed by the line (who, day, task) and, for older screens, by the name.
+    assert cc.get_company_cam(lead.id, user=brent)["crew_pay"] == {
+        "BrentBrown": {"pay_type": "flat", "pay": 100.0},
+        "BrentBrown|2026-10-18|staining": {"pay_type": "flat", "pay": 100.0}}
     row = cc.company_cam_jobs(user=brent)[0]
     assert row["pay_type"] == "flat" and row["pay"] == 100.0
     # Re-saving the crew list keeps everyone's pay.
@@ -1024,3 +1027,43 @@ def test_crew_pay_is_set_by_the_office_and_each_worker_sees_only_their_own(db, m
         cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "BrentBrown", "pay_type": "flat", "pay": 900}), user=brent)
     with pytest.raises(HTTPException):
         cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Nobody", "pay_type": "flat", "pay": 5}), user=USER)
+
+
+def test_pay_belongs_to_a_line_not_the_person(db, monkeypatch):
+    # Alan (2026-10-28): Chris cleans for a flat price on Monday and helps
+    # stain by the hour on Thursday, on the same job. Two lines, two pays.
+    from database import User
+    from api import permissions as perms
+    from api import pm_calendar as pm
+    from api import materials
+    monkeypatch.setattr(perms, "get_db", lambda: db)
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(pm, "get_db", lambda: db)
+    db.close = lambda: None
+    db.add(User(id="w1", username="Chris", display_name="Chris Moran", password_hash="x", role="worker",
+                permissions='{"company_cam": true}', hourly_rate=16, created_at=""))
+    db.commit()
+    lead = _lead(db, name="Gib G", address="1 Oak St")
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[{"username": "Chris", "date": "2026-10-26", "task": "cleaning"}]), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-26", "task": "cleaning", "pay_type": "flat", "pay": 150}), user=USER)
+    # A new day on another task starts blank: the worker's hourly rate shows until the office sets it.
+    pm.assign(pm.DayBody(lead_id=lead.id, date="2026-10-29", username="Chris", task="staining", helper=True), user=USER)
+    pay = cc.get_company_cam(lead.id, user=USER)["crew_pay"]
+    assert pay["Chris|2026-10-26|cleaning"] == {"pay_type": "flat", "pay": 150.0}
+    assert pay["Chris|2026-10-29|staining"] == {"pay_type": "hourly", "pay": 16.0}
+    # Setting one line leaves the other alone.
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-29", "task": "staining", "pay_type": "hourly", "pay": 18}), user=USER)
+    pay = cc.get_company_cam(lead.id, user=USER)["crew_pay"]
+    assert pay["Chris|2026-10-26|cleaning"]["pay"] == 150.0 and pay["Chris|2026-10-29|staining"]["pay"] == 18.0
+    # Re-sending the crew list keeps each line's pay; a second cleaning day on the same flat is "included", not a second flat.
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[
+        {"username": "Chris", "date": "2026-10-26", "task": "cleaning"},
+        {"username": "Chris", "date": "2026-10-29", "task": "staining", "helper": True},
+        {"username": "Chris", "date": "2026-10-27", "task": "cleaning"}]), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-27", "task": "cleaning", "pay_type": "included", "pay": 0}), user=USER)
+    pay = cc.get_company_cam(lead.id, user=USER)["crew_pay"]
+    assert pay["Chris|2026-10-26|cleaning"]["pay"] == 150.0 and pay["Chris|2026-10-29|staining"]["pay"] == 18.0
+    assert pay["Chris|2026-10-27|cleaning"] == {"pay_type": "included", "pay": 0.0}
+    # Job costing adds up the flat lines only; the hourly line names Chris.
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert materials._crew_cost(job) == (150.0, ["Chris"])

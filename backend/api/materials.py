@@ -384,18 +384,19 @@ def reverse_job_materials(db, job: CompanyCamJob, actor: str) -> None:
 # ── Job costing ─────────────────────────────────────────────────────────
 
 def _crew_cost(job: CompanyCamJob) -> tuple[float, list[str]]:
-    """Flat pay per person on the job (pay is per person per job, copied onto
-    each of their days), plus who's hourly and so not in the number."""
+    """Every flat line on the job added up (pay belongs to a line: a person's
+    day and task; an "included" day is part of a flat on another line and
+    counts nothing), plus who has an hourly line and so isn't in the number."""
     from api.company_cam import _crew_entries
-    flat: dict[str, float] = {}
+    flat = 0.0
     hourly: list[str] = []
     for e in _crew_entries(job):
         name = e["username"]
         if e.get("pay_type") == "flat":
-            flat[name] = float(e.get("pay") or 0)
-        elif name not in hourly and name not in flat:
+            flat += float(e.get("pay") or 0)
+        elif e.get("pay_type") != "included" and name not in hourly:
             hourly.append(name)
-    return sum(flat.values()), [h for h in hourly if h not in flat]
+    return flat, hourly
 
 
 @router.get("/job-costing")
