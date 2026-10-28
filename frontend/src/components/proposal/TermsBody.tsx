@@ -3,13 +3,15 @@
 // page and Stripe's checkout link to. Paying means agreeing to these, so bump
 // TERMS_VERSION whenever a paragraph's meaning changes: each payment records
 // the version the customer saw.
-export const TERMS_VERSION = "2026-10-13";
+export const TERMS_VERSION = "2026-10-28";
 
 export function TermsBody() {
   return (
     <>
-      <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
-      <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
+      <p><span className="font-bold">Our promise: 1 year on our work.</span> For one year from the day we finish, if something goes wrong because of how we did the job, we come back and fix it. Free.</p>
+      <p><span className="font-bold">What it covers.</span> Stain we put on that peels, flakes, cracks or bubbles. Spots we missed. If it happened because of how we cleaned, prepped or stained, we come back, prep that area again and re-stain it in the same stain and color.</p>
+      <p><span className="font-bold">What it does not cover.</span> Damage we did not cause, and normal wear. That means: color slowly fading or turning gray from sun and weather. Mildew, dirt and pollen. A sprinkler that sprays the fence. Hail, storms, flooding and falling limbs. A mower or weed eater, pets, cars, people, or a pressure washer or cleaner used after we leave. Boards that rot, split, warp or get swapped out. Stain you bought yourself for us to use.</p>
+      <p><span className="font-bold">How to claim it.</span> Text us a photo of the spot within 30 days of noticing it. We look at it and set a day to come fix it. The fix is re-staining the area that needs it.</p>
       <p><span className="font-bold">Loose boards.</span> We screw a few loose boards back in for free. That can be pickets, rails, caps or the board along the bottom. If a lot of the fence is loose, a board needs replacing, or a post leans, that costs extra. We tell you the price first.</p>
       <p><span className="font-bold">The top of the cap.</span> No cap on your fence? We stain the tops of the pickets, because that's where water gets in. Have a cap (the flat board along the top)? We stain the sides of the cap, but not the top that faces the sky. The cap is there to protect your pickets. Staining its top means a ladder all the way around the fence and a lot more stain, so it is extra. Just ask and we will give you a price.</p>
       <p><span className="font-bold">Something else damaged it?</span> If the damage was not caused by our work, like a mower, a sprinkler, a storm or a pet, it is not free. But we will still come fix it. We tell you the price first. You say yes or no. No surprises.</p>

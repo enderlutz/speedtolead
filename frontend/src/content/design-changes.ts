@@ -10,6 +10,9 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-28", title: "The 1-year warranty spells itself out",
+    what: "The terms (proposal Terms sheet, pay page, /legal/terms) now say what the 1-year promise covers (peeling, flaking, cracking, bubbling, missed spots from our work), what it doesn't (fading and graying, mildew, sprinklers, storms, damage after we leave, boards that rot or get swapped, stain the customer bought) and how to claim it (text a photo within 30 days of noticing).",
+    open: { label: "Terms", to: "/legal/terms" } },
   { date: "2026-10-26", title: "Signature says Semi-transparent",
     what: "The small tag on the Signature package reads \"Semi-transparent\" instead of \"See-through color\"." },
   { date: "2026-10-25", title: "Bigger, plainer step headings",

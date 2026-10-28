@@ -767,7 +767,7 @@ def void_pay_link(token: str, user: dict = Depends(require_staff)):
 
 # Which wording of the terms a payment agreed to. Matches TERMS_VERSION in
 # frontend/src/components/proposal/TermsBody.tsx; bump both together.
-TERMS_VERSION = "2026-10-13"
+TERMS_VERSION = "2026-10-28"
 
 
 # The $250 deposit takes every everyday way to pay (card, Apple and Google
