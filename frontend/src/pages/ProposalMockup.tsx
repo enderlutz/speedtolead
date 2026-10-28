@@ -281,9 +281,10 @@ const PACKAGES: {
     // split down the middle so the two stack like Signature's.
     photos: ["/proposal-mockup/pkg-essential.jpg"],
     best: "Newer fences in good shape",
+    // The printed proposal's own lines (Alan, 2026-10-28).
     lines: [
-      { icon: Droplets, text: "Clear protection" },
-      { icon: Sparkles, text: "Refreshes your fence" },
+      { icon: Sparkles, text: "Refresh for newer fences without adding color" },
+      { icon: Droplets, text: "Slows early moisture damage" },
     ],
     regular: 1579.50, price: 1263.60,
   },
@@ -292,8 +293,8 @@ const PACKAGES: {
     photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], popular: true,
     best: "Weathered fences you still want to see the grain on",
     lines: [
-      { icon: Leaf, text: "You can still see the wood grain" },
-      { icon: Paintbrush, text: "Good protection, nice look" },
+      { icon: Leaf, text: "Natural finish showing the wood grains" },
+      { icon: Shield, text: "Protects against sun, moisture & aging" },
     ],
     regular: 1813.50, price: 1450.80,
   },
@@ -305,9 +306,11 @@ const PACKAGES: {
     // so a phone that cached an earlier cut loads the new one.
     photos: ["/proposal-mockup/pkg-legacy-wide-a.jpg?v=3", "/proposal-mockup/pkg-legacy-wide-b.jpg?v=3"],
     best: "Older fences that need full coverage",
+    // "Solid color" is already the tag, so the first line is the bold finish.
     lines: [
-      { icon: Shield, text: "Covers the wood all the way" },
-      { icon: Sun, text: "Our longest-lasting finish" },
+      { icon: Paintbrush, text: "Bold finish" },
+      { icon: Sparkles, text: "Hides imperfections & aging" },
+      { icon: Sun, text: "Maximum sun protection (Texas-grade)" },
     ],
     regular: 2301.00, price: 1840.80,
   },

@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-28", title: "The package lines read like the printed proposal",
+    what: "Essential: \"Refresh for newer fences without adding color\", \"Slows early moisture damage\". Signature: \"Natural finish showing the wood grains\", \"Protects against sun, moisture & aging\". Legacy: \"Bold finish\", \"Hides imperfections & aging\", \"Maximum sun protection (Texas-grade)\"." },
   { date: "2026-10-28", title: "Legacy says Solid color",
     what: "The small tag on the Legacy package reads \"Solid color\" instead of \"Full color\"." },
   { date: "2026-10-28", title: "The 1-year warranty spells itself out",
