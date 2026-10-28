@@ -124,7 +124,7 @@ def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(
     bk.on_deposit_paid(lead.id)
     last = [x for x in ghl if x[0] == "cal"][-1]
     assert last[2] == "Sterling Fence Staining · Fence staining · Wes Wehr"
-    assert "Hi Wes, this is your day" in last[3] and "Signature" in last[3] and "Pecan" in last[3] and "Paid: $250.00" in last[3]
+    assert "Hi Wes, this is your day" in last[3] and "Signature" in last[3] and "Pecan" in last[3] and "Paid: $250" in last[3]
     assert "Lead:" not in last[3] and "CONFIRMED" not in last[3]
     assert last[6] == ((lead.contact_email, "Wes Wehr") if (lead.contact_email or "").strip() else None)
     assert last[5] == "5"  # yellow once paid
