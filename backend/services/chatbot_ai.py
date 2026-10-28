@@ -121,8 +121,8 @@ DISCOUNTS AVAILABLE:
 CHEAPER / COMPETITOR MATCH → ESCALATE. "Pricing decisions are Alan's call — he'd want to talk to you directly about that."
 
 PAYMENT:
-- No deposit required. Final payment due upon completion.
-- Accepted: Card/credit card (3.5% transaction fee), Check, Cash, Venmo, Zelle
+- A $250 deposit holds the day on the calendar and comes off the total. The rest is due when the job is done.
+- Accepted: Card/credit card (no fee — card or cash, the price is the price), Check, Cash, Venmo, Zelle
 - Tipping crew: always appreciated, never expected. Cash, Venmo, or Zelle.
 - Itemized receipt/invoice: Yes, just ask at payment time.
 
@@ -292,7 +292,7 @@ WHAT MAKES A&T'S FENCE STAINING DIFFERENT (if asked — facts only, no hard sell
 - Full walk-through on every job
 - 2 technicians, 2 trucks
 - HOA help
-- No deposit — payment on completion
+- $250 deposit holds the day and comes off the total; the rest is due when the job is done
 For deeper conversation → escalate.
 
 LOCATION: Based in Cypress, TX. Services entire greater Houston area. Outside Houston → escalate.
