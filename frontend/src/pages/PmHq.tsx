@@ -22,7 +22,8 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import { CalendarDays, CalendarRange, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import GoogleCalendar from "@/pages/Calendar";
 import { api, type CrewDayTask, type FixJob, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +40,9 @@ import { JobList } from "@/pages/CompanyCamPage";
 import { DayBanner } from "@/components/schedule/bits";
 import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek, whoOf } from "@/components/schedule/dates";
 
-type Tab = "calendar" | "buy" | "past" | "jobs";
+// "google" is the old Job Calendar tab, the mirror of Google Calendar, folded
+// in here (Alan, 2026-10-28: "we never really look at it").
+type Tab = "calendar" | "buy" | "past" | "jobs" | "google";
 type Task = CrewDayTask;
 
 function ctToday(): string {
@@ -118,14 +121,14 @@ export default function PmHq() {
   const raw = params.get("tab");
   // Today was a tab; now it's the calendar's first view, and the page opens
   // on the calendar (Alan, 2026-10-27).
-  const tab: Tab = raw === "past" || raw === "jobs" || (raw === "buy" && isOffice()) ? raw : "calendar";
+  const tab: Tab = raw === "past" || raw === "jobs" || (raw === "buy" && isOffice()) || (raw === "google" && hasPerm("calendar")) ? raw : "calendar";
   const setTab = (k: Tab) => set({ tab: k });
   // Week and Month use the whole screen so seven days have room for names
   // (Alan, 2026-10-21: "I can't see the customer's name" on Week). The other
   // calendar views get a little more than the rest, for the list beside them.
   const wide = tab === "calendar" && ["week", "month"].includes(parseView(params.get("view")));
   return (
-    <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : tab === "calendar" ? "max-w-7xl" : "max-w-5xl")}>
+    <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : tab === "calendar" || tab === "google" ? "max-w-7xl" : "max-w-5xl")}>
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
           <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
@@ -133,7 +136,7 @@ export default function PmHq() {
         <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera]] as const).map(([k, label, Icon]) => (
+        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : [])] as const).map(([k, label, Icon]) => (
           <button key={k} type="button" onClick={() => setTab(k)}
                   className={cn("flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
                     tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
@@ -141,7 +144,12 @@ export default function PmHq() {
           </button>
         ))}
       </div>
-      {tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : <PastView />}
+      {tab === "google" ? (
+        <>
+          <p className="text-sm text-muted-foreground">A mirror of Google Calendar: the events the crew gets on their phones. To put a customer on a day and pick who's going, use the Calendar tab.</p>
+          <GoogleCalendar embedded />
+        </>
+      ) : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : <PastView />}
     </div>
   );
 }

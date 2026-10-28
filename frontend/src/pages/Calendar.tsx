@@ -112,7 +112,8 @@ const monthMatrix = (year: number, monthIdx: number): Date[][] => {
 const fmtMonth = (year: number, monthIdx: number) =>
   new Date(year, monthIdx, 1).toLocaleString("default", { month: "long", year: "numeric" });
 
-export default function Calendar() {
+/** `embedded`: inside Project Manager, which draws the title and padding. */
+export default function Calendar({ embedded = false }: { embedded?: boolean } = {}) {
   const user = getCurrentUser();
   const isAdmin = user?.role === "admin";
   const isWorker = user?.role === "worker";
@@ -330,7 +331,7 @@ export default function Calendar() {
   const closeJob = () => { setActiveJob(null); setActiveJobLead(null); };
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-7xl">
+    <div className={embedded ? "space-y-4" : "p-4 sm:p-6 space-y-4 max-w-7xl"}>
       {googleBroken && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -347,9 +348,11 @@ export default function Calendar() {
       )}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <CalendarIcon className="h-5 w-5 text-primary" /> Calendar
-          </h1>
+          {embedded ? null : (
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5 text-primary" /> Calendar
+            </h1>
+          )}
           <p className="text-sm text-muted-foreground">
             {showAsWorker ? "Your assigned jobs" : "All scheduled jobs"} · {
               view === "month" ? fmtMonth(year, monthIdx)

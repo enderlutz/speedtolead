@@ -110,7 +110,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },
   // Division-aware (scoped) — visible in both fence and brick:
-  { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
+  // Job Calendar (2026-10-28): folded into Project Manager for anyone who has it; crew without PM HQ keep the tab.
+  { to: "/calendar", icon: Calendar, label: "Job Calendar", show: () => hasPerm("calendar") && !hasPerm("assign_crew") && !hasPerm("pm_hq") },
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // Archived (Alan, 2026-10-22): "it doesn't do us any good right now". The
