@@ -357,6 +357,19 @@ const SKINS: Record<PkgKey, {
   },
 };
 
+// The phone's compare table (mock, 2026-10-28): the three packages as the
+// column heads — photo, name, price, Pick — and the details as short rows
+// under them that line up, the way a pricing table reads on a phone, instead
+// of three sentences wrapping inside three narrow columns. The laptop cards
+// keep Alan's full lines.
+const COMPARE_ROWS: { label: string; cells: Record<PkgKey, string> }[] = [
+  { label: "How long it lasts", cells: { essential: "1–2 years", signature: "3–4 years", legacy: "4–7 years" } },
+  { label: "The look", cells: { essential: "Clear, no color", signature: "See the wood grain", legacy: "Solid, bold color" } },
+  { label: "Protects against", cells: { essential: "Early moisture damage", signature: "Sun, moisture & aging", legacy: "Maximum sun, Texas-grade" } },
+  { label: "Hides imperfections & aging", cells: { essential: "—", signature: "—", legacy: "Yes" } },
+  { label: "Best for", cells: { essential: "Newer fences", signature: "Most fences", legacy: "Older, weathered fences" } },
+];
+
 /** The tier's badge: Entry, Most popular, Premium. On a small tile the
  *  middle one shortens to "Popular" so it fits. */
 function TierBadge({ pkg, small, className }: { pkg: PkgKey; small?: boolean; className?: string }) {
@@ -673,6 +686,12 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // weeks walked someone there). Mock first: only the sample page in Design
   // Lab shows it until Alan says go; a real customer's page keeps the tabs.
   const colorsV2 = !live;
+  // How the three columns are drawn on the phone (Alan, 2026-10-28: "you
+  // could do way better with the design of these packages on mobile… get
+  // creative"). Always three next to each other, 1-2-3. Mock first: the
+  // sample page opens on the table with the others a tap away; a real
+  // customer's page keeps the columns until Alan picks.
+  const [phoneLook, setPhoneLook] = useState<"columns" | "table" | "poster">(live ? "columns" : "table");
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -907,6 +926,14 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <div className="px-1">
             <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer. Cleaning is included with all three." />
           </div>
+          {phone && !live ? (
+            <div className="mb-3 flex items-center gap-1 rounded-full bg-[#15130F]/5 p-1 text-[13px] font-bold" aria-label="Mock-up: three ways to draw the columns">
+              {([["table", "Table"], ["poster", "Poster"], ["columns", "Today"]] as const).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setPhoneLook(k)}
+                  className={cn("min-h-9 flex-1 rounded-full px-3", phoneLook === k ? "bg-[#15130F] text-white" : "text-[#15130F]/70")}>{label}</button>
+              ))}
+            </div>
+          ) : null}
 
           {phone ? (
             // Three columns, side by side, like the printed proposal (Alan,
@@ -916,6 +943,107 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             // price as the biggest thing, the monthly — so nothing hides
             // behind a tap. The tap only picks. Same rows in the same order
             // on all three so the names and the prices line up.
+            phoneLook === "table" ? (
+            // The decision up top — photo, name, price, Pick — three across,
+            // then the details as rows that line up under the same three
+            // columns. Tapping anywhere in a column picks it and the whole
+            // column lights up.
+            <div>
+              <div className="grid grid-cols-3 gap-1">
+                {packages.map((p) => {
+                  const on = pkg === p.key;
+                  const s = SKINS[p.key];
+                  return (
+                    <button key={p.key} type="button" onClick={() => choose(p.key)} aria-pressed={on}
+                      className={cn("relative flex flex-col overflow-hidden rounded-2xl text-left shadow-md transition duration-200 active:scale-[0.98]",
+                        on ? cn("ring-4 shadow-xl", s.onRing) : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
+                      style={{ ...s.card, color: s.text }}>
+                      {s.frame ? <GoldFrame /> : null}
+                      <div className="relative h-[84px] w-full" style={{ background: s.rule }}>
+                        <img src={p.photos[p.photos.length - 1]} alt="" className="h-full w-full object-cover" draggable={false} />
+                        <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
+                      </div>
+                      <div className="flex flex-1 flex-col px-1 pb-1.5 pt-1.5">
+                        <p className="font-heading text-[24px] font-bold leading-[26px]" style={{ color: s.name }}>{p.short}</p>
+                        <p className="mt-0.5 text-[12px] font-bold uppercase leading-[14px] tracking-[0.02em]" style={{ color: s.muted }}>{p.tag}</p>
+                        <div className="mt-1.5 rounded-lg px-1 py-1.5 text-center" style={s.priceBox}>
+                          {discount ? <p className="text-[12px] leading-[14px] opacity-75"><s>{formatCurrency(p.regular)}</s></p> : <p className="text-[12px] leading-[14px] opacity-75">Regular price</p>}
+                          <p className="mt-0.5 font-heading text-[26px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                          {discount ? <span className="mt-1 inline-block rounded px-1.5 py-px text-[11px] font-bold uppercase" style={s.offChip}>20% off</span> : null}
+                          <p className="mt-1 text-[12px] font-semibold leading-[14px] opacity-85">4 × {formatCurrency(fourPayments(p.price))}</p>
+                        </div>
+                        <p className="mt-1.5 flex min-h-[40px] items-center justify-center gap-1.5 rounded-full text-[13px] font-bold leading-[14px]"
+                          style={on ? { background: "#15130F", color: "#E3BE63", boxShadow: "0 0 0 2px #C9972F" } : { background: "rgba(255,255,255,.8)", color: s.name, boxShadow: `inset 0 0 0 2px ${s.muted}` }}>
+                          {on ? <><Check className="h-4 w-4" /> Picked</> : "Pick"}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+                {COMPARE_ROWS.map((row, ri) => (
+                  <div key={row.label} className={cn(ri > 0 && "border-t border-[#15130F]/10")}>
+                    <p className="px-2 pt-2 text-[12px] font-bold uppercase tracking-wider text-[#15130F]/60">{row.label}</p>
+                    <div className="grid grid-cols-3 gap-1 px-1 pb-2 pt-1">
+                      {packages.map((p) => {
+                        const on = pkg === p.key;
+                        const s = SKINS[p.key];
+                        return (
+                          <button key={p.key} type="button" onClick={() => choose(p.key)}
+                            className={cn("min-h-[44px] rounded-lg px-1 py-1.5 text-center text-[13px] font-semibold leading-[16px] transition", on && "ring-2")}
+                            style={on ? { ...s.card, color: s.text, boxShadow: `0 0 0 2px ${s.rule}` } : { background: "#F8F3E7", color: "#15130F" }}>
+                            {row.cells[p.key] === "Yes" ? <Check className="mx-auto h-5 w-5" style={{ color: on ? s.name : "#2F5137" }} /> : row.cells[p.key]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            ) : phoneLook === "poster" ? (
+            // The photo is the card: it fills the column top to bottom and the
+            // words sit over its lower half on the package's own dark, so the
+            // picture isn't a strip above a tower of text.
+            <div className="grid grid-cols-3 gap-1">
+              {packages.map((p) => {
+                const on = pkg === p.key;
+                const s = SKINS[p.key];
+                const dark = p.key === "essential" ? "#2F5137" : p.key === "signature" ? "#3B2A12" : "#0B0A08";
+                return (
+                  <button key={p.key} type="button" onClick={() => choose(p.key)} aria-pressed={on}
+                    className={cn("relative flex h-[360px] flex-col justify-end overflow-hidden rounded-2xl text-left text-white shadow-md transition duration-200 active:scale-[0.98]",
+                      on ? cn("ring-4 shadow-xl", s.onRing) : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
+                    style={{ background: dark }}>
+                    <img src={p.photos[p.photos.length - 1]} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+                    <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, rgba(0,0,0,0) 18%, ${dark} 52%)` }} />
+                    {s.frame ? <GoldFrame /> : null}
+                    <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
+                    <div className="relative px-1.5 pb-1.5">
+                      <p className="font-heading text-[24px] font-bold leading-[26px]" style={{ color: p.key === "essential" ? "#FFFFFF" : "#F3DC8F", textShadow: "0 1px 2px rgba(0,0,0,.5)" }}>{p.short}</p>
+                      <p className="text-[12px] font-bold uppercase leading-[14px] tracking-[0.02em] text-white/85">{p.tag}</p>
+                      <p className="text-[12px] font-semibold leading-[14px] text-white/85">Lasts {p.lasts}*</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {p.lines.slice(0, 2).map((l) => (
+                          <li key={l.text} className="flex items-start gap-1 text-[12px] font-medium leading-[14px] text-white/95"><Check className="mt-0.5 h-3 w-3 shrink-0 text-[#E3BE63]" />{l.text}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-1.5 rounded-lg bg-white px-1 py-1 text-center text-[#15130F]">
+                        {discount ? <p className="text-[12px] leading-[14px] opacity-75"><s>{formatCurrency(p.regular)}</s> <span className="rounded px-1 text-[11px] font-bold uppercase" style={s.offChip}>20% off</span></p> : null}
+                        <p className="mt-0.5 font-heading text-[24px] font-bold leading-none tabular-nums" style={{ color: dark }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-0.5 text-[12px] font-semibold leading-[14px] opacity-85">4 × {formatCurrency(fourPayments(p.price))}</p>
+                      </div>
+                      <p className="mt-1.5 flex min-h-[36px] items-center justify-center gap-1.5 rounded-full text-[13px] font-bold"
+                        style={on ? { background: "#E3BE63", color: "#15130F" } : { background: "rgba(255,255,255,.18)", color: "#FFFFFF", boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,.7)" }}>
+                        {on ? <><Check className="h-4 w-4" /> Picked</> : "Pick"}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            ) : (
             // Every pixel to the cards, and shorter cards (Alan, 2026-10-28:
             // "too vertical… wider, while keeping them next to each other"):
             // thinner gaps and edges, a shorter photo, tighter rows, the
@@ -968,6 +1096,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 );
               })}
             </div>
+            )
           ) : (
             <div className="grid gap-3 sm:grid-cols-3">
               {packages.map((p) => {
