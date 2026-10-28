@@ -909,9 +909,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             {/* The things people ask about before they pick, in one line each
                 (Alan, 2026-10-28: "the main three things people want to know
                 that it's included"), plus tax. */}
-            <p className="-mt-1 text-[15px] font-bold text-[#15130F]">Every one of these includes, at no extra charge:</p>
+            <p className="-mt-1 text-[15px] font-bold text-[#15130F]">With every one of these, at no extra charge:</p>
             <ul className="mb-4 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug text-[#15130F]">
-              {["The cleaning", "Two coats of stain", "Screwing in any loose boards", "Tax, already in the price"].map((t) => (
+              {["The cleaning", "Two coats of stain", "Screwing in any loose boards"].map((t) => (
                 <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#2F5137" }} />{t}</li>
               ))}
             </ul>

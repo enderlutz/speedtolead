@@ -11,7 +11,7 @@ export type DesignChange = {
 
 export const DESIGN_CHANGES: DesignChange[] = [
   { date: "2026-10-28", title: "What's included, right under Step 1",
-    what: "Under \"Choose 1 of these 3 · Higher ones last longer.\" \"Every one of these includes, at no extra charge:\" then four checks: The cleaning · Two coats of stain · Screwing in any loose boards · Tax, already in the price. The small line under the packages now just says \"Every price includes tax. Every package comes with our 1-year warranty on the work.\"" },
+    what: "Under \"Choose 1 of these 3 · Higher ones last longer.\" \"With every one of these, at no extra charge:\" then three checks: The cleaning · Two coats of stain · Screwing in any loose boards. The small line under the packages now just says \"Every price includes tax. Every package comes with our 1-year warranty on the work.\"" },
   { date: "2026-10-28", title: "Step 1 drops \"stains your whole fence\"",
     what: "Under \"Choose 1 of these 3\" it now says \"Higher ones last longer. Cleaning is included with all three.\" (the sides included are already listed above, so \"whole fence\" was wrong for inside-only jobs)." },
   { date: "2026-10-28", title: "The package lines read like the printed proposal",
