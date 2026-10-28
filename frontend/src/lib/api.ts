@@ -57,6 +57,8 @@ export function setToken(token: string) {
 
 export function clearToken() {
   document.cookie = "at_auth=; max-age=0; path=/";
+  // Logging out forgets the Contacts search, so the next login starts on everyone.
+  try { sessionStorage.removeItem("contacts_view_v1"); } catch { /* fine */ }
 }
 
 // --- Division scoping (Sterling Fence Staining ⟷ Sterling Brick Staining) ---

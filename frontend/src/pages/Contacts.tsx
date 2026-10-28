@@ -183,14 +183,25 @@ function CallTally({
 // the top of page one. Alan works down this list calling people; scrolling
 // back to where he was after every customer wasted the time this page is
 // meant to save. sessionStorage: per tab, gone when the tab closes.
+// Only for a quick look at a customer, though (Alan, 2026-10-27): after 5
+// minutes away, or a log out, the page opens fresh on everyone with an
+// empty search box instead of the last name typed.
 const VIEW_KEY = "contacts_view_v1";
-type SavedView = { q: string; search: string; estimate: EstimateFilter; sort?: SortKey; offset: number; scroll: number; anchor: string };
+const VIEW_TTL_MS = 5 * 60_000;
+type SavedView = { q: string; search: string; estimate: EstimateFilter; sort?: SortKey; offset: number; scroll: number; anchor: string; at?: number };
 
 function readView(): Partial<SavedView> {
-  try { return JSON.parse(sessionStorage.getItem(VIEW_KEY) || "{}") || {}; } catch { return {}; }
+  try {
+    const v: Partial<SavedView> = JSON.parse(sessionStorage.getItem(VIEW_KEY) || "{}") || {};
+    if (!v.at || Date.now() - v.at > VIEW_TTL_MS) {
+      sessionStorage.removeItem(VIEW_KEY);
+      return {};
+    }
+    return v;
+  } catch { return {}; }
 }
 function writeView(v: SavedView) {
-  try { sessionStorage.setItem(VIEW_KEY, JSON.stringify(v)); } catch { /* private mode — just don't remember */ }
+  try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ ...v, at: Date.now() })); } catch { /* private mode — just don't remember */ }
 }
 /** The page scrolls inside <main>, not the window. */
 function scroller(): HTMLElement | null {
