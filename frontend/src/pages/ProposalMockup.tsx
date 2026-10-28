@@ -903,7 +903,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             the top, then short rows that line up — lasts, price, best for,
             what you get — and three Pick buttons. At full width, three cards
             that each carry the whole story, the way a pricing page does. */}
-        <section id="mock-packages" className="scroll-mt-14 bg-white px-2 py-6 sm:px-4">
+        <section id="mock-packages" className="scroll-mt-14 bg-white px-1 py-6 sm:px-4">
           <div className="px-1">
             <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Each one stains your whole fence. Higher ones last longer." />
           </div>
@@ -916,7 +916,11 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             // price as the biggest thing, the monthly — so nothing hides
             // behind a tap. The tap only picks. Same rows in the same order
             // on all three so the names and the prices line up.
-            <div className="grid grid-cols-3 gap-1.5">
+            // Every pixel to the cards, and shorter cards (Alan, 2026-10-28:
+            // "too vertical… wider, while keeping them next to each other"):
+            // thinner gaps and edges, a shorter photo, tighter rows, the
+            // price a size up. Text never under 12px.
+            <div className="grid grid-cols-3 gap-1">
               {packages.map((p) => {
                 const on = pkg === p.key;
                 const s = SKINS[p.key];
@@ -928,32 +932,32 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                     {s.frame ? <GoldFrame /> : null}
                     <div className={cn("relative grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[2px]")} style={{ background: s.rule }}>
                       {p.photos.map((src) => (
-                        <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[52px]" : "h-[106px]")} draggable={false} />
+                        <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[44px]" : "h-[90px]")} draggable={false} />
                       ))}
                       <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
                       {colorsV2 ? <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span> : null}
                     </div>
-                    <div className="flex flex-1 flex-col px-1.5 pb-2 pt-1.5">
+                    <div className="flex flex-1 flex-col px-1 pb-1.5 pt-1">
                       <p className="font-heading text-[18px] font-bold leading-[20px]" style={{ color: s.name }}>{p.short}</p>
                       <p className="mt-0.5 text-[12px] font-bold uppercase leading-[14px] tracking-[0.02em]" style={{ color: s.muted }}>{p.tag}</p>
                       <p className="text-[12px] font-semibold leading-[14px]" style={{ color: s.muted }}>Lasts {p.lasts}*</p>
-                      <ul className="mt-1.5 flex-1 space-y-1">
+                      <ul className="mt-1 flex-1 space-y-0.5">
                         {p.lines.map((l) => (
                           <li key={l.text} className="flex items-start gap-1 text-[12px] font-medium leading-[15px]"><Check className="mt-0.5 h-3 w-3 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
                         ))}
                       </ul>
-                      <div className="mt-1.5 rounded-lg px-1.5 py-1.5" style={s.priceBox}>
+                      <div className="mt-1 rounded-lg px-1 py-1" style={s.priceBox}>
                         {discount ? (
                           <p className="flex flex-wrap items-center gap-1 text-[12px] leading-[14px]">
                             <span className="rounded px-1 py-px text-[11px] font-bold uppercase" style={s.offChip}>20% off</span>
                             <s className="opacity-75">{formatCurrency(p.regular)}</s>
                           </p>
                         ) : <p className="text-[12px] leading-[14px] opacity-75">Regular price</p>}
-                        <p className="mt-1 font-heading text-[21px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-0.5 font-heading text-[24px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
                         <p className="mt-1 text-[12px] font-semibold leading-[14px] opacity-85">or 4 payments of {formatCurrency(fourPayments(p.price))}</p>
                       </div>
                       {/* The tick means picked, never just "open" (Alan, 2026-10-14). */}
-                      <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold leading-[14px]" style={{ color: s.name }}>
+                      <p className="mt-1 flex items-center gap-1.5 text-[12px] font-bold leading-[14px]" style={{ color: s.name }}>
                         {on
                           ? <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                           : <span className="h-6 w-6 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
