@@ -27,24 +27,12 @@ import { api, type BoardOverlap } from "@/lib/api";
 import { BOARDS, DECIDED, ISSUES, JOURNEY, NOT_RUNNING, SHARED, WORDS, type Chain, type Step } from "@/lib/ghlFollowupMap";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import CardoneFollowUps from "@/pages/CardoneFollowUps";
+import { FOLLOWUP_VIEWS, isFollowUpView, type FollowUpView } from "@/pages/followUpViews";
 import { cn } from "@/lib/utils";
 
 const LINE = "#E4DCCB";
 
-// The story, then what runs today, then where it's going.
-type TabKey = "overview" | "sterling" | "at" | "helpers" | "both" | "plan" | "engine";
-const TABS: [TabKey, string, string][] = [
-  ["overview", "Overview", "The story in five pictures, what's changing, what Alan decided"],
-  ["sterling", "Sterling", "Every Sterling follow-up today, day by day, word for word"],
-  ["at", "A&T's", "Every A&T follow-up today, day by day, word for word"],
-  ["helpers", "Helpers", "The GHL Home-folder workflows, and the ones switched off"],
-  ["both", "Both boards", "Live: everyone with a card on both boards"],
-  ["plan", "The plan", "Cardone's year of touches, the way the customer meets them"],
-  ["engine", "Engine", "The dashboard's own text sender, off until the move is planned"],
-];
-export type FollowUpView = TabKey;
-/** The views, for Design Lab to draw as its row. */
-export const FOLLOWUP_VIEWS: { key: TabKey; label: string; hint: string }[] = TABS.map(([key, label, hint]) => ({ key, label, hint }));
+type TabKey = FollowUpView;
 
 const card = "rounded-2xl border bg-white shadow-sm";
 
@@ -396,7 +384,8 @@ function BothTab() {
  *  from ?tab=. */
 export default function FollowUpEngine({ embedded = false, view }: { embedded?: boolean; view?: TabKey } = {}) {
   const [params, setParams] = useSearchParams();
-  const tab: TabKey = view && TABS.some(([k]) => k === view) ? view : (TABS.find(([k]) => k === params.get("tab"))?.[0] || "overview");
+  const asked = params.get("tab");
+  const tab: TabKey = view && isFollowUpView(view) ? view : isFollowUpView(asked) ? asked : "overview";
   return (
     <div className={cn("space-y-4", !embedded && "mx-auto max-w-4xl px-4 py-5")}>
       {embedded ? null : (
@@ -407,7 +396,7 @@ export default function FollowUpEngine({ embedded = false, view }: { embedded?: 
       )}
       {embedded ? null : (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-          {TABS.map(([k, label]) => (
+          {FOLLOWUP_VIEWS.map(({ key: k, label }) => (
             <button key={k} type="button" onClick={() => setParams({ tab: k }, { replace: true })}
               className={cn("min-h-11 shrink-0 rounded-full px-4 text-[15px] font-bold ring-1 transition", tab === k ? "bg-ink text-white ring-ink" : "bg-white text-ink ring-[#E4DCCB] hover:bg-ivory")}>
               {label}
