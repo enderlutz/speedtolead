@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, Clapperboard, PhoneCall, FlaskConical, Landmark } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -91,8 +91,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
   // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
-  { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
-  { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
+  // Opportunities (2026-10-28): Sterling Leads A and B in one tab, both boards at once or one at a time.
+  { to: "/opportunities", icon: KanbanSquare, label: "Opportunities", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
   { to: "/fence-photos", icon: Images, label: "Fence Photos", perm: "fence_photos", divisions: ["fence"] },
   // { to: "/video-estimates", icon: Video, label: "Video Estimates", perm: "leads", divisions: ["fence"] }, // hidden 2026-09-28 (page/route kept)
@@ -103,10 +103,10 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/calls", icon: BookOpen, label: "Call script", perm: "calls", divisions: ["fence"] },  // opens on the script; Call Coach is the second view (2026-10-27)
   // { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] }, // folded into Call script, third view (2026-10-27)
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
-  { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
+  // Marketing (2026-10-28): Meta ads (owners) + the Social media library (social_media permission) in one tab.
+  { to: "/marketing", icon: Megaphone, label: "Marketing", show: () => canSeeRevenue() || hasPerm("social_media") },
   // Money (2026-10-27): Revenue, Where the money went, Accounting and Payroll in one hub; each person sees their sections.
   { to: "/money", icon: Landmark, label: "Money", show: () => canSeeRevenue() || hasPerm("accounting") || hasPerm("payroll") },
-  { to: "/social", icon: Clapperboard, label: "Social media", perm: "social_media" },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },
   // Division-aware (scoped) — visible in both fence and brick:

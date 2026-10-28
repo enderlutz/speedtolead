@@ -89,7 +89,8 @@ function rowName(r: MetaRow, level: MetaLevel) {
   return { title: r.campaign || r.campaign_id, sub: "" };
 }
 
-export default function MetaAds() {
+/** `embedded`: inside the Marketing hub, which draws the title and padding. */
+export default function MetaAds({ embedded = false }: { embedded?: boolean } = {}) {
   const [status, setStatus] = useState<MetaStatus | null>(null);
   const [level, setLevel] = useState<MetaLevel>("campaign");
   const [days, setDays] = useState(30);
@@ -110,9 +111,8 @@ export default function MetaAds() {
   useEffect(() => { if (status?.connected) load(); }, [status, load]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold">Marketing</h1>
-      <h2 className="text-lg font-semibold">Meta ads</h2>
+    <div className={embedded ? "space-y-4" : "mx-auto max-w-4xl space-y-4 p-4"}>
+      {embedded ? null : <><h1 className="text-2xl font-bold">Marketing</h1><h2 className="text-lg font-semibold">Meta ads</h2></>}
 
       {!status ? (
         <Loader2 className="h-5 w-5 animate-spin" />

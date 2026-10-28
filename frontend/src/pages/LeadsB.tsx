@@ -119,7 +119,9 @@ function timelineLabel(lead: Lead): string | null {
   return t || null;
 }
 
-export default function LeadsB() {
+/** `embedded`: inside the Opportunities hub, which draws the title and
+ *  padding; the board keeps its own search, views and Refresh. */
+export default function LeadsB({ embedded = false }: { embedded?: boolean } = {}) {
   const [leads, setLeads] = useState<Lead[]>(getCachedLeads);
   const [search, setSearch] = useState(() => lsGet(LS_SEARCH));
   const [view, setView] = useState(() => lsGet(LS_VIEW, "kanban"));
@@ -362,11 +364,17 @@ export default function LeadsB() {
   const draggedLead = activeDragId ? leads.find((l) => l.id === activeDragId) : null;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className={embedded ? "space-y-4" : "p-4 sm:p-6 space-y-4"}>
+      <div className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Sterling Leads B</h1>
-          <p className="text-xs text-muted-foreground">{leads.length} total • STERLING pipeline</p>
+          {embedded ? (
+            <p className="text-sm font-semibold">Sterling pipeline (B) <span className="font-normal text-muted-foreground">· {leads.length} leads</span></p>
+          ) : (
+            <>
+              <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Sterling Leads B</h1>
+              <p className="text-xs text-muted-foreground">{leads.length} total • STERLING pipeline</p>
+            </>
+          )}
         </div>
         <Button variant="outline" size="sm" onClick={loadLeads} disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />

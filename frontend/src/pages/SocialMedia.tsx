@@ -69,7 +69,8 @@ function putFile(url: string, file: File, onProgress: (pct: number) => void): Pr
 
 type Job = { name: string; pct: number; state: "uploading" | "done" | "error"; error?: string };
 
-export default function SocialMedia() {
+/** `embedded`: inside the Marketing hub, which draws the title and padding. */
+export default function SocialMedia({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [ready, setReady] = useState(true);
   const [status, setStatus] = useState<"" | "raw" | "edited" | "posted">("");
@@ -139,10 +140,10 @@ export default function SocialMedia() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4">
+    <div className={embedded ? "space-y-4" : "mx-auto max-w-6xl space-y-4 p-4"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold">Social media</h1>
+          {embedded ? null : <h1 className="text-2xl font-bold">Social media</h1>}
           <p className="text-sm text-muted-foreground">Raw photos and videos from jobs, kept at the quality they were shot. Tag each one to the customer.</p>
         </div>
         <input ref={input} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />

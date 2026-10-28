@@ -11,8 +11,8 @@ import UpdateBanner from "@/components/UpdateBanner";
 const Login = lazy(() => import("@/pages/Login"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Leads = lazy(() => import("@/pages/Leads"));
-const LeadsV2 = lazy(() => import("@/pages/LeadsV2"));
-const LeadsB = lazy(() => import("@/pages/LeadsB"));
+// Opportunities (2026-10-28): both Sterling boards in one hub; /leads and /leads-b open it on that board.
+const Opportunities = lazy(() => import("@/pages/Opportunities"));
 const LeadsBrick = lazy(() => import("@/pages/LeadsBrick"));
 const LeadsPaintingUpsell = lazy(() => import("@/pages/LeadsPaintingUpsell"));
 const LeadDetail = lazy(() => import("@/pages/LeadDetail"));
@@ -55,8 +55,8 @@ const InvoiceQueue = lazy(() => import("@/pages/InvoiceQueue"));
 // in one hub; the old addresses open it on their section.
 const Money = lazy(() => import("@/pages/Money"));
 const Documents = lazy(() => import("@/pages/Documents"));
-const MetaAds = lazy(() => import("@/pages/MetaAds"));
-const SocialMedia = lazy(() => import("@/pages/SocialMedia"));
+// Marketing (2026-10-28): Meta ads + the Social media library in one hub; /social opens it on Social media.
+const Marketing = lazy(() => import("@/pages/Marketing"));
 const DailyTasks = lazy(() => import("@/pages/DailyTasks"));
 const Contacts = lazy(() => import("@/pages/Contacts"));
 const StainInventory = lazy(() => import("@/pages/StainInventory"));
@@ -125,6 +125,12 @@ function FragnedOnly({ children }: { children: React.ReactNode }) {
 // only. Backend enforces the same list; this bounces everyone else away.
 function RevenueOnly({ children }: { children: React.ReactNode }) {
   if (!canSeeRevenue()) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+// Marketing: the owners (ads) and anyone with the social_media permission (the library).
+function MarketingOnly({ children }: { children: React.ReactNode }) {
+  if (!(canSeeRevenue() || hasPerm("social_media"))) return <Navigate to={landingFor()} replace />;
   return <>{children}</>;
 }
 
@@ -273,8 +279,9 @@ function AppLayout() {
               <Route path="/contacts" element={<RequireView view="leads"><Contacts /></RequireView>} />
               <Route path="/company-cam" element={<RequireView view="company_cam"><CompanyCamPage /></RequireView>} />
               <Route path="/company-cam/:leadId" element={<RequireView view="company_cam"><CompanyCamPage /></RequireView>} />
-              <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
-              <Route path="/leads-b" element={<RequireView view="leads"><LeadsB /></RequireView>} />
+              <Route path="/opportunities" element={<RequireView view="leads"><Opportunities /></RequireView>} />
+              <Route path="/leads" element={<RequireView view="leads"><Opportunities forced="a" /></RequireView>} />
+              <Route path="/leads-b" element={<RequireView view="leads"><Opportunities forced="b" /></RequireView>} />
               <Route path="/leads-brick" element={<RequireView view="leads"><LeadsBrick /></RequireView>} />
               <Route path="/leads/painting-upsell" element={<RequireView view="painting_upsell"><LeadsPaintingUpsell /></RequireView>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
@@ -287,11 +294,11 @@ function AppLayout() {
               <Route path="/calls" element={<RequireView view="calls"><CallScript /></RequireView>} />
               <Route path="/training" element={<Navigate to="/calls?view=training" replace />} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
-              <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
+              <Route path="/marketing" element={<MarketingOnly><Marketing /></MarketingOnly>} />
               <Route path="/money" element={<MoneyOnly><Money /></MoneyOnly>} />
               {/* Plaid's bank login comes back to /money-audit, so it stays a real page. */}
               <Route path="/money-audit" element={<RevenueOnly><Money forced="audit" /></RevenueOnly>} />
-              <Route path="/social" element={<RequireView view="social_media"><SocialMedia /></RequireView>} />
+              <Route path="/social" element={<RequireView view="social_media"><Marketing forced="social" /></RequireView>} />
               <Route path="/meta-ads" element={<Navigate to="/marketing" replace />} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
               <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />
