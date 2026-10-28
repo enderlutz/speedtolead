@@ -44,7 +44,10 @@ export default function CompanyCamPage() {
   return <JobList />;
 }
 
-function JobList() {
+/** The booked-jobs list. `manager`: opened from Project Manager, so each job
+ *  opens in the office view and the back link returns there (2026-10-27:
+ *  "isn't Company Cam in Project Manager the same thing?"). */
+export function JobList({ manager = false }: { manager?: boolean }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
@@ -59,10 +62,12 @@ function JobList() {
   }, [q]);
   return (
     <div className="mx-auto max-w-3xl space-y-3 p-3 sm:p-5">
-      <div>
-        <h1 className="font-heading text-2xl font-bold">{tr("Company Cam")}</h1>
-        <p className="text-sm text-muted-foreground">{tr("Pick the customer you're at.")}</p>
-      </div>
+      {manager ? null : (
+        <div>
+          <h1 className="font-heading text-2xl font-bold">{tr("Company Cam")}</h1>
+          <p className="text-sm text-muted-foreground">{tr("Pick the customer you're at.")}</p>
+        </div>
+      )}
       <label className="flex h-12 items-center gap-2 rounded-xl border border-input bg-background px-3">
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr("Search a name or address")} className="h-full w-full bg-transparent text-base outline-none" />
@@ -76,7 +81,7 @@ function JobList() {
         <ul className="space-y-2">
           {rows.map((r) => (
             <li key={r.lead_id}>
-              <Link to={`/company-cam/${r.lead_id}`} className="flex min-h-16 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 hover:bg-muted/50">
+              <Link to={manager ? `/company-cam/${r.lead_id}?view=manager&from=pm-hq` : `/company-cam/${r.lead_id}`} className="flex min-h-16 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 hover:bg-muted/50">
                 {r.date ? (
                   <span className="w-16 shrink-0 rounded-lg bg-muted px-1.5 py-1 text-center text-xs font-bold leading-tight">{day(r.date)}</span>
                 ) : null}

@@ -325,6 +325,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             if (item.divisions && !item.divisions.includes(getDivision())) return false;
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
+            // The office runs jobs from Project Manager (its All jobs tab is the
+            // Company Cam list); the Company Cam tab is the crew's (2026-10-27).
+            if (item.to === "/company-cam" && (hasPerm("assign_crew") || hasPerm("pm_hq"))) return false;
             // Alan owns the business; he has no crew schedule (2026-10-27).
             if (item.to === "/my-schedule" && (u?.sub || "").toLowerCase() === "alanbonner") return false;
             if (item.perm === "pm_hq") return hasPerm("pm_hq") && !hasPerm("assign_crew");
