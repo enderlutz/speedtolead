@@ -729,6 +729,16 @@ def _public_booking(db, token: str) -> tuple[Booking, Lead]:
     return b, lead
 
 
+# Whose face is on the booking page (Alan, 2026-10-25 / 2026-10-29): the
+# person who sent the invite. Olga texts customers as "Amy" ("nobody will
+# take Olga serious if she says Olga"), so her invites carry Amy's name and
+# photo. A sender with no photo here gets the plain pay box.
+SENDERS = {
+    "alan": {"name": "Alan Bonner", "role": "Project Manager, Sterling Fence Staining", "photo": "/team/alan.jpg"},
+    "olga": {"name": "Amy", "role": "Sterling Fence Staining", "photo": "/team/amy.jpg"},
+}
+
+
 @router.get("/public/booking/{token}")
 def booking_page(token: str, request: Request, preview: int = 0):
     db = get_db()
@@ -774,6 +784,7 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "repairs_discount": (b.repairs_discount_cents or 0) / 100,
             "repairs_discount_label": b.repairs_discount_label or "",
             "services": _services(b),
+            "sender": SENDERS.get((b.sent_by or "").strip().lower()),
         }
     finally:
         db.close()

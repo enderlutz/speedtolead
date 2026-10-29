@@ -91,6 +91,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
   // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
+  // Right under Project Manager, above Opportunities (Alan, 2026-10-29).
+  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
   // Opportunities (2026-10-28): Sterling Leads A and B in one tab, both boards at once or one at a time.
   { to: "/opportunities", icon: KanbanSquare, label: "Opportunities", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
@@ -119,7 +121,6 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   // { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] }, // archived 2026-10-27 (Alan: not using an estimator right now). Route/page kept.
-  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
   // The project notes for the interactive proposal (2026-10-09): a page that

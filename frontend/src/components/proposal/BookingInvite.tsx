@@ -28,7 +28,7 @@ export type BookingState = "held" | "confirmed";
 
 /** The person who sent the invite, for the trust version of the pay box
  *  (Alan, 2026-10-25: "the $250 needs to feel so easy to pay" — scam fear).
- *  Mockup only until Alan approves it. */
+ *  Live on real booking pages since 2026-10-29. */
 export type BookingTrust = {
   name: string; role: string; photo: string;
   reviews?: { rating: number | null; total: number; quote?: { author: string; text: string } };
