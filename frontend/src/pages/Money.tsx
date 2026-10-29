@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Calculator, DollarSign, Gauge, HardHat, Landmark, Loader2, RefreshCw, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, canSeeRevenue, hasPerm, type BankStatus, type BankSummary, type MoneyOverview } from "@/lib/api";
+import { api, canSeeRevenue, hasPerm, type BankStatus, type BankSummary, type MoneyOverview, type Scoreboard, type ScoreHistoryRow } from "@/lib/api";
 import { HubHeader, type HubTab, type HubView } from "@/components/HubHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatCurrency, timeAgo } from "@/lib/utils";
@@ -106,6 +106,155 @@ function useBankMonth(): BankMonth | null | "off" {
 }
 const catAmount = (s: BankSummary | null, name: string) => s?.by_category.find((c) => c.name === name)?.amount ?? 0;
 
+// ── The three numbers ─────────────────────────────────────────────────────
+/** Cost to get a customer, close rate, profit per job, over the last 30
+ *  days, saved every day; and the money watch (Alan, 2026-10-29: "know three
+ *  numbers every Monday… capture this every single day from now on"). */
+function ThreeNumbers() {
+  const [sb, setSb] = useState<Scoreboard | null>(null);
+  const [failed, setFailed] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showJobs, setShowJobs] = useState(false);
+  const [stain, setStain] = useState("");
+  useEffect(() => {
+    api.getScoreboard().then((r) => { setSb(r); setStain(String(r.today.stain_per_gallon)); })
+      .catch((e) => setFailed(e instanceof Error ? e.message : "Couldn't load the three numbers"));
+  }, []);
+  const redo = async (fn: () => Promise<Scoreboard>) => {
+    setBusy(true);
+    try { const r = await fn(); setSb(r); setStain(String(r.today.stain_per_gallon)); setFailed(""); }
+    catch (e) { setFailed(e instanceof Error ? e.message : "Couldn't work it out"); }
+    finally { setBusy(false); }
+  };
+  if (failed && !sb) return <Card><CardContent className="p-4 text-sm text-rose-700">{failed}</CardContent></Card>;
+  if (!sb) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  const t = sb.today;
+  // The same numbers a week ago, for the arrow.
+  const weekAgo: ScoreHistoryRow | undefined = sb.history.find((h) => h.day <= new Date(new Date(t.day + "T12:00:00").getTime() - 7 * 864e5).toISOString().slice(0, 10));
+  const move = (now: number | null, then: number | null | undefined, betterUp: boolean, fmt: (n: number) => string) => {
+    if (now == null || then == null || now === then) return null;
+    const good = (now > then) === betterUp;
+    return <span className={cn("font-semibold", good ? "text-emerald-700" : "text-rose-700")}>{now > then ? "▲" : "▼"} from {fmt(then)} a week ago</span>;
+  };
+  const pct = (n: number) => `${n}%`;
+  const ms = t.money?.stripe;
+  const problems = t.money?.problems || [];
+  const sterlingChk = (t.money?.bank || []).find((b) => b.mask === "7061");
+  return (
+    <section className="space-y-2">
+      <SectionTitle title="The three numbers" sub={`Last 30 days (${t.since} → ${t.until}) · saved every day · texted to you Mondays`} />
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cost to get a customer</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums">{money(t.cac)}</p>
+          <p className="text-sm text-muted-foreground">{money(t.ad_spend)} on ads{t.ad_spend_source === "bank" ? " (what the bank was charged)" : ""} ÷ {t.new_customers} new paying customers</p>
+          <p className="text-sm">{move(t.cac, weekAgo?.cac, false, (n) => money(n))}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Close rate</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums">{t.close_rate == null ? "—" : `${t.close_rate}%`}</p>
+          <p className="text-sm text-muted-foreground">{t.new_customers} paid ÷ {t.estimates_sent} estimates sent</p>
+          <p className="text-sm">{move(t.close_rate, weekAgo?.close_rate, true, pct)}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profit per job</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums">{money(t.profit_per_job)}</p>
+          <p className="text-sm text-muted-foreground">{money(t.profit_per_job_after_ads)} after ads · {t.jobs_finished} jobs finished · after crew, stain, supplies and card fees</p>
+          <p className="text-sm">{move(t.profit_per_job, weekAgo?.profit_per_job, true, (n) => money(n))}</p>
+        </CardContent></Card>
+      </div>
+
+      {/* The money watch: $28,800 sat in Stripe for weeks in October. */}
+      <Card className={cn(problems.length ? "border-rose-300 bg-rose-50" : "")}><CardContent className="space-y-1.5 p-4 text-sm">
+        <p className="font-semibold">{problems.length ? "Money check: needs you" : "Money check: all good"}</p>
+        {problems.map((p) => <p key={p} className="font-semibold text-rose-800">• {p}</p>)}
+        {ms?.ok ? (
+          <p className="text-muted-foreground">
+            Stripe: {money(ms.ready ?? 0)} ready, {money(ms.on_the_way ?? 0)} on the way ·{" "}
+            {ms.last_payout ? `last payout ${money(ms.last_payout.amount)} ${ms.last_payout.status.replace("_", " ")}, sent ${ms.last_payout.sent}, arrives ${ms.last_payout.arrives}` : "no payout yet"}
+            {sterlingChk ? ` · Chase 7061: ${money(sterlingChk.balance)}` : ""}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">You get a text at 9 AM any day money sits in Stripe for {sb.stuck_days ?? 3}+ days, a payout fails, or Stripe asks for something.</p>
+      </CardContent></Card>
+
+      {t.gaps.length ? (
+        <Card><CardContent className="space-y-1 p-4 text-sm">
+          <p className="font-semibold">What's estimated, and how to make it exact</p>
+          {t.gaps.map((g) => <p key={g} className="text-muted-foreground">• {g}</p>)}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="font-semibold">Stain cost per gallon</span>
+            <label className="flex min-h-10 items-center gap-1 rounded-lg border bg-background px-2.5">
+              <span>$</span>
+              <input inputMode="decimal" value={stain} onChange={(e) => setStain(e.target.value.replace(/[^0-9.]/g, ""))}
+                     className="h-9 w-16 bg-transparent tabular-nums outline-none" aria-label="Stain cost per gallon" />
+            </label>
+            <button type="button" disabled={busy || !(Number(stain) > 0) || Number(stain) === t.stain_per_gallon}
+                    onClick={() => void redo(() => api.setStainCost(Number(stain)))}
+                    className="min-h-10 rounded-lg bg-primary px-3 font-semibold text-primary-foreground disabled:opacity-50">Save</button>
+            {!t.stain_per_gallon_set ? <span className="text-xs text-amber-700">a starting guess until you set it</span> : null}
+          </div>
+          {t.bank.stain_materials != null ? (
+            <p className="text-xs text-muted-foreground">Bank check, same 30 days: crew {money(t.bank.crew)} · stain & materials {money(t.bank.stain_materials)} · ads {money(t.bank.ads)} (includes the HOA and anything not in Company Cam).</p>
+          ) : null}
+        </CardContent></Card>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 px-1 text-xs text-muted-foreground">
+        <span>Saved {sb.saved_at ? timeAgo(sb.saved_at) : "just now"}</span>
+        <button type="button" onClick={() => void redo(api.saveScoreboard)} disabled={busy}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border bg-background px-3 font-semibold text-foreground hover:bg-muted disabled:opacity-60">
+          <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />{busy ? "Working it out…" : "Work it out again"}
+        </button>
+        <button type="button" onClick={() => setShowJobs((v) => !v)} className="min-h-9 rounded-lg border bg-background px-3 font-semibold text-foreground hover:bg-muted">
+          {showJobs ? "Hide" : "Show"} the {t.jobs_finished} jobs behind profit per job
+        </button>
+      </div>
+
+      {showJobs ? (
+        <Card><CardContent className="overflow-x-auto p-3">
+          <table className="w-full text-sm tabular-nums">
+            <thead><tr className="text-left text-xs text-muted-foreground">
+              <th className="py-1 pr-3 font-semibold">Finished</th><th className="py-1 pr-3 font-semibold">Customer</th>
+              <th className="py-1 pr-3 text-right font-semibold">Price</th><th className="py-1 pr-3 text-right font-semibold">Crew</th>
+              <th className="py-1 pr-3 text-right font-semibold">Stain</th><th className="py-1 pr-3 text-right font-semibold">Fees</th>
+              <th className="py-1 text-right font-semibold">Left</th></tr></thead>
+            <tbody>
+              {[...t.jobs].sort((a, b) => b.finished.localeCompare(a.finished)).map((j) => (
+                <tr key={j.lead_id} className="border-t">
+                  <td className="py-1.5 pr-3">{j.finished}</td>
+                  <td className="py-1.5 pr-3"><Link to={`/leads/${j.lead_id}`} className="hover:underline">{j.customer || "—"}</Link></td>
+                  <td className={cn("py-1.5 pr-3 text-right", j.price_source !== "final price" && "text-amber-700")} title={j.price_source}>{money(j.price)}</td>
+                  <td className={cn("py-1.5 pr-3 text-right", j.guessed_crew.length && "text-amber-700")} title={j.guessed_crew.join(", ")}>{money(j.crew)}</td>
+                  <td className={cn("py-1.5 pr-3 text-right", j.materials_source !== "logged" && "text-amber-700")} title={j.materials_source}>{money(j.materials)}</td>
+                  <td className="py-1.5 pr-3 text-right">{money(j.fees)}</td>
+                  <td className={cn("py-1.5 text-right font-semibold", j.profit < 0 && "text-rose-700")}>{money(j.profit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs text-muted-foreground">Amber = estimated (hover to see why). Set the job's final price, crew pay and stain used on its Company Cam page to make it exact.</p>
+        </CardContent></Card>
+      ) : null}
+
+      {sb.history.length > 1 ? (
+        <Card><CardContent className="overflow-x-auto p-3">
+          <p className="mb-1 text-sm font-semibold">Day by day</p>
+          <table className="w-full text-sm tabular-nums">
+            <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1 pr-3 font-semibold">Day</th><th className="py-1 pr-3 text-right font-semibold">Cost / customer</th><th className="py-1 pr-3 text-right font-semibold">Close rate</th><th className="py-1 text-right font-semibold">Profit / job</th></tr></thead>
+            <tbody>
+              {sb.history.slice(0, 14).map((h) => (
+                <tr key={h.day} className="border-t"><td className="py-1.5 pr-3">{h.day}</td><td className="py-1.5 pr-3 text-right">{money(h.cac)}</td><td className="py-1.5 pr-3 text-right">{h.close_rate == null ? "—" : `${h.close_rate}%`}</td><td className="py-1.5 text-right">{money(h.profit_per_job)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent></Card>
+      ) : null}
+    </section>
+  );
+}
+
+
 // ── Overview ──────────────────────────────────────────────────────────────
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "bad" }) {
   return (
@@ -155,6 +304,8 @@ function Overview() {
           <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />{syncing ? "Pulling QuickBooks…" : "Refresh"}
         </button>
       </div>
+
+      <ThreeNumbers />
 
       <section className="space-y-2">
         <SectionTitle title={`${monthName} so far`} sub={`${m.start} → ${m.end}`} />

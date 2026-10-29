@@ -2030,6 +2030,21 @@ class WeekCheckin(Base):
     updated_at = Column(Text, default="")
 
 
+class DailyScore(Base):
+    """One row per Houston day: the three numbers over the 30 days ending
+    that day (cost to get a customer, close rate, profit per job) plus the
+    money watch (Stripe, the bank). Alan, 2026-10-29: "capture this every
+    single day from now on". Everything behind the numbers is in data_json.
+    See services/scoreboard.py."""
+    __tablename__ = "daily_scores"
+    day = Column(Text, primary_key=True)      # "YYYY-MM-DD", Houston
+    cac = Column(Float, nullable=True)
+    close_rate = Column(Float, nullable=True)
+    profit_per_job = Column(Float, nullable=True)
+    data_json = Column(Text, default="{}")
+    saved_at = Column(Text, default="")
+
+
 class CompanyCamPhoto(Base):
     """One job-site photo.
 

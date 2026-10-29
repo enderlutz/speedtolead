@@ -1946,6 +1946,10 @@ export const api = {
   moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
   // Money → Overview (2026-10-27): booked, collected and owed from Stripe + QuickBooks.
   moneyOverview: () => request<MoneyOverview>(`/api/money/overview`),
+  /** The three numbers + the money watch, saved every day (Alan, 2026-10-29). */
+  getScoreboard: () => request<Scoreboard>(`/api/scoreboard`),
+  saveScoreboard: () => request<Scoreboard>(`/api/scoreboard/save`, { method: "POST" }),
+  setStainCost: (dollars: number) => request<Scoreboard>(`/api/scoreboard/stain-cost`, { method: "PUT", body: JSON.stringify({ dollars }) }),
   bankStatus: () => request<BankStatus>("/api/bank/status"),
   bankLinkToken: (itemId = "") => request<{ link_token: string }>("/api/bank/link-token", { method: "POST", body: JSON.stringify({ item_id: itemId }) }),
   bankExchange: (publicToken: string, institutionName: string) =>
@@ -6282,6 +6286,31 @@ export type CrewEntry = { username: string; date: string; task: CrewDayTask; hel
 // Pay belongs to a line (one person, one day, one task). "included" = a day
 // that's part of a flat on another line of the same job, so it counts nothing.
 export type CrewPay = { pay_type: "" | "flat" | "hourly" | "included"; pay: number };
+export type ScoreJob = {
+  lead_id: string; customer: string; finished: string; price: number; price_source: string; crew: number;
+  materials: number; materials_source: string; supplies: number; fees: number; profit: number; guessed_crew: string[];
+};
+export type ScoreDay = {
+  day: string; since: string; until: string;
+  cac: number | null; ad_spend: number | null; ad_spend_source: string; new_customers: number;
+  close_rate: number | null; estimates_sent: number;
+  profit_per_job: number | null; profit_per_job_after_ads: number | null; jobs_finished: number;
+  revenue_finished: number; booked_value: number; stain_per_gallon: number; stain_per_gallon_set: boolean;
+  bank: { ads: number | null; stain_materials: number | null; crew: number | null };
+  jobs: ScoreJob[]; gaps: string[];
+  money?: {
+    stripe: { ok: boolean; error?: string; ready?: number; on_the_way?: number; payouts_enabled?: boolean;
+      last_payout?: { amount: number; status: string; sent: string; arrives: string } | null; stripe_needs?: string[] };
+    bank: { name: string; mask: string; balance: number | null; updated: string }[];
+    problems: string[];
+  };
+};
+export type ScoreHistoryRow = {
+  day: string; cac: number | null; close_rate: number | null; profit_per_job: number | null; saved_at: string;
+  ad_spend: number | null; new_customers: number | null; estimates_sent: number | null; jobs_finished: number | null;
+  profit_per_job_after_ads: number | null; booked_value: number | null;
+};
+export type Scoreboard = { today: ScoreDay; saved_at: string; history: ScoreHistoryRow[]; stuck_dollars?: number; stuck_days?: number };
 export type WeekCheckinKey = "lost" | "customer_said" | "improve";
 /** One employee's Friday answers for one week (Alan, 2026-10-28). */
 export type WeekCheckin = {
