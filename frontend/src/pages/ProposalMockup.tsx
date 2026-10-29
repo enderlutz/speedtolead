@@ -1052,10 +1052,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             made with us on the phone (Alan, 2026-10-10, after a competitor's
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
-              <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Just to look. Tap any color to see it up close. When you've found the one you like, tell us on the phone or by text and we'll put it on your job." />
-              <p className="mb-4 rounded-xl bg-white px-3 py-2.5 text-[15px] font-semibold ring-1 ring-[#15130F]/10">
-                {SIGNATURE_PHOTOS.length} Signature Finish colors first, then {LEGACY_PHOTOS.length} Legacy Finish colors under them. Keep scrolling to see them all.
-              </p>
+              {/* Just the heading (Alan, 2026-10-29: "remove all these words"). */}
+              <SectionTitle kicker="Step 2 of 3" title="See the colors" />
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
                 { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
