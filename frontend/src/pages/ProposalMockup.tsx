@@ -1059,29 +1059,38 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
                 { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
-              ]).map((g) => (
-                <div key={g.key} className={cn(g.key === "legacy" && "mt-6")}>
-                  <div className="mb-2 flex items-center gap-2">
-                    <TierBadge pkg={g.key} />
-                    <div className="min-w-0">
-                      <h3 className="font-heading text-[22px] font-bold leading-tight">{g.title}</h3>
-                      <p className="text-[15px] text-[#15130F]/75">{g.what}</p>
+              ]).map((g) => {
+                // Each set wears its package's skin (Alan, 2026-10-29: "so
+                // people can associate it with their eyes"): Signature's gold
+                // card, Legacy's dark card with the gold frame, the tier badge,
+                // and the tiles ringed in that package's rule colour.
+                const sk = SKINS[g.key];
+                return (
+                  <div key={g.key} className={cn("relative overflow-hidden rounded-2xl p-3 shadow-md", g.key === "legacy" && "mt-5")} style={{ ...sk.card, color: sk.text }}>
+                    {sk.frame ? <GoldFrame /> : null}
+                    <div className="relative mb-2.5 flex items-center gap-2">
+                      <TierBadge pkg={g.key} />
+                      <div className="min-w-0">
+                        <h3 className="font-heading text-[22px] font-bold leading-tight" style={{ color: sk.name }}>{g.title}</h3>
+                        <p className="text-[15px] font-semibold" style={{ color: sk.muted }}>{g.what}</p>
+                      </div>
                     </div>
+                    <div className="relative grid grid-cols-2 gap-2">
+                      {g.colors.map((c) => (
+                        <button key={c.name} type="button"
+                          onClick={() => setColorOpen({ name: c.name, src: c.src, full: c.full, note: c.note, finish: g.finish })}
+                          className="relative aspect-[4/3] overflow-hidden rounded-xl bg-[#15130F] text-left shadow-md transition active:scale-[0.98]"
+                          style={{ boxShadow: `0 0 0 2px ${sk.rule}` }}>
+                          <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
+                          <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider shadow" style={sk.badgeStyle}>{g.key === "signature" ? "Signature" : "Legacy"}</span>
+                          <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="relative mt-2.5 text-[15px] font-semibold" style={{ color: sk.muted }}>{g.foot}</p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {g.colors.map((c) => (
-                      <button key={c.name} type="button"
-                        onClick={() => setColorOpen({ name: c.name, src: c.src, full: c.full, note: c.note, finish: g.finish })}
-                        className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
-                        <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
-                        <span className="absolute left-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold text-white">{g.key === "signature" ? "Signature" : "Legacy"}</span>
-                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-[15px] text-[#15130F]/75">{g.foot}</p>
-                </div>
-              ))}
+                );
+              })}
 
           {/* The colour they want isn't here. */}
           <div className="mt-4 rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">

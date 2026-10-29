@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-29", title: "The color sets wear their package's look",
+    what: "Under \"See the colors\", the Signature Finish colors sit on the Signature package's gold card and the Legacy Finish colors on the Legacy package's dark card with the thin gold frame, each with its badge (Most popular / Premium) and the color tiles edged in that package's color, so the eye links each set of colors to its package." },
   { date: "2026-10-29", title: "All the colors, no Signature/Legacy tabs",
     what: "Step 2 \"See the colors\" no longer has the two package buttons. It shows \"Signature Finish colors\" with every Signature color, then \"Legacy Finish colors\" with every Legacy color under it. Tap a color to see it up close; nothing to pick here. The package photos are tagged \"Example\"." },
   { date: "2026-10-28", title: "What's included, right under Step 1",
