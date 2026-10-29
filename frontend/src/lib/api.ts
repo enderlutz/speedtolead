@@ -3927,6 +3927,14 @@ export const api = {
     request<PmShopping>(`/api/pm-hq/shopping?start=${start}&end=${end}`),
   pmHqShoppingHave: (b: { lead_id: string; key: string; label: string; have: boolean }) =>
     request<{ ok: boolean }>(`/api/pm-hq/shopping/have`, { method: "POST", body: JSON.stringify(b) }),
+  /** Friday's "How did the week go?" (Alan, 2026-10-28): this person's card for the week. */
+  getWeekCheckin: () =>
+    request<{ week_ending: string; due: boolean; truck: boolean; truck_items: string[]; questions: { key: WeekCheckinKey; text: string }[]; mine: WeekCheckin | null }>(`/api/my-schedule/week-checkin`),
+  sendWeekCheckin: (b: { lost: string; customer_said: string; improve: string; truck?: Record<string, "ok" | "needs"> }) =>
+    request<{ ok: boolean; mine: WeekCheckin }>(`/api/my-schedule/week-checkin`, { method: "POST", body: JSON.stringify(b) }),
+  /** Every Friday answer, newest week first (office only). */
+  getWeekCheckins: (weeks = 8) =>
+    request<{ checkins: WeekCheckin[]; questions: { key: WeekCheckinKey; text: string }[]; truck_items: string[] }>(`/api/pm-hq/week-checkins?weeks=${weeks}`),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
@@ -6274,6 +6282,13 @@ export type CrewEntry = { username: string; date: string; task: CrewDayTask; hel
 // Pay belongs to a line (one person, one day, one task). "included" = a day
 // that's part of a flat on another line of the same job, so it counts nothing.
 export type CrewPay = { pay_type: "" | "flat" | "hourly" | "included"; pay: number };
+export type WeekCheckinKey = "lost" | "customer_said" | "improve";
+/** One employee's Friday answers for one week (Alan, 2026-10-28). */
+export type WeekCheckin = {
+  id: string; username: string; person: string; week_ending: string;
+  lost: string; customer_said: string; improve: string;
+  truck: Record<string, "ok" | "needs">; lang: string; created_at: string; updated_at: string;
+};
 /** One change to a crew line's pay (Alan, 2026-10-28: "keep a history"). */
 export type CrewPayHistoryRow = {
   id: string; lead_id: string; username: string; person: string; work_date: string; task: string;

@@ -11,7 +11,7 @@ import { Phone, MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, N
 import { addDays, dayList, spanLabel, startOfWeek } from "@/components/schedule/dates";
 import { DayStamp } from "@/components/schedule/bits";
 import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "@/components/schedule/look";
-import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
+import type { MyJobTask, JobPhotoMeta, WeekCheckinKey } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 import { cn, errMessage } from "@/lib/utils";
 import { tr, isSpanish } from "@/lib/i18n";
@@ -1086,6 +1086,96 @@ function CrewDays({ dates, camJobs, jobs, today, onSaved }: {
   );
 }
 
+function WeekCheckinCard() {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof api.getWeekCheckin>> | null>(null);
+  const [answers, setAnswers] = useState<Record<WeekCheckinKey, string>>({ lost: "", customer_said: "", improve: "" });
+  const [truck, setTruck] = useState<Record<string, "ok" | "needs">>({});
+  const [busy, setBusy] = useState(false);
+  const [sentAt, setSentAt] = useState("");
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    api.getWeekCheckin().then((r) => {
+      setInfo(r);
+      if (r.mine) {
+        setAnswers({ lost: r.mine.lost, customer_said: r.mine.customer_said, improve: r.mine.improve });
+        setTruck(r.mine.truck || {});
+        setSentAt(r.mine.updated_at);
+        setOpen(false);
+      }
+    }).catch(() => setInfo(null));
+  }, []);
+  if (!info || !info.due) return null;
+  const anything = Object.values(answers).some((v) => v.trim()) || Object.keys(truck).length > 0;
+  const send = async () => {
+    if (!anything) { toast.error(tr("Answer at least one first")); return; }
+    setBusy(true);
+    try {
+      const r = await api.sendWeekCheckin({ ...answers, truck: info.truck ? truck : undefined });
+      setSentAt(r.mine.updated_at);
+      setOpen(false);
+      toast.success(tr("Sent to Alan. You can change it until Sunday night."));
+    } catch (e) {
+      toast.error(errMessage(e, tr("Couldn't send it. Try again.")));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const needs = Object.values(truck).filter((s) => s === "needs").length;
+  return (
+    <div className="mb-4 overflow-hidden rounded-2xl bg-ink text-white ring-1 ring-gold/40">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <ClipboardList className="h-5 w-5 shrink-0 text-gold" />
+        <div className="min-w-0 flex-1">
+          <p className="font-heading text-[18px] font-bold leading-tight">{tr("How did the week go?")}</p>
+          <p className="text-[14px] text-white/75">
+            {sentAt ? <><Check className="mr-1 inline h-4 w-4 text-emerald-300" />{tr("Sent to Alan. You can change it until Sunday night.")}</>
+              : tr("Three quick ones for Alan. Only he reads this. Tap the mic on your keyboard and just talk.")}
+          </p>
+        </div>
+        <ChevronDown className={cn("h-5 w-5 shrink-0 text-white/70 transition", open ? "rotate-180" : "")} />
+      </button>
+      {open ? (
+        <div className="space-y-3 bg-background px-3 pb-3 pt-3 text-foreground">
+          {info.questions.map((q, i) => (
+            <label key={q.key} className="block">
+              <span className="text-[15px] font-semibold"><span className="mr-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-gold">{i + 1}</span>{tr(q.text)}</span>
+              <textarea value={answers[q.key]} onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value }))}
+                        rows={2} placeholder={tr("Nothing, all good")}
+                        className="mt-1 block w-full rounded-xl border border-border bg-background px-3 py-2.5 text-[16px] leading-snug outline-none focus:ring-2 focus:ring-gold" />
+            </label>
+          ))}
+          {info.truck ? (
+            <div className="rounded-xl bg-muted/60 p-2.5">
+              <p className="text-[15px] font-semibold">{tr("The truck")}</p>
+              <p className="text-[14px] text-muted-foreground">{tr("Tap each one: OK, or needs attention.")}</p>
+              <div className="mt-2 space-y-1.5">
+                {info.truck_items.map((item) => (
+                  <div key={item} className="flex items-center gap-2">
+                    <span className="w-24 shrink-0 text-[15px] font-semibold capitalize">{tr(item)}</span>
+                    {(["ok", "needs"] as const).map((s) => (
+                      <button key={s} type="button" aria-pressed={truck[item] === s}
+                              onClick={() => setTruck((t) => (t[item] === s ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== item)) : { ...t, [item]: s }))}
+                              className={cn("min-h-11 flex-1 rounded-lg text-[14px] font-semibold ring-1",
+                                truck[item] === s ? (s === "ok" ? "bg-emerald-600 text-white ring-emerald-600" : "bg-red-600 text-white ring-red-600") : "bg-background ring-border")}>
+                        {s === "ok" ? tr("OK") : tr("Needs attention")}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              {needs > 0 ? <p className="mt-2 text-[14px] font-semibold text-red-700">{needs} {tr("Needs attention").toLowerCase()}</p> : null}
+            </div>
+          ) : null}
+          <Button onClick={() => void send()} disabled={busy || !anything} className="h-12 w-full bg-ink text-[16px] font-bold text-gold-light hover:bg-ink/90">
+            {busy ? tr("Sending…") : tr("Send to Alan")}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MySchedule() {
   // getCurrentUser() re-decodes the JWT and hands back a new object each call,
   // so memoise it — otherwise every callback depending on `user` would get a
@@ -1213,6 +1303,11 @@ export default function MySchedule() {
 
       {/* General daily check-in / check-out for the day */}
       {camReady && !allFlatToday ? <DailyCheckInCard /> : null}
+
+      {/* Friday: "How did the week go?" (Alan, 2026-10-28). Three questions
+          in his words, read only by the office; whoever drives the company
+          truck taps through it too. */}
+      {user?.role !== "admin" ? <WeekCheckinCard /> : null}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">

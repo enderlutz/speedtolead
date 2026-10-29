@@ -22,7 +22,7 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, CalendarRange, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import { CalendarDays, CalendarRange, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
 import GoogleCalendar from "@/pages/Calendar";
 import { api, type CrewDayTask, type FixJob, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,8 @@ import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, 
 
 // "google" is the old Job Calendar tab, the mirror of Google Calendar, folded
 // in here (Alan, 2026-10-28: "we never really look at it").
-type Tab = "calendar" | "buy" | "past" | "jobs" | "google";
+// "fridays" is the crew's Friday "How did the week go?" answers (Alan, 2026-10-28).
+type Tab = "calendar" | "buy" | "past" | "jobs" | "google" | "fridays";
 type Task = CrewDayTask;
 
 function ctToday(): string {
@@ -121,7 +122,7 @@ export default function PmHq() {
   const raw = params.get("tab");
   // Today was a tab; now it's the calendar's first view, and the page opens
   // on the calendar (Alan, 2026-10-27).
-  const tab: Tab = raw === "past" || raw === "jobs" || (raw === "buy" && isOffice()) || (raw === "google" && hasPerm("calendar")) ? raw : "calendar";
+  const tab: Tab = raw === "past" || raw === "jobs" || ((raw === "buy" || raw === "fridays") && isOffice()) || (raw === "google" && hasPerm("calendar")) ? raw : "calendar";
   const setTab = (k: Tab) => set({ tab: k });
   // Week and Month use the whole screen so seven days have room for names
   // (Alan, 2026-10-21: "I can't see the customer's name" on Week). The other
@@ -136,7 +137,7 @@ export default function PmHq() {
         <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : [])] as const).map(([k, label, Icon]) => (
+        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : []), ...(isOffice() ? [["fridays", "Fridays", MessageSquare] as const] : [])] as const).map(([k, label, Icon]) => (
           <button key={k} type="button" onClick={() => setTab(k)}
                   className={cn("flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
                     tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
@@ -149,7 +150,61 @@ export default function PmHq() {
           <p className="text-sm text-muted-foreground">A mirror of Google Calendar: the events the crew gets on their phones. To put a customer on a day and pick who's going, use the Calendar tab.</p>
           <GoogleCalendar embedded />
         </>
-      ) : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : <PastView />}
+      ) : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : tab === "fridays" ? <FridaysView /> : <PastView />}
+    </div>
+  );
+}
+
+
+/** The crew's Friday answers, newest week first (Alan, 2026-10-28: "did we
+ *  lose anything this week? did a customer say anything we need to do
+ *  better? anything else I could do better?"). Jose's truck list shows what
+ *  needs attention. Office only; nothing here mentions pay. */
+function FridaysView() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.getWeekCheckins>> | null>(null);
+  useEffect(() => {
+    api.getWeekCheckins(8).then(setData).catch((e) => toast.error(errMessage(e, "Couldn't load the Friday answers")));
+  }, []);
+  if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const weeks = Array.from(new Set(data.checkins.map((c) => c.week_ending)));
+  const day = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const when = (iso: string) => (iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "");
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">Every employee gets "How did the week go?" on My Schedule from Friday to Sunday. Three questions, their words, only the office reads it. Jose also taps through the truck. Spanish answers are marked; read them as they are or ask for them in English on Monday.</p>
+      {!weeks.length ? <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">Nothing yet. The first answers land this Friday.</p> : null}
+      {weeks.map((we) => (
+        <div key={we} className="space-y-2">
+          <h2 className="font-heading text-lg font-bold">Week ending {day(we)}</h2>
+          {data.checkins.filter((c) => c.week_ending === we).map((c) => {
+            const needs = Object.entries(c.truck).filter(([, s]) => s === "needs").map(([k]) => k);
+            const oks = Object.entries(c.truck).filter(([, s]) => s === "ok").map(([k]) => k);
+            return (
+              <div key={c.id} className="rounded-2xl border border-border bg-card p-3">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-semibold">{c.person}</span>
+                  <span className="text-xs text-muted-foreground">{when(c.updated_at)}</span>
+                  {c.lang === "es" ? <span className="rounded-full bg-amber-100 px-2 text-xs font-semibold text-amber-900">in Spanish</span> : null}
+                </div>
+                <dl className="mt-2 space-y-1.5">
+                  {data.questions.map((q) => (
+                    <div key={q.key}>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{q.text}</dt>
+                      <dd className={cn("whitespace-pre-wrap text-sm", c[q.key] ? "" : "text-muted-foreground italic")}>{c[q.key] || "Nothing, all good"}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {needs.length || oks.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {needs.map((k) => <span key={k} className="rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-bold capitalize text-white">{k}: needs attention</span>)}
+                    {oks.map((k) => <span key={k} className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-emerald-900">{k} OK</span>)}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

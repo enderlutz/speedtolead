@@ -2010,6 +2010,26 @@ class CrewPayHistory(Base):
     note = Column(Text, default="")
 
 
+class WeekCheckin(Base):
+    """Friday's "How did the week go?" from one employee (Alan, 2026-10-28,
+    after the truck battery died at a customer's house and nobody told him):
+    three questions in his words, answered from the phone, read only by the
+    office. One row per person per week (week_ending = that week's Friday).
+    truck_json holds the vehicle tap-list, only for whoever drives a company
+    truck. See api/week_checkin.py."""
+    __tablename__ = "week_checkins"
+    id = Column(Text, primary_key=True)
+    username = Column(Text, default="", index=True)
+    week_ending = Column(Text, default="", index=True)   # "YYYY-MM-DD", a Friday
+    lost = Column(Text, default="")            # Did we lose anything this week?
+    customer_said = Column(Text, default="")   # Did a customer say anything we need to do better?
+    improve = Column(Text, default="")         # Anything else I could do better?
+    truck_json = Column(Text, default="{}")    # {"battery": "ok" | "needs", ...}
+    lang = Column(Text, default="")            # "es" when written in Spanish
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 class CompanyCamPhoto(Base):
     """One job-site photo.
 
