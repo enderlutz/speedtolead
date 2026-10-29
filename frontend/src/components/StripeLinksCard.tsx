@@ -398,7 +398,8 @@ type Row = { key: number; name: string; description: string; qty: string; amount
 
 const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
-const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
+// A part is fine: 12.5 rails (Alan, 2026-10-29).
+const qtyOf = (r: Row) => { const q = Math.round((Number(r.qty) || 0) * 100) / 100; return q > 0 ? q : 1; };
 
 function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [], bookedServices = [], suggested, startOpen = false }: {
   leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean;
@@ -580,16 +581,16 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
             <div className="mt-1 flex items-center gap-1.5 text-sm">
               <label className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
                 <span className="text-[11px] font-semibold uppercase text-muted-foreground">Qty</span>
-                <input value={r.qty} onChange={(e) => set(r.key, { qty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" aria-label="Quantity"
+                <input value={r.qty} onChange={(e) => set(r.key, { qty: e.target.value.replace(/[^0-9.]/g, "") })} inputMode="decimal" aria-label="Quantity"
                   className="w-10 bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
               </label>
               <span className="text-muted-foreground">×</span>
               <div className="flex h-8 w-28 items-center rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
                 <span className="shrink-0 text-sm text-muted-foreground">$</span>
-                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" aria-label={qtyOf(r) > 1 ? "Price each" : "Price"}
+                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" aria-label={qtyOf(r) !== 1 ? "Price each" : "Price"}
                   className="min-w-0 w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
               </div>
-              {qtyOf(r) > 1 ? <span className="text-xs text-muted-foreground">each</span> : null}
+              {qtyOf(r) !== 1 ? <span className="text-xs text-muted-foreground">each</span> : null}
               <span className="ml-auto font-bold tabular-nums">{money(lineTotal(r))}</span>
             </div>
             {r.discount !== null ? (

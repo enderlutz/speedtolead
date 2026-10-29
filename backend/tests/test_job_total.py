@@ -72,3 +72,20 @@ def test_quick_250_job_total_from_the_call(db):
     g = jt.guess_total(db, l.id)
     assert (g["total"], g["tier"]) == (1400, "legacy")
     assert jt.tier_from_text("we're clear on that, solid work") == ""
+
+
+def test_texted_lines_become_real_invoice_lines():
+    items = jt.quote_items(jt.parse_quote(FINAL)["lines"], "Legacy Finish- Fence Staining")
+    assert items == [
+        {"name": "Legacy Finish- Fence Staining", "qty": 1, "unit_price": 1994.4,
+         "description": "Cleaning & staining of the fence · Cabot Semi-Solid Cordovan Leather, 2 coats"},
+        {"name": "Picket Replacement (Cedar)", "qty": 30, "unit_price": 10.0, "description": ""},
+        {"name": "2x4 Rails", "qty": 12.5, "unit_price": 75.0, "description": ""},
+        {"name": "Post Replacement", "qty": 1, "unit_price": 225.0, "description": ""},
+    ]
+    assert round(sum(i["qty"] * i["unit_price"] for i in items), 2) == 3456.9
+    first = jt.quote_items(jt.parse_quote(FIRST)["lines"])
+    assert first[0]["name"] == "Legacy Finish- Fence Staining" and first[1]["name"] == "Picket Replacement (Pine)"
+    # A line that isn't a known item stays as texted.
+    odd = jt.quote_items([{"name": "Gate hinge swap", "amount": 40.0}])
+    assert odd == [{"name": "Gate hinge swap", "qty": 1, "unit_price": 40.0, "description": ""}]

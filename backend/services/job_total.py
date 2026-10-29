@@ -43,6 +43,65 @@ def parse_quote(body: str) -> dict | None:
     return {"total": round(total, 2), "lines": lines}
 
 
+# A texted line becomes a real invoice line (Alan, 2026-10-29: "that's how
+# you make a real invoice"): the item as named in Quick add, how many, and
+# the price each. "30 cedar pickets at $10" → Picket Replacement (Cedar),
+# 30 × $10; "5.5 more 2x4 rails" joins the 7 rails → 2x4 Rails, 12.5 × $75.
+_QTY = re.compile(r"^\s*(\d+(?:\.\d+)?)\s+(?:more\s+)?", re.I)
+_EACH = re.compile(r"\bat\s+\$([\d,]+(?:\.\d{1,2})?)", re.I)
+_ITEMS = [
+    (re.compile(r"picket", re.I), lambda t: "Picket Replacement (Pine)" if re.search(r"\bpine\b", t, re.I) else "Picket Replacement (Cedar)"),
+    (re.compile(r"\b(rails?|2x4s?)\b", re.I), lambda t: "2x4 Rails"),
+    (re.compile(r"\bposts?\b", re.I), lambda t: "Post Replacement"),
+    (re.compile(r"\brot ?boards?\b", re.I), lambda t: "Rotboard"),
+    (re.compile(r"\bcaps?\b", re.I), lambda t: "Top Of Caps"),
+]
+_STAIN_WORDS = re.compile(r"^\s*(?:fence\s+)?cleaning\s+(?:and|&)\s+staining\b[\s,:(-]*", re.I)
+
+
+def _num(q: float) -> float | int:
+    return int(q) if float(q).is_integer() else round(q, 2)
+
+
+def _fence_name(text: str) -> str:
+    t = text.lower()
+    if "solid" in t:          # solid and semi-solid = Legacy
+        return "Legacy Finish- Fence Staining"
+    if re.search(r"transparent|\boil\b|signature", t):
+        return "Signature Finish- Fence Staining"
+    if "essential" in t:
+        return "Essential Finish- Fence Staining"
+    return "Fence Staining"
+
+
+def quote_items(lines: list[dict], fence_name: str = "") -> list[dict]:
+    """[{"name", "qty", "unit_price", "description"}] from a texted quote's
+    lines, same items merged. fence_name: the staining line's name from the
+    job's records, so the package matches."""
+    out: list[dict] = []
+    for l in lines:
+        text, amount = l["name"], float(l["amount"])
+        if re.search(r"\bstain", text, re.I) and not any(rx.search(text) for rx, _ in _ITEMS[:3]):
+            rest = _STAIN_WORDS.sub("", text).strip(" ()")
+            desc = " · ".join(b for b in ["Cleaning & staining of the fence", rest] if b)
+            out.append({"name": fence_name or _fence_name(text), "qty": 1, "unit_price": round(amount, 2), "description": desc})
+            continue
+        name = next((f(text) for rx, f in _ITEMS if rx.search(text)), None)
+        q = _QTY.match(text)
+        qty = float(q.group(1)) if q else 1.0
+        each = _EACH.search(text)
+        unit = _dollars(each.group(1)) if each else (amount / qty if qty else amount)
+        if not name or not qty or abs(qty * unit - amount) > 0.01:
+            out.append({"name": text, "qty": 1, "unit_price": round(amount, 2), "description": ""})
+            continue
+        same = next((o for o in out if o["name"] == name and abs(o["unit_price"] - unit) < 0.005), None)
+        if same:
+            same["qty"] = _num(same["qty"] + qty)
+        else:
+            out.append({"name": name, "qty": _num(qty), "unit_price": round(unit, 2), "description": ""})
+    return out
+
+
 def texted_quote(db, lead_id: str) -> dict | None:
     """The latest itemized total texted to the customer, or None."""
     rows = (db.query(Message.body, Message.created_at)

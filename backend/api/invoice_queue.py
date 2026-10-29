@@ -355,8 +355,9 @@ def alert_ready(lead_id: str, note: str = "", what: str = "fence", db=None) -> N
 TIER_NAMES = {"essential": "Essential", "signature": "Signature", "legacy": "Legacy"}
 
 
-def _line(name: str, price: float, qty: int = 1, description: str = "", discount: float = 0, discount_label: str = "") -> dict:
-    out = {"name": name, "description": description, "qty": max(1, int(qty or 1)), "unit_price": round(float(price), 2)}
+def _line(name: str, price: float, qty: float = 1, description: str = "", discount: float = 0, discount_label: str = "") -> dict:
+    q = float(qty or 1) if float(qty or 1) > 0 else 1.0
+    out = {"name": name, "description": description, "qty": int(q) if q.is_integer() else round(q, 2), "unit_price": round(float(price), 2)}
     if discount > 0:
         out.update(discount=round(discount, 2), discount_label=discount_label or "Discount")
     return out
@@ -446,12 +447,13 @@ def suggest_invoice(db, lead_id: str) -> dict:
     # Built from the records, but the customer was texted a different total:
     # the text is what they agreed to, so the bill follows it (Alan,
     # 2026-10-29: 5.5 extra rails agreed by text never reached the job).
-    from services.job_total import texted_quote
+    from services.job_total import quote_items, texted_quote
     built = sum(i["unit_price"] * i["qty"] - i.get("discount", 0) for i in items) - (whole or {}).get("amount", 0)
     tq = texted_quote(db, lead_id)
     source = None
     if tq and abs(tq["total"] - built) > 0.5:
         source = {"kind": "texted", "sent_at": tq["sent_at"], "total": tq["total"], "records_total": round(built, 2)}
-        items = [_line(l["name"], l["amount"]) for l in tq["lines"]]
+        fence = next((i["name"] for i in items if "Finish- Fence Staining" in i["name"]), "")
+        items = [_line(l["name"], l["unit_price"], l["qty"], l["description"]) for l in quote_items(tq["lines"], fence)]
         whole = None
     return {"items": items, "credit": round(credit, 2), "whole_discount": whole, "source": source}
