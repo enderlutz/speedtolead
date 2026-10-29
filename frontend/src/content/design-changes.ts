@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-29", title: "All the colors, no Signature/Legacy tabs",
+    what: "Step 2 \"See the colors\" no longer has the two package buttons. It shows \"Signature Finish colors\" with every Signature color, then \"Legacy Finish colors\" with every Legacy color under it. Tap a color to see it up close; nothing to pick here. The package photos are tagged \"Example\"." },
   { date: "2026-10-28", title: "What's included, right under Step 1",
     what: "Under \"Choose 1 of these 3 · Higher ones last longer.\" \"With every one of these, at no extra charge:\" then three checks: The cleaning · Two coats of stain · Screwing in any loose boards. The small line under the packages now just says \"Every price includes tax. Every package comes with our 1-year warranty on the work.\"" },
   { date: "2026-10-28", title: "Step 1 drops \"stains your whole fence\"",

@@ -414,7 +414,6 @@ const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
   { name: "Silver Mine", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/0ad80f7d-f86e-4ace-9f18-466daf8efbe6/cf7043e7-45cc-4b04-8538-1aada511ca11_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/0ad80f7d-f86e-4ace-9f18-466daf8efbe6/cf7043e7-45cc-4b04-8538-1aada511ca11.jpg" },
   { name: "Darkest Night", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/3fdbff10-04d9-44a1-b878-f51f3e0ae197/49241180-35a4-48f5-91a9-52fa7c664ab9_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/3fdbff10-04d9-44a1-b878-f51f3e0ae197/49241180-35a4-48f5-91a9-52fa7c664ab9.jpg" },
 ];
-const LEGACY_NO_PHOTO = ["Cedar Naturaltone", "Midnight Gray"];
 
 // Affirm is archived: Stripe doesn't support it for this business, so
 // Klarna is the only pay-over-time door (Alan, 2026-10-13). Flip this to
@@ -667,12 +666,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // drawing backs it up.
   const hasDrawing = preview ? !!dressed?.scopeUrl : true;
   const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
-  const [palette, setPalette] = useState<"signature" | "legacy">("signature");
   // Colours to look at, both sets out, no Signature/Legacy buttons (Alan,
   // 2026-10-28: customers weren't finding the Legacy colours; 33 calls in two
-  // weeks walked someone there). Mock first: only the sample page in Design
-  // Lab shows it until Alan says go; a real customer's page keeps the tabs.
-  const colorsV2 = !live;
+  // weeks walked someone there). Live since 2026-10-29: "Signature Finish
+  // colors" with all of them, then "Legacy Finish colors" with all of them.
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -710,10 +707,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   const bump = (key: string, by: number) =>
     setCounts((c) => ({ ...c, [key]: Math.max(0, (c[key] || 0) + by) }));
 
-  const choose = (key: PkgKey) => {
-    setPkg(key);
-    if (key !== "essential") setPalette(key);
-  };
+  const choose = (key: PkgKey) => setPkg(key);
 
   // The two doors. On the real page they make the pay link for the package
   // picked and send the customer to it; the mockup opens its fake checkout.
@@ -944,7 +938,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                         <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[44px]" : "h-[90px]")} draggable={false} />
                       ))}
                       <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
-                      {colorsV2 ? <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span> : null}
+                      <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span>
                     </div>
                     <div className="flex flex-1 flex-col px-1 pb-1.5 pt-1">
                       <p className="font-heading text-[22px] font-bold leading-[24px]" style={{ color: s.name }}>{p.short}</p>
@@ -1004,7 +998,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                             {p.captions?.[i] ? (
                               <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
                             ) : null}
-                            {colorsV2 && i === 0 ? (
+                            {i === 0 ? (
                               <span className="absolute right-1.5 top-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example · all colors below</span>
                             ) : null}
                           </div>
@@ -1058,15 +1052,13 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             made with us on the phone (Alan, 2026-10-10, after a competitor's
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
-          {colorsV2 ? (
-            <>
               <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Just to look. Tap any color to see it up close. When you've found the one you like, tell us on the phone or by text and we'll put it on your job." />
               <p className="mb-4 rounded-xl bg-white px-3 py-2.5 text-[15px] font-semibold ring-1 ring-[#15130F]/10">
-                {SIGNATURE_PHOTOS.length} Signature colors first, then {LEGACY_PHOTOS.length} Legacy colors below them. Keep scrolling to see them all.
+                {SIGNATURE_PHOTOS.length} Signature Finish colors first, then {LEGACY_PHOTOS.length} Legacy Finish colors under them. Keep scrolling to see them all.
               </p>
               {([
-                { key: "signature" as const, title: "Signature colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
-                { key: "legacy" as const, title: "Legacy colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
+                { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
+                { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
               ]).map((g) => (
                 <div key={g.key} className={cn(g.key === "legacy" && "mt-6")}>
                   <div className="mb-2 flex items-center gap-2">
@@ -1090,62 +1082,6 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                   <p className="mt-2 text-[15px] text-[#15130F]/75">{g.foot}</p>
                 </div>
               ))}
-            </>
-          ) : (<>
-          <SectionTitle kicker="Step 2 of 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
-          {/* The two tabs are the two packages, not two words: the package's
-              own photo behind the name, the first few colours fanned out, and
-              the one that's open shines (Alan, 2026-10-10: "give it a little
-              more branding… a little twinkle"). */}
-          <div className="mb-3 grid grid-cols-2 gap-2">
-            {(["signature", "legacy"] as const).map((k) => {
-              const on = palette === k;
-              const p = packages.find((x) => x.key === k)!;
-              const colors = k === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS;
-              return (
-                <button key={k} type="button" onClick={() => setPalette(k)} aria-pressed={on}
-                  className={cn("relative h-[76px] overflow-hidden rounded-2xl text-left transition duration-300",
-                    on ? "scale-[1.02] text-white shadow-xl shadow-[#C9972F]/30 ring-2 ring-[#C9972F]" : "bg-white text-[#15130F] ring-1 ring-[#15130F]/10 active:scale-[0.98]")}>
-                  {on ? (
-                    <>
-                      <img src={p.photos[0]} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
-                      <div className="absolute inset-0 bg-gradient-to-r from-[#15130F] via-[#15130F]/85 to-[#15130F]/45" />
-                      <span className="mock-shine" aria-hidden />
-                      <Sparkles className="mock-twinkle absolute right-2 top-2 h-5 w-5" style={{ color: "#E3BE63" }} aria-hidden />
-                    </>
-                  ) : null}
-                  <span className="relative flex h-full flex-col justify-center px-3">
-                    <span className="flex items-center gap-2">
-                      <span className="flex shrink-0 -space-x-2">
-                        {colors.slice(0, 3).map((c) => (
-                          <img key={c.name} src={c.src} alt="" loading="lazy" draggable={false}
-                            className={cn("h-7 w-7 rounded-full object-cover ring-2", on ? "ring-[#15130F]" : "ring-white")} />
-                        ))}
-                      </span>
-                      <span className={cn("font-heading text-[17px] font-bold leading-tight", on && "text-[#E3BE63]")}>{p.short}</span>
-                    </span>
-                    <span className={cn("mt-1 text-[12px] font-semibold", on ? "text-white/90" : "text-[#15130F]/75")}>
-                      {colors.length} colors · {k === "signature" ? "see the grain" : "solid color"}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {(palette === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS).map((c) => (
-              <button key={c.name} type="button"
-                onClick={() => setColorOpen({ name: c.name, src: c.src, full: "full" in c ? (c as { full: string }).full : undefined, note: "note" in c ? (c as { note: string }).note : undefined, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
-                className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
-                <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
-                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-[15px] text-[#15130F]/75">
-            {palette === "signature" ? "Real fences we stained. More colors as photos are added." : `Real fences we stained. ${LEGACY_NO_PHOTO.join(" and ")}: photos coming.`}
-          </p>
-          </>)}
 
           {/* The colour they want isn't here. */}
           <div className="mt-4 rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
