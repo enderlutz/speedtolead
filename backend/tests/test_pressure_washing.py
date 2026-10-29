@@ -140,7 +140,8 @@ def test_crew_gets_the_washing_screen_without_prices(db, wired):
     assert payload["pw_mode"] is True
     assert payload["job"]["pw_services"] == ["house_wash", "driveway"]
     # Only his own pay; the job's price is nowhere in what loads.
-    assert payload["crew_pay"] == {"BrentBrown": {"pay_type": "flat", "pay": 100.0}}
+    assert payload["crew_pay"] == {"BrentBrown": {"pay_type": "flat", "pay": 100.0},
+                                   "BrentBrown|2026-10-20|pressure_washing": {"pay_type": "flat", "pay": 100.0}}
     blob = json.dumps(payload)
     assert "final_price" not in blob and "1234" not in blob and "123456" not in blob
     # Owed: a before and an after per service, nothing about a fence.

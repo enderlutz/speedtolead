@@ -141,7 +141,9 @@ def test_job_costing(db, monkeypatch):
     job.crew_json = json.dumps([
         {"username": "Chris", "date": "2026-10-19", "task": "cleaning", "pay_type": "flat", "pay": 85},
         {"username": "Brent", "date": "2026-10-20", "task": "staining", "pay_type": "flat", "pay": 180},
-        {"username": "Brent", "date": "2026-10-21", "task": "staining", "pay_type": "flat", "pay": 180},
+        # Pay is per line (2026-10-28): Brent's flat covers both days, so day
+        # two is "in the flat" and adds nothing.
+        {"username": "Brent", "date": "2026-10-21", "task": "staining", "pay_type": "included", "pay": 0},
         {"username": "Jose", "date": "2026-10-20", "task": "staining", "pay_type": "hourly", "pay": 16},
     ])
     db.commit()
@@ -152,7 +154,7 @@ def test_job_costing(db, monkeypatch):
     # the supplies receipt is dated 2026-10-10; only counts when the job finished that month
     r = mat.job_costing(month=month, user=ADMIN)
     row = r["jobs"][0]
-    assert row["crew_pay"] == 265 and row["hourly_crew"] == ["Jose"]       # Brent counted once
+    assert row["crew_pay"] == 265 and row["hourly_crew"] == ["Jose"]       # Brent's flat counted once
     assert row["stain_cost"] == 266.0 and row["fees"] == round(1663.20 * 0.03, 2)
     supplies = 100.0 if month == "2026-10" else 0.0
     assert row["gross_profit"] == round(1663.20 - 265 - 266.0 - supplies - 1663.20 * 0.03, 2)
