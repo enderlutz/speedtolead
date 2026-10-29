@@ -1067,3 +1067,51 @@ def test_pay_belongs_to_a_line_not_the_person(db, monkeypatch):
     # Job costing adds up the flat lines only; the hourly line names Chris.
     job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
     assert materials._crew_cost(job) == (150.0, ["Chris"])
+
+
+def test_every_pay_change_is_written_down(db, monkeypatch):
+    # Alan (2026-10-28), after Chris's flat prices for the week were nowhere
+    # to be found: "keep a history in case this happens again".
+    from database import User
+    from api import permissions as perms
+    from api import pm_calendar as pm
+    from services import crew_pay_history as hist
+    monkeypatch.setattr(perms, "get_db", lambda: db)
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(pm, "get_db", lambda: db)
+    db.close = lambda: None
+    db.add(User(id="w1", username="Chris", display_name="Chris Moran", password_hash="x", role="worker",
+                permissions='{"company_cam": true}', hourly_rate=16, created_at=""))
+    db.commit()
+    lead = _lead(db, name="Customer A", address="1 Oak St")
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[{"username": "Chris", "date": "2026-10-26", "task": "cleaning"}]), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-26", "task": "cleaning", "pay_type": "flat", "pay": 65}), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-26", "task": "cleaning", "pay_type": "flat", "pay": 74}), user=USER)
+    # Saving the job with the same pay writes nothing.
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Chris", "date": "2026-10-26", "task": "cleaning", "pay_type": "flat", "pay": 74}), user=USER)
+    pm.assign(pm.DayBody(lead_id=lead.id, date="2026-10-29", username="Chris", task="staining", helper=True), user=USER)
+    pm.unassign(pm.DayBody(lead_id=lead.id, date="2026-10-26", username="Chris", task="cleaning"), user=USER)
+    rows = cc.pay_history(lead.id, user=USER)["history"]
+    got = [(r["action"], r["work_date"], r["task"], r["before"]["pay_type"], r["before"]["pay"], r["after"]["pay_type"], r["after"]["pay"], r["source"]) for r in rows]
+    assert got == [
+        ("removed", "2026-10-26", "cleaning", "flat", 74.0, "", 0.0, "pm hq"),
+        ("added", "2026-10-29", "staining", "", 0.0, "", 0.0, "pm hq"),
+        ("set", "2026-10-26", "cleaning", "flat", 65.0, "flat", 74.0, "job page"),
+        ("set", "2026-10-26", "cleaning", "", 0.0, "flat", 65.0, "job page"),
+        ("added", "2026-10-26", "cleaning", "", 0.0, "", 0.0, "job page"),
+    ]
+    assert all(r["changed_by"] == "Alan" and r["person"] == "Chris Moran" and r["changed_at"] for r in rows)
+    # The line is gone from the job, but what it paid is not.
+    assert "Chris|2026-10-26|cleaning" not in cc.get_company_cam(lead.id, user=USER)["crew_pay"]
+    # Per worker, by the day worked, with a note for a number that has no line yet.
+    hist.add_note(db, "Chris", "2026-10-25", "Sunday hourly, from the call", "Alan", amount=149.07)
+    db.commit()
+    week = pm.pay_history(username="chris", start="2026-10-25", end="2026-10-31", user=USER)["history"]
+    assert [r["action"] for r in week] == ["note", "removed", "added", "set", "set", "added"]
+    assert week[0]["after"]["pay"] == 149.07 and week[0]["note"] == "Sunday hourly, from the call"
+    assert pm.pay_history(username="chris", start="2026-10-29", user=USER)["history"][0]["work_date"] == "2026-10-29"
+    # The crew never see it.
+    with pytest.raises(HTTPException):
+        cc.pay_history(lead.id, user={"sub": "chris", "name": "Chris Moran", "role": "worker"})
+    with pytest.raises(HTTPException):
+        pm.pay_history(username="chris", user={"sub": "chris", "name": "Chris Moran", "role": "worker"})

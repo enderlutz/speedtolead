@@ -1986,6 +1986,30 @@ class CompanyCamJob(Base):
     updated_at = Column(Text, default="")
 
 
+class CrewPayHistory(Base):
+    """One row per change to a crew line's pay (Alan, 2026-10-28: "keep a
+    history in case this happens again"). A line is a person, a day and a
+    task on one job; the row keeps what the pay was and what it became, who
+    changed it and from where. Lines taken off a job keep their last pay
+    here. A "note" row is a pay fact with no line to carry it. See
+    services/crew_pay_history.py."""
+    __tablename__ = "crew_pay_history"
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, default="", index=True)
+    username = Column(Text, default="", index=True)
+    work_date = Column(Text, default="")        # the day worked, "YYYY-MM-DD"
+    task = Column(Text, default="")
+    action = Column(Text, default="")           # added | set | removed | note
+    before_type = Column(Text, default="")      # flat | hourly | included | ""
+    before_pay = Column(Float, default=0.0)
+    after_type = Column(Text, default="")
+    after_pay = Column(Float, default=0.0)
+    changed_by = Column(Text, default="")
+    changed_at = Column(Text, default="")
+    source = Column(Text, default="")           # job page | pm hq | note
+    note = Column(Text, default="")
+
+
 class CompanyCamPhoto(Base):
     """One job-site photo.
 

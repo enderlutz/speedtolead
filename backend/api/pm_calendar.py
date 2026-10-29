@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user, require_admin
 from api.company_cam import _crew_entries, _crew_options, _sees_all, default_pay, effective_order
+from services.crew_pay_history import history_for_worker, record_pay_changes
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import (
     CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICES, STAINER_CHECKLIST, is_pw_job, pw_custom_of, pw_label, pw_progress, pw_services_of,
@@ -220,6 +221,23 @@ class DayBody(BaseModel):
     helper: bool = False
 
 
+def _who(user: dict) -> str:
+    return str(user.get("name") or user.get("sub") or "")
+
+
+@router.get("/pm-hq/pay-history")
+def pay_history(username: str = "", start: str = "", end: str = "", user: dict = Depends(_office)):
+    """One worker's (or everyone's) pay changes by the day worked, newest
+    change first (Alan, 2026-10-28). Office only; the crew never see pay."""
+    if not _sees_all(user):
+        raise HTTPException(403, "Only the office sees pay history")
+    db = get_db()
+    try:
+        return {"history": history_for_worker(db, username, start, end)}
+    finally:
+        db.close()
+
+
 def _job_for(db, lead_id: str) -> CompanyCamJob:
     from api.company_cam import _get_or_create, _lead_or_404
     return _get_or_create(db, _lead_or_404(db, lead_id))
@@ -240,6 +258,7 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
             raise HTTPException(400, "No crew account with that name")
         job = _job_for(db, body.lead_id)
         entries = _crew_entries(job)
+        before = [dict(e) for e in entries]
         # Pay belongs to a line (person, day, task). A new day on the same
         # task keeps that task's pay; a different task starts blank, so the
         # worker's hourly rate applies until the office sets it (Alan,
@@ -258,6 +277,7 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
                         if r["username"].lower() == u.username.lower()), default=0)
             entries.append({"username": u.username, "date": body.date[:10], "task": body.task, "order": last + 1,
                             "helper": body.helper, **pay})
+        record_pay_changes(db, job.lead_id, before, entries, _who(user), source="pm hq")
         job.crew_json = json.dumps(entries)
         job.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()
@@ -278,6 +298,7 @@ def unassign(body: DayBody, user: dict = Depends(require_admin)):
                                            and e["date"] == body.date[:10] and e["task"] == body.task)]
         if len(keep) == len(entries):
             raise HTTPException(404, "That day isn't on the job")
+        record_pay_changes(db, job.lead_id, entries, keep, _who(user), source="pm hq")
         job.crew_json = json.dumps(keep)
         job.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()
@@ -341,6 +362,7 @@ def move(body: MoveBody, user: dict = Depends(require_admin)):
         if not job:
             raise HTTPException(404, "No job for that customer")
         entries = _crew_entries(job)
+        before = [dict(e) for e in entries]
         me = next((e for e in entries if e["username"].lower() == body.username.lower()
                    and e["date"] == src and e["task"] == body.task), None)
         if me is None:
@@ -361,6 +383,7 @@ def move(body: MoveBody, user: dict = Depends(require_admin)):
                             and r["lead_id"] != body.lead_id), default=0)
                 e["date"], e["order"] = dst, last + 1
             keep.append(e)
+        record_pay_changes(db, job.lead_id, before, keep, _who(user), source="pm hq")
         job.crew_json = json.dumps(keep)
         job.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()

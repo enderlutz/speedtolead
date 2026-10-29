@@ -525,6 +525,21 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
     return out
 
 
+@router.get("/company-cam/{lead_id}/pay-history", dependencies=[Depends(crew_guard)])
+def pay_history(lead_id: str, user: dict = Depends(get_current_user)):
+    """Every change to anyone's pay on this job, newest first (Alan,
+    2026-10-28: "keep a history in case this happens again"). Office only."""
+    if not _sees_all(user):
+        raise HTTPException(403, "Only the office sees pay history")
+    db = get_db()
+    try:
+        _lead_or_404(db, lead_id)
+        from services.crew_pay_history import history_for_lead
+        return {"history": history_for_lead(db, lead_id)}
+    finally:
+        db.close()
+
+
 @router.get("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
 def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
     """The whole record. Creates it on first open and imports the scope."""
@@ -707,6 +722,8 @@ def update_company_cam(
     try:
         lead = _lead_or_404(db, lead_id)
         job = _get_or_create(db, lead)
+        # The lines as they were, so every pay change is written down.
+        pay_before = [dict(e) for e in _crew_entries(job)]
 
         if body.sqft is not None:
             job.sqft = max(0.0, float(body.sqft))
@@ -974,6 +991,9 @@ def update_company_cam(
             reverse_job_materials(db, job, _actor(user))
             apply_job_materials(db, job, _actor(user))
 
+        if body.crew is not None or body.crew_pay is not None:
+            from services.crew_pay_history import record_pay_changes
+            record_pay_changes(db, job.lead_id, pay_before, _crew_entries(job), _actor(user), source="job page")
         job.updated_at = _now()
         db.commit()
         if newly_confirmed:

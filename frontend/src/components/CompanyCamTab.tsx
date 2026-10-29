@@ -24,12 +24,12 @@ import {
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt, Waves,
-  Pencil,
+  Pencil, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   api, canSeeRevenue, getCurrentUser, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type BleachStats, type StainOption, type CompanyCamPhoto,
-  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow,
+  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow, type CrewPayHistoryRow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
@@ -1405,6 +1405,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             })}
             {!(data.crew_options || []).length ? <p className="text-sm text-muted-foreground">{tr("No crew accounts yet. Make one in Settings → Permissions.")}</p> : null}
           </div>
+          <PayHistory leadId={leadId} version={JSON.stringify(data.crew_pay || {}) + JSON.stringify(job.crew || [])} />
         </div>
       ) : null}
 
@@ -3045,7 +3046,19 @@ function CrewPayPicker({ username, value, onSave }: { username: string; value?: 
   const save = (k: CrewPay["pay_type"], a: string) => {
     const n = Math.round((Number(a) || 0) * 100) / 100;
     if (k === (value?.pay_type || "") && n === (value?.pay || 0)) return;
+    // A flat or an hourly needs its number first: tapping Flat on a line
+    // showing the $16/hr default used to save "Flat $16" (Alan, 2026-10-28).
+    if ((k === "flat" || k === "hourly") && !(n > 0)) return;
     onSave({ pay_type: k, pay: k ? n : 0 });
+  };
+  const pick = (k: CrewPay["pay_type"]) => {
+    const next = kind === k ? "" : k;
+    // The amount box starts blank on a new kind; it only keeps the saved
+    // number when going back to the kind that's saved.
+    const a = next && next === (value?.pay_type || "") && value?.pay ? String(value.pay) : "";
+    setKind(next);
+    setAmount(a);
+    if (next === "" || next === "included") save(next, a);
   };
   return (
     <div className="flex w-full flex-wrap items-center gap-1.5">
@@ -3053,7 +3066,7 @@ function CrewPayPicker({ username, value, onSave }: { username: string; value?: 
       {(["flat", "hourly", "included"] as const).map((k) => (
         <button key={k} type="button" aria-pressed={kind === k}
                 title={k === "included" ? tr("This day is part of a flat price on another day of this job, so it adds nothing") : undefined}
-                onClick={() => { const next = kind === k ? "" : k; setKind(next); save(next, amount); }}
+                onClick={() => pick(k)}
                 className={cn("min-h-11 rounded-lg px-3 text-sm font-semibold ring-1", kind === k ? "bg-ink text-gold-light ring-ink" : "bg-background ring-border")}>
           {k === "flat" ? tr("Flat") : k === "hourly" ? tr("Hourly") : tr("In the flat")}
         </button>
@@ -3067,6 +3080,50 @@ function CrewPayPicker({ username, value, onSave }: { username: string; value?: 
                  className="h-9 w-20 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
           <span className="text-muted-foreground">{kind === "hourly" ? tr("an hour") : tr("for this day")}</span>
         </label>
+      ) : null}
+      {kind && kind !== "included" && !(Number(amount) > 0) ? <span className="text-sm font-semibold text-amber-700">{tr("Type the amount to save it")}</span> : null}
+    </div>
+  );
+}
+
+
+/** Every change to anyone's pay on this job, newest first (Alan, 2026-10-28:
+ *  "keep a history in case this happens again"). Office only; the server
+ *  refuses the crew. */
+function PayHistory({ leadId, version }: { leadId: string; version: string }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<CrewPayHistoryRow[] | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    api.getCrewPayHistory(leadId).then((r) => setRows(r.history)).catch((e) => toast.error(errMessage(e, "Couldn't load the pay history")));
+  }, [open, leadId, version]);
+  const day = (d: string) => (d ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : tr("no day"));
+  const when = (iso: string) => (iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+  const pay = (p: CrewPay) => p.pay_type === "flat" ? `${tr("Flat")} ${usd(p.pay)}` : p.pay_type === "hourly" ? `${usd(p.pay)}/${tr("hr")}` : p.pay_type === "included" ? tr("in the flat") : tr("no pay set");
+  const line = (r: CrewPayHistoryRow) =>
+    r.action === "note" ? `${r.note}${r.after.pay ? ` · ${usd(r.after.pay)}` : ""}`
+    : r.action === "added" ? `${tr("put on the job")}${r.after.pay_type ? ` · ${pay(r.after)}` : ""}`
+    : r.action === "removed" ? `${tr("taken off")} (${tr("was")} ${pay(r.before)})`
+    : `${pay(r.before)} → ${pay(r.after as CrewPay)}`;
+  return (
+    <div className="mt-3 border-t border-border pt-2">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
+        <History className="h-4 w-4" />{tr("Pay history")}{open ? " ▾" : " ▸"}
+      </button>
+      {open ? (
+        rows === null ? <p className="px-2 text-sm text-muted-foreground">{tr("Loading…")}</p>
+        : !rows.length ? <p className="px-2 text-sm text-muted-foreground">{tr("No pay changes on this job yet. From now on every change lands here, even a line that's taken off.")}</p>
+        : (
+          <ul className="mt-1 space-y-1 px-2">
+            {rows.map((r) => (
+              <li key={r.id} className="text-sm leading-snug">
+                <span className="text-muted-foreground">{when(r.changed_at)} · {r.changed_by || "?"}:</span>{" "}
+                <span className="font-semibold">{r.person}</span> · {day(r.work_date)}{r.task ? ` · ${taskLabel(r.task)}` : ""} · {line(r)}
+              </li>
+            ))}
+          </ul>
+        )
       ) : null}
     </div>
   );

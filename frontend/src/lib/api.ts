@@ -3933,6 +3933,12 @@ export const api = {
     request<{ lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
+  /** Every change to anyone's pay on this job, newest first (office only). */
+  getCrewPayHistory: (leadId: string) =>
+    request<{ history: CrewPayHistoryRow[] }>(`/api/company-cam/${leadId}/pay-history`),
+  /** One worker's (or everyone's) pay changes by the day worked (office only). */
+  getPmPayHistory: (q: { username?: string; start?: string; end?: string }) =>
+    request<{ history: CrewPayHistoryRow[] }>(`/api/pm-hq/pay-history?username=${encodeURIComponent(q.username || "")}&start=${q.start || ""}&end=${q.end || ""}`),
   updateCompanyCam: (
     leadId: string,
     patch: Partial<CompanyCamJob> & {
@@ -6268,6 +6274,12 @@ export type CrewEntry = { username: string; date: string; task: CrewDayTask; hel
 // Pay belongs to a line (one person, one day, one task). "included" = a day
 // that's part of a flat on another line of the same job, so it counts nothing.
 export type CrewPay = { pay_type: "" | "flat" | "hourly" | "included"; pay: number };
+/** One change to a crew line's pay (Alan, 2026-10-28: "keep a history"). */
+export type CrewPayHistoryRow = {
+  id: string; lead_id: string; username: string; person: string; work_date: string; task: string;
+  action: "added" | "set" | "removed" | "note"; before: CrewPay; after: CrewPay & { pay_type: CrewPay["pay_type"] | "note" };
+  changed_by: string; changed_at: string; source: string; note: string;
+};
 
 export type CourseVideo = { label: string; url: string };
 export type CourseQuizQ = { q: string; options: string[]; answer?: number };
