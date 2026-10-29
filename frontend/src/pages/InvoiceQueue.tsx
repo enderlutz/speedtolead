@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from "lucide-react";
 import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
-import { BookingReviewQueue } from "@/components/BookingReviewQueue";
 import { cn, errMessage, formatCurrency } from "@/lib/utils";
 
 const STAGES: { key: InvoiceStageKey; label: string; short: string; money: string; empty: string; icon: React.ElementType }[] = [
@@ -94,7 +93,7 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
 
   // The big number on the right and what it means for this stage.
   const [amount, amountLabel] =
-    r.stage === "deposit_sent" ? [r.total, "job total"]
+    r.stage === "deposit_sent" ? [r.total, r.total_source === "guess" ? "job total, about" : "job total"]
     : r.stage === "closed" ? [r.paid, "collected"]
     : r.stage === "invoice_sent" ? [r.due, "on the bill"]
     : [r.due, r.stage === "ready" ? "left to bill" : "left after the job"];
@@ -118,6 +117,9 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
                 {r.booked_date ? <Chip tone="muted">Aiming for {day(r.booked_date)}</Chip> : null}
               </>
             ) : null}
+            {r.quick ? <Chip tone="muted">Quick $250</Chip> : null}
+            {r.total_source === "guess" ? <Chip tone="gold">≈ {usd(r.total)} · {r.total_why}</Chip> : null}
+            {r.total_source === "texted" ? <Chip tone="ink">{r.total_why}: {usd(r.total)}</Chip> : null}
             {r.stage === "deposit_paid" ? (
               <>
                 <Chip tone="green">{r.paid_in_full_up_front ? "Paid in full" : `$250 paid`}</Chip>
@@ -255,8 +257,8 @@ export default function InvoiceQueue() {
         </button>
       </div>
 
-      {/* Olga's quick $250s, for a look-over (Alan, 2026-10-27). Hidden when there's nothing to review. */}
-      <BookingReviewQueue />
+      {/* The quick $250s live in Deposit sent / Deposit paid with a job total
+          guessed from the call; no separate review box (Alan, 2026-10-29). */}
 
       {/* The five stages, left to right; two to a row on a phone. */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

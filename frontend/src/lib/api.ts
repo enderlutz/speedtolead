@@ -5646,6 +5646,8 @@ export interface InvoiceQueueRow {
   lead_id: string; stage: InvoiceStageKey; when: string;
   name: string; address: string; phone: string;
   total: number; extras: number; paid: number; due: number;
+  /** Where the job total came from: the booking, the total we texted them, or a guess from the call. */
+  total_source?: "booking" | "texted" | "guess" | ""; total_why?: string; quick?: boolean;
   deposit: "paid" | "open" | "none";
   deposit_link: InvoiceQueueLink | null; bill: InvoiceQueueLink | null;
   booked_date: string; done_at: string; done_by: string;
@@ -6231,6 +6233,9 @@ export interface SuggestedInvoice {
   items: { name: string; description: string; qty: number; unit_price: number; discount?: number; discount_label?: string }[];
   credit: number;
   whole_discount: { label: string; amount: number } | null;
+  /** Set when the bill follows the itemized total texted to the customer
+   *  instead of the job record (Alan, 2026-10-29). */
+  source?: { kind: "texted"; sent_at: string; total: number; records_total: number } | null;
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 

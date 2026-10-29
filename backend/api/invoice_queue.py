@@ -180,6 +180,22 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
         else:
             continue
 
+        # The latest itemized total we texted them wins over the records
+        # (Alan, 2026-10-29: the job said $3,044.40, the text said $3,456.90).
+        # A $250 with no job total (the quick $250) gets a guess from the call.
+        # Closed jobs are left as they were.
+        total_source, total_why = ("booking" if total_cents else ""), ""
+        if stage != "closed":
+            from services.job_total import guess_total, texted_quote
+            tq = texted_quote(db, lid)
+            if tq and abs(tq["total"] * 100 - (total_cents + max(0, extras_cents))) > 50:
+                total_cents, extras_cents = int(round(tq["total"] * 100)), 0
+                total_source, total_why = "texted", f"From the total texted {tq['sent_at'][:10]}"
+            elif not total_cents and stage in ("deposit_sent", "deposit_paid"):
+                g = guess_total(db, lid)
+                if g:
+                    total_cents, total_source, total_why = int(round(g["total"] * 100)), "guess", g["why"]
+
         due_cents = max(0, total_cents + max(0, extras_cents) - paid_cents) if total_cents else 0
         if stage == "invoice_sent" or (stage == "ready" and open_bills):
             due_cents = sum(l.amount_cents or 0 for l in open_bills)
@@ -193,6 +209,9 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
             "address": lead.address or "",
             "phone": lead.contact_phone or "",
             "total": total_cents / 100,
+            "total_source": total_source,   # booking | texted | guess | ""
+            "total_why": total_why,
+            "quick": any((l.description or "") == "Quick $250 to lock in the date" for l in deposits),
             "extras": extras_cents / 100,
             "paid": paid_cents / 100,
             "due": due_cents / 100,
@@ -424,4 +443,15 @@ def suggest_invoice(db, lead_id: str) -> dict:
     # booking; the old add-on way adds on top.
     items += [_line(l["name"], l["unit_cents"] / 100, l["qty"], "Counted on site with you" if counted else "Agreed on site")
               for l in ex.get("lines", []) if l.get("unit_cents", 0) > 0]
-    return {"items": items, "credit": round(credit, 2), "whole_discount": whole}
+    # Built from the records, but the customer was texted a different total:
+    # the text is what they agreed to, so the bill follows it (Alan,
+    # 2026-10-29: 5.5 extra rails agreed by text never reached the job).
+    from services.job_total import texted_quote
+    built = sum(i["unit_price"] * i["qty"] - i.get("discount", 0) for i in items) - (whole or {}).get("amount", 0)
+    tq = texted_quote(db, lead_id)
+    source = None
+    if tq and abs(tq["total"] - built) > 0.5:
+        source = {"kind": "texted", "sent_at": tq["sent_at"], "total": tq["total"], "records_total": round(built, 2)}
+        items = [_line(l["name"], l["amount"]) for l in tq["lines"]]
+        whole = None
+    return {"items": items, "credit": round(credit, 2), "whole_discount": whole, "source": source}

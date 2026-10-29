@@ -536,6 +536,14 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
         <button type="button" onClick={reset} className="rounded p-1 hover:bg-background/15" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
 
+      {/* The bill follows what they were texted (Alan, 2026-10-29). */}
+      {!editing && suggested?.source?.kind === "texted" ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Filled in from the total you texted them on {new Date(suggested.source.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}: <b>{formatCurrency(suggested.source.total)}</b>.
+          The job record said {formatCurrency(suggested.source.records_total)}, so check the record if that was wrong.
+        </div>
+      ) : null}
+
       {saved.length > 0 && (
         <div className="border-b border-border px-3 py-2">
           <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Quick add</p>
