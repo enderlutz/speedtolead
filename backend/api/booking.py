@@ -345,8 +345,11 @@ def _customer_text(db, lead: Lead, b: Booking, paid: PayLink) -> tuple[str, str]
     else:
         doing.append(f"• Price: {hooks.money(total)}" + (f" ({hooks.money(b.discount_cents / 100)} off{(' ' + b.discount_label) if b.discount_label else ''})" if b.discount_cents else ""))
     due = max(0.0, total - paid_amt)
+    rest = (" or ".join(f"{hooks.money(max(0.0, p - paid_amt))} for {NAMES.get(c, c).replace(' Finish', '')}" for c, p in prices)
+            if prices and all(p for _, p in prices) else "")
     paying = ([f"• Paid: {hooks.money(paid_amt)} on {(paid.paid_at or '')[:10]}. Thank you!"] if paid_amt else []) + \
-             ([f"• The rest, {hooks.money(due)}, is due after the job is done. We'll text you the link."] if due > 0 else ["• Paid in full. Nothing more to pay."])
+             ([f"• The rest ({rest}) is due after the job is done. We'll text you the link."] if rest
+              else [f"• The rest, {hooks.money(due)}, is due after the job is done. We'll text you the link."] if due > 0 else ["• Paid in full. Nothing more to pay."])
     note = (b.notes or "").strip()
     note_lines = ["", f"A note from us: {note}"] if note and note != QUICK_NOTE_TEXT and not f else []
     if f.get("visits"):
