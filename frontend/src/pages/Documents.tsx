@@ -20,8 +20,10 @@ const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB
 export default function Documents() {
   const isAlan = (getCurrentUser()?.sub || "").toLowerCase() === "alanbonner" && !getCurrentUser()?.impersonated_by;
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "ideas" ? "ideas" : "files";
-  const setTab = (t: "files" | "ideas") => setParams(t === "ideas" ? { tab: "ideas" } : {}, { replace: true });
+  // Alan opens to Ideas (2026-10-30: "I don't even look at documents, so it
+  // always needs to open up to ideas"); Files is the second tab.
+  const tab = isAlan && params.get("tab") !== "files" ? "ideas" : "files";
+  const setTab = (t: "files" | "ideas") => setParams(t === "files" ? { tab: "files" } : {}, { replace: true });
   const [docs, setDocs] = useState<DocumentRow[] | null>(null);
   const [cats, setCats] = useState<DocCategory[]>([]);
   const [q, setQ] = useState("");
@@ -115,7 +117,7 @@ export default function Documents() {
   // Files | Ideas (Alan's playbook, 2026-10-30). Ideas is his alone.
   const tabBar = isAlan ? (
     <div className="inline-flex rounded-xl bg-muted p-1">
-      {([["files", "Files", FileText], ["ideas", "Ideas", Lightbulb]] as const).map(([k, l, Icon]) => (
+      {([["ideas", "Ideas", Lightbulb], ["files", "Files", FileText]] as const).map(([k, l, Icon]) => (
         <button key={k} type="button" onClick={() => setTab(k)}
           className={cn("inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold", tab === k ? "bg-background shadow-sm" : "text-muted-foreground")}>
           <Icon className="h-4 w-4" /> {l}

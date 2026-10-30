@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Lightbulb, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -104,7 +104,9 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics", divisions: ["fence"] },
   { to: "/calls", icon: BookOpen, label: "Call script", perm: "calls", divisions: ["fence"] },  // opens on the script; Call Coach is the second view (2026-10-27)
   // { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] }, // folded into Call script, third view (2026-10-27)
-  { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
+  // Alan's opens on his Ideas playbook (2026-10-30: "put ideas before documents"); Files is its second tab.
+  { to: "/documents", icon: Lightbulb, label: "Ideas", restrictToAny: ["alanbonner"] },
+  { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned"] },
   // Marketing (2026-10-28): Meta ads (owners) + the Social media library (social_media permission) in one tab.
   { to: "/marketing", icon: Megaphone, label: "Marketing", show: () => canSeeRevenue() || hasPerm("social_media") },
   // Money (2026-10-27): Revenue, Where the money went, Accounting and Payroll in one hub; each person sees their sections.
