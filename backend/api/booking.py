@@ -289,6 +289,14 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         ]
     if (b.notes or "").strip():
         lines += ["", f"Note on their invite: {b.notes.strip()}"]
+    from services import invite_from_call as icf
+    f = icf.saved(lead, b.date)
+    if f:
+        call = [f"{_long(v['date'])}{(', ' + v['window']) if v['window'] else ''}: {v['what']}" for v in f.get("visits") or []]
+        call += [x["text"] for x in (f.get("home"), f.get("package"), f.get("color")) if x and x.get("text")]
+        call += [t["text"] for t in f.get("talked_about") or []]
+        if call:
+            lines += ["", "FROM THE CALL", *[f"• {c}" for c in call]]
     lines += ["", f"Customer: {name}", f"Phone: {lead.contact_phone or '-'}", f"Email: {lead.contact_email or '-'}",
               "", f"Their booking page: {booking_url(b.token)}", f"Lead: {_lead_url(lead)}"]
     summary = f"{name} | {'Fence Staining' if not no_fence else _job_title(b)} | {'Confirmed' if paid else 'Held, deposit pending'}"
@@ -312,29 +320,53 @@ def _customer_text(db, lead: Lead, b: Booking, paid: PayLink) -> tuple[str, str]
     sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
     no_fence = services_only(b)
     day = _long(b.date)
+    # What the call and texts settled (2026-10-30), checked against them.
+    from services import invite_from_call as icf
+    f = icf.saved(lead, b.date)
+    choices = (f.get("package") or {}).get("choices") or []
     doing = []
     if not no_fence:
-        pkg = NAMES.get(b.tier, b.tier) or "Fence staining"
-        doing.append(f"• {pkg} package" + (f" in {b.color}" if (b.color or "").strip() and not re.fullmatch(r"(?i)tbd", b.color.strip()) else ", colour to be picked with you") + " — cleaning, prep, two coats, cleanup")
+        if len(choices) > 1:
+            doing.append(f"• Package: {f['package']['text'] or ' or '.join(NAMES.get(c, c) for c in choices) + ', you pick on the day'} — cleaning, prep, two coats, cleanup")
+        else:
+            pkg = NAMES.get(b.tier, b.tier) or "Fence staining"
+            doing.append(f"• {pkg} package" + (f" in {b.color}" if (b.color or "").strip() and not re.fullmatch(r"(?i)tbd", b.color.strip()) else "" if f.get("color") else ", colour to be picked with you") + " — cleaning, prep, two coats, cleanup")
+        if f.get("color"):
+            doing.append(f"• Color: {f['color']['text']}")
         if sides:
             doing.append(f"• Sides: {', '.join(sides)}")
     for r in _repairs(b):
         doing.append(f"• Repair: {r['name']} × {r['qty']}")
     for sv in _services(b):
         doing.append(f"• Also: {sv['name']}" + (f" ({sv['description']})" if sv["description"] else ""))
-    doing.append(f"• Price: {hooks.money(total)}" + (f" ({hooks.money(b.discount_cents / 100)} off{(' ' + b.discount_label) if b.discount_label else ''})" if b.discount_cents else ""))
+    prices = [(c, hooks.tier_price(db, lead.id, c)) for c in choices] if len(choices) > 1 and not b.discount_cents else []
+    if prices and all(p for _, p in prices):
+        doing.append("• Price: " + " or ".join(f"{NAMES.get(c, c)} {hooks.money(p)}" for c, p in prices))
+    else:
+        doing.append(f"• Price: {hooks.money(total)}" + (f" ({hooks.money(b.discount_cents / 100)} off{(' ' + b.discount_label) if b.discount_label else ''})" if b.discount_cents else ""))
     due = max(0.0, total - paid_amt)
     paying = ([f"• Paid: {hooks.money(paid_amt)} on {(paid.paid_at or '')[:10]}. Thank you!"] if paid_amt else []) + \
              ([f"• The rest, {hooks.money(due)}, is due after the job is done. We'll text you the link."] if due > 0 else ["• Paid in full. Nothing more to pay."])
     note = (b.notes or "").strip()
-    note_lines = ["", f"A note from us: {note}"] if note and note != QUICK_NOTE_TEXT else []
+    note_lines = ["", f"A note from us: {note}"] if note and note != QUICK_NOTE_TEXT and not f else []
+    if f.get("visits"):
+        week = [f"• {_long(v['date'])}{(', ' + v['window']) if v['window'] else ''}: {v['what']}" for v in f["visits"]]
+    else:
+        week = ([f"• We clean the fence a day or two before, then come back to stain on {day}. We'll text you when we're heading out."]
+                if not no_fence else [f"• We'll be out on {day}. We'll text you when we're heading out."])
+    home = f.get("home")
+    if home and home["value"] == "yes":
+        week += [f"• {home['text']}", "• Please keep pets inside while we work."]
+    elif home:
+        week += [f"• {home['text']}", "• Please keep pets inside and leave the gate unlocked."]
+    else:
+        week += ["• No need to be home. Please keep pets inside and leave the gate unlocked."]
+    talked = [f"• {t['text']}" for t in f.get("talked_about") or []]
     lines = [
         f"Hi {first}, this is your day with Sterling Fence Staining.", "",
         "WHAT WE'RE DOING", *doing, "",
-        "THE WEEK OF",
-        *([f"• We clean the fence a day or two before, then come back to stain on {day}. We'll text you when we're heading out."]
-          if not no_fence else [f"• We'll be out on {day}. We'll text you when we're heading out."]),
-        "• No need to be home. Please keep pets inside and leave the gate unlocked.", "",
+        "THE WEEK OF", *week, "",
+        *(["WHAT WE TALKED ABOUT", *talked, ""] if talked else []),
         "PAYING", *paying,
         *note_lines, "",
         "Questions? Call or text Alan at 346-589-7877.",
@@ -375,6 +407,26 @@ def sync_calendar(db, lead: Lead, b: Booking) -> str:
         return ""
 
 
+def refresh_from_call(db, lead_id: str) -> bool:
+    """A call was just transcribed (2026-10-30): customers often pay during
+    the call, before its words exist. Rebuild what the invite says from the
+    call and texts and bring the calendar up to date, only when something
+    changed and the day is still ahead. Returns whether it changed."""
+    from services import invite_from_call as icf
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    b = _active(db, lead_id) if lead else None
+    if b is None or not b.date or b.date < datetime.now(timezone.utc).strftime("%Y-%m-%d"):
+        return False
+    strip = lambda d: {k: v for k, v in (d or {}).items() if k not in ("built_at", "for_day")}  # noqa: E731
+    before = strip(icf.saved(lead, b.date))
+    after = strip(icf.build(db, lead, b.date))
+    if not after or after == before:
+        return False
+    sync_calendar(db, lead, b)
+    log_event(lead_id, "invite_rebuilt_from_call", "The calendar invite now says what the call settled")
+    return True
+
+
 def on_deposit_paid(lead_id: str) -> None:
     """A deposit (or the whole job) was paid: the calendar event turns to
     Confirmed. A hold that was never texted (the quick $250, 2026-10-27)
@@ -386,6 +438,9 @@ def on_deposit_paid(lead_id: str) -> None:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         b = _active(db, lead_id) if lead else None
         if b is not None:
+            # The invite says what the call and texts settled.
+            from services import invite_from_call as icf
+            icf.build(db, lead, b.date)
             sync_calendar(db, lead, b)
             if not b.sent_at:
                 _share_after_paid(db, lead, b)
@@ -851,5 +906,31 @@ def booking_finance(token: str, request: Request):
         if not _is_internal_user(request):
             log_event(lead.id, "booking_klarna_opened", b.date)
         return {"url": hooks.pay_url(link.token), "reserved": False}
+    finally:
+        db.close()
+
+
+# ── The invite from the call, by hand (2026-10-30) ────────────────────────
+
+@router.post("/leads/{lead_id}/booking/from-call")
+def invite_from_call_preview(lead_id: str, send: int = 0, user: dict = Depends(require_staff)):
+    """Read the calls and texts again and show the invite as it will read.
+    send=1 also brings the calendar up to date (a paid customer gets
+    Google's updated invite)."""
+    from services import invite_from_call as icf
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        b = _active(db, lead_id) if lead else None
+        if b is None:
+            raise HTTPException(status_code=404, detail="No booked day for this customer")
+        facts = icf.build(db, lead, b.date)
+        paid = _confirmed(db, lead)
+        summary, text = _customer_text(db, lead, b, paid) if paid is not None else _calendar_text(db, lead, b)
+        link = ""
+        if send:
+            link = sync_calendar(db, lead, b)
+            log_event(lead_id, "invite_rebuilt_from_call", f"Calendar invite rebuilt from the call by {user.get('name') or user.get('sub')}")
+        return {"facts": facts, "summary": summary, "text": text, "sent": bool(send and link), "to_customer": paid is not None}
     finally:
         db.close()

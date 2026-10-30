@@ -850,6 +850,15 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Tone listen skipped for {recording_id}: {e}")
 
+        # A booked customer's invite says what this call settled (Alan,
+        # 2026-10-30). Best effort; never stops the analysis.
+        if recording.lead_id and not recording.is_voicemail and (recording.duration_seconds or 0) >= 60:
+            try:
+                from api.booking import refresh_from_call
+                refresh_from_call(db, recording.lead_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Invite refresh skipped for {recording_id}: {e}")
+
         # Step 2: Analyze with Claude
         logger.info(f"Analyzing recording {recording_id}...")
         lead_context = None
