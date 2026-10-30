@@ -1436,6 +1436,11 @@ export const api = {
   /** The preset text for a link, to edit before sending. other: the version for someone else on the job. */
   getPayLinkMessage: (token: string, opts: { name?: string; other?: boolean } = {}) =>
     request<{ message: string; link: string }>(`/api/pay-links/${token}/message?name=${encodeURIComponent(opts.name || "")}&other=${opts.other ? 1 : 0}`),
+  /** A friendly reminder for an unpaid bill (2026-10-30): the text to check, then send. */
+  getPayReminder: (token: string) =>
+    request<{ message: string; link: string; can_remind: boolean; reminder_count: number; reminded_at: string }>(`/api/pay-links/${token}/reminder`),
+  sendPayReminder: (token: string, message?: string) =>
+    request<{ ok: boolean; reminder_count: number; reminded_at: string }>(`/api/pay-links/${token}/remind`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
   /** Contacts to send a pay link to, by name or phone. */
   payLinkContactSearch: (q: string) => request<PayLinkContact[]>(`/api/pay-links/contact-search?q=${encodeURIComponent(q)}`),
   /** Text the link to someone else on the job (a spouse): a picked contact, or a number (create makes the contact in GHL when nobody has it). */
@@ -5674,6 +5679,7 @@ export interface InvoiceQueueLink {
   token: string; kind: string; status: string; amount: number;
   created_at: string; sent_at: string; paid_at: string;
   view_count: number; last_viewed_at: string; expired: boolean;
+  reminder_count?: number; reminded_at?: string; needs_reminder?: boolean;
 }
 export interface InvoiceQueueRow {
   lead_id: string; stage: InvoiceStageKey; when: string;
@@ -6201,6 +6207,8 @@ export interface SopRun {
 // ── Stripe pay links ─────────────────────────────────────────────────────
 export type PayLinkKind = "deposit" | "full" | "balance" | "extra" | "done";
 export interface PayLinkEntry {
+  /** Friendly reminders texted for this bill. */
+  reminder_count?: number; reminded_at?: string;
   token: string; lead_id: string; kind: PayLinkKind; label: string; amount: number; description: string;
   status: "open" | "paid" | "void"; url: string; after_url: string; created_by: string;
   /** False: the thank-you screens don't ask for a Google review. */

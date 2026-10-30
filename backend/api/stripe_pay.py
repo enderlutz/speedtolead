@@ -141,6 +141,8 @@ def link_dict(link: PayLink) -> dict:
         "financing": link.kind != "deposit" and not link.no_financing,
         "first_viewed_at": link.first_viewed_at, "last_viewed_at": link.last_viewed_at,
         "view_count": link.view_count or 0,
+        # Friendly reminders texted for it (2026-10-30).
+        "reminder_count": link.reminder_count or 0, "reminded_at": link.reminded_at or "",
         "after_first_viewed_at": link.after_first_viewed_at, "after_last_viewed_at": link.after_last_viewed_at,
         "after_view_count": link.after_view_count or 0, "after_furthest": _loads(link.after_furthest) or None,
     }

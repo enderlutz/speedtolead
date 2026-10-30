@@ -4455,6 +4455,9 @@ class PayLink(Base):
     # When the invoice is due, YYYY-MM-DD. NULL = due upon receipt, the
     # default (Alan, 2026-10-15: "keep it simple").
     due_date = Column(Text, nullable=True)
+    # Friendly reminders texted for this unpaid bill (Alan, 2026-10-30).
+    reminder_count = Column(Integer, nullable=True)
+    reminded_at = Column(Text, nullable=True)
 
 
 class Booking(Base):
@@ -4733,6 +4736,9 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
             if "checkout_started_at" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN checkout_started_at TEXT"))
+            for col, typ in (("reminder_count", "INTEGER"), ("reminded_at", "TEXT")):
+                if col not in pl:
+                    conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
             if "stuck_alerted_at" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN stuck_alerted_at TEXT"))
             for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT"),

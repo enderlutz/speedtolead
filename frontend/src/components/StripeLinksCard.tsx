@@ -44,6 +44,7 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
   const [editing, setEditing] = useState<PayLinkEntry | null>(null);
   // "Paid by…" open on one link: a check, cash, Zelle (2026-10-23).
   const [marking, setMarking] = useState<string | null>(null);
+  const [reminding, setReminding] = useState<string | null>(null);
   const markPaid = async (link: PayLinkEntry, how: string) => {
     try { await api.markPayLinkPaid(link.token, how); toast.success("Marked paid. The receipt is ready to text."); setMarking(null); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't mark it paid"); }
@@ -212,12 +213,23 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
                   {l.view_count ? `Viewed ${l.view_count}× · ${new Date(l.last_viewed_at || "").toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : l.sent_at ? "Not opened yet" : "Not sent"}
                 </span>
               ) : null}
+              {l.reminder_count ? (
+                <span className="shrink-0 rounded bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-900" title={l.reminded_at ? `Last reminder ${new Date(l.reminded_at).toLocaleString()}` : undefined}>
+                  Reminded {l.reminder_count}× · {new Date(l.reminded_at || "").toLocaleDateString([], { month: "short", day: "numeric" })}
+                </span>
+              ) : null}
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
               {l.status === "open" || l.kind === "done" || (l.status === "paid" && l.kind !== "deposit") ? (
                 <button type="button" onClick={() => text(l)} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
                   title={l.status === "paid" && l.kind !== "done" ? "Text them the receipt (you can edit the text first)" : "Text the link to the customer (you can edit the text first)"}>
                   <MessageSquare className="h-3 w-3" /> {l.status === "paid" && l.kind !== "done" ? "Text receipt" : l.sent_at ? "Text again" : "Text"}
+                </button>
+              ) : null}
+              {l.status === "open" && l.sent_at && ["balance", "extra", "full"].includes(l.kind) ? (
+                <button type="button" onClick={() => { setComposing(null); setOther(null); setMarking(null); setReminding(reminding === l.token ? null : l.token); }}
+                  className="inline-flex h-7 items-center gap-1 rounded-md bg-amber-500 px-2 text-[11px] font-bold text-white hover:bg-amber-600" title="Text them a friendly reminder with the same link (you can edit it first)">
+                  <MessageSquare className="h-3 w-3" /> Friendly reminder
                 </button>
               ) : null}
               {l.status === "open" ? (
@@ -249,6 +261,12 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
                     onSend={async (message) => { await api.sendPayLink(l.token, message); toast.success("Texted to the customer"); setComposing(null); load(); }} />
                 </div>
               ) : null}
+              {reminding === l.token ? (
+                <div className="mt-1 basis-full rounded-md bg-background p-2">
+                  <Compose token={l.token} who="the customer" reminder onCancel={() => setReminding(null)}
+                    onSend={async (message) => { await api.sendPayReminder(l.token, message); toast.success("Friendly reminder sent"); setReminding(null); load(); }} />
+                </div>
+              ) : null}
               {other === l.token ? <SendToOther token={l.token} onSent={() => { setOther(null); load(); }} onClose={() => setOther(null)} /> : null}
               {marking === l.token ? (
                 <div className="mt-1 flex basis-full flex-wrap items-center gap-1.5 rounded-md bg-background p-2">
@@ -278,16 +296,19 @@ export function StripeLinksCard({ leadId, startInvoice = false }: { leadId: stri
 // checkout list the lines.
 // The text, preset filled in, to edit before it goes. The link has to stay
 // in it (the backend checks too); Reset puts the preset back.
-function Compose({ token, who, other = false, name = "", onSend, onCancel }: {
+export function Compose({ token, who, other = false, name = "", reminder = false, onSend, onCancel }: {
   token: string; who: string; other?: boolean; name?: string;
+  /** The friendly reminder for an unpaid bill instead of the bill's own text. */
+  reminder?: boolean;
   onSend: (message: string | undefined) => Promise<void>; onCancel: () => void;
 }) {
   const [preset, setPreset] = useState<{ message: string; link: string } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.getPayLinkMessage(token, { name, other }).then((p) => { setPreset(p); setMsg(p.message); }).catch(() => toast.error("Couldn't load the text"));
-  }, [token, name, other]);
+    (reminder ? api.getPayReminder(token) : api.getPayLinkMessage(token, { name, other }))
+      .then((p) => { setPreset(p); setMsg(p.message); }).catch(() => toast.error("Couldn't load the text"));
+  }, [token, name, other, reminder]);
   const missing = !!preset && !msg.includes(preset.link);
   const go = async () => {
     setBusy(true);
@@ -298,7 +319,7 @@ function Compose({ token, who, other = false, name = "", onSend, onCancel }: {
   if (!preset) return <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Loading the text…</p>;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-emerald-800">✏️ Text to {who}. Tap in the box to change the words, then Send text.</p>
+      <p className="text-xs font-semibold text-emerald-800">✏️ {reminder ? "Friendly reminder" : "Text"} to {who}. Tap in the box to change the words, then Send text.</p>
       <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={5} autoFocus className="w-full rounded-md border-2 border-emerald-500/60 bg-background p-2 text-[15px] leading-snug" />
       {missing ? <p className="text-[11px] font-semibold text-rose-600">The pay link is missing from the text. Put it back or tap Reset, or they can't pay.</p> : null}
       <div className="flex items-center gap-1.5">
@@ -409,6 +430,7 @@ const PHOTO_CAP = 12;
 function SharePhotos({ leadId }: { leadId: string }) {
   const [photos, setPhotos] = useState<CompanyCamPhoto[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [big, setBig] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
     const made: string[] = [];
@@ -451,21 +473,44 @@ function SharePhotos({ leadId }: { leadId: string }) {
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            After paying, they see these and can save them to their phone. Tap one to leave it out. {shown.length} shown{photos.filter((p) => !p.customer_hidden).length > PHOTO_CAP ? ` (the first ${PHOTO_CAP})` : ""}.
+            After paying, they see these and can save them to their phone. Tap a photo to see it big; tap the check to leave it out. {shown.length} shown{photos.filter((p) => !p.customer_hidden).length > PHOTO_CAP ? ` (the first ${PHOTO_CAP})` : ""}.
           </p>
-          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
-            {photos.map((ph) => (
-              <button key={ph.id} type="button" onClick={() => void toggle(ph)} aria-pressed={!ph.customer_hidden}
-                className={cn("relative h-16 w-16 shrink-0 overflow-hidden rounded-md ring-2", ph.customer_hidden ? "opacity-35 ring-transparent" : "ring-emerald-500")}>
-                {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className="h-full w-full object-cover" /> : <span className="block h-full w-full animate-pulse bg-muted" />}
-                <span className={cn("absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold", ph.customer_hidden ? "bg-white/90 text-muted-foreground" : "bg-emerald-500 text-white")}>
-                  {ph.customer_hidden ? <X className="h-3 w-3" /> : "✓"}
-                </span>
-              </button>
+          {/* Tap a photo to see it big; the corner check keeps it or leaves it out
+              (Alan, 2026-10-30: "the photo's just too far… I can't actually see it"). */}
+          <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
+            {photos.map((ph, i) => (
+              <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_hidden ? "ring-transparent" : "ring-emerald-500")}>
+                <button type="button" onClick={() => setBig(i)} className="block h-full w-full" title="See it big">
+                  {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", ph.customer_hidden && "opacity-35")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
+                </button>
+                <button type="button" onClick={() => void toggle(ph)} aria-pressed={!ph.customer_hidden} aria-label={ph.customer_hidden ? "Show this one to the customer" : "Leave this one out"}
+                  className={cn("absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold shadow", ph.customer_hidden ? "bg-white/95 text-muted-foreground" : "bg-emerald-500 text-white")}>
+                  {ph.customer_hidden ? <X className="h-4 w-4" /> : "✓"}
+                </button>
+              </div>
             ))}
           </div>
         </>
       )}
+      {big !== null && photos[big] ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={() => setBig(null)}>
+          <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
+            <span className="text-sm tabular-nums">{big + 1} of {photos.length}</span>
+            <button type="button" onClick={() => setBig(null)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10" aria-label="Close"><X className="h-6 w-6" /></button>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center px-2" onClick={(e) => e.stopPropagation()}>
+            {thumbs[photos[big].id] ? <img src={thumbs[photos[big].id]} alt="" className="max-h-full max-w-full rounded object-contain" /> : <Loader2 className="h-8 w-8 animate-spin text-white" />}
+          </div>
+          <div className="flex items-center justify-between gap-2 px-4 py-4" onClick={(e) => e.stopPropagation()}>
+            <button type="button" disabled={big === 0} onClick={() => setBig(big - 1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Back</button>
+            <button type="button" onClick={() => void toggle(photos[big])}
+              className={cn("h-11 flex-1 rounded-lg px-4 text-sm font-bold", photos[big].customer_hidden ? "bg-white text-black" : "bg-emerald-500 text-white")}>
+              {photos[big].customer_hidden ? "Left out · tap to show it" : "✓ They'll see this one · tap to leave out"}
+            </button>
+            <button type="button" disabled={big === photos.length - 1} onClick={() => setBig(big + 1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Next</button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

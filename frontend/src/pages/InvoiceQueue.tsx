@@ -9,7 +9,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from "lucide-react";
 import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
-import { StripeLinksCard } from "@/components/StripeLinksCard";
+import { Compose, StripeLinksCard } from "@/components/StripeLinksCard";
 import { cn, errMessage, formatCurrency } from "@/lib/utils";
 
 const STAGES: { key: InvoiceStageKey; label: string; short: string; money: string; empty: string; icon: React.ElementType }[] = [
@@ -54,6 +54,7 @@ function Chip({ tone, children }: { tone: "ink" | "gold" | "green" | "red" | "mu
 
 function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: string; label: string }[]; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const [reminding, setReminding] = useState(false);
   const [closing, setClosing] = useState(false);
   const [busy, setBusy] = useState("");
   const street = r.address.split(",")[0];
@@ -138,6 +139,8 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
               <>
                 <Chip tone="muted">{r.bill.sent_at ? `Texted ${ago(r.bill.sent_at)}` : `Made ${ago(r.bill.created_at)}, not texted`}</Chip>
                 {views(r.bill.view_count)}
+                {r.bill.reminder_count ? <Chip tone="gold">Reminded {r.bill.reminder_count}× · {ago(r.bill.reminded_at || "")}</Chip> : null}
+                {r.bill.needs_reminder ? <Chip tone="red">Needs a reminder</Chip> : null}
               </>
             ) : null}
             {r.stage === "closed" ? (
@@ -159,6 +162,12 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
                   className={cn(btn, "bg-[#1F1A14] text-white hover:bg-[#3A3128]")}>
             <ReceiptText className="h-4 w-4" /> {r.stage === "ready" && !r.bill ? "Make the bill" : "See the bill"}
             {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        ) : null}
+        {r.stage === "invoice_sent" && r.bill?.sent_at && r.bill.status === "open" ? (
+          <button type="button" onClick={() => setReminding((v) => !v)}
+                  className={cn(btn, r.bill.needs_reminder ? "bg-amber-500 text-white hover:bg-amber-600" : "border border-[#E4DCCB] bg-white text-[#1F1A14] hover:bg-[#F8F3E7]")}>
+            <Send className="h-4 w-4" /> Friendly reminder
           </button>
         ) : null}
         {r.stage === "deposit_paid" ? (
@@ -209,6 +218,12 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
         </div>
       ) : null}
 
+      {reminding && r.bill ? (
+        <div className="border-t border-[#E4DCCB] p-3">
+          <Compose token={r.bill.token} who={r.name.split(" ")[0] || "the customer"} reminder onCancel={() => setReminding(false)}
+            onSend={async (message) => { await api.sendPayReminder(r.bill!.token, message); toast.success("Friendly reminder sent"); setReminding(false); onChanged(); }} />
+        </div>
+      ) : null}
       {open ? (
         <div className="border-t border-[#E4DCCB] p-3">
           <StripeLinksCard leadId={r.lead_id} startInvoice />

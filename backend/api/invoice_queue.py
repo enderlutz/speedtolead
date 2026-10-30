@@ -30,6 +30,7 @@ from api.permissions import require_perm
 from database import get_db, Booking, CompanyCamJob, CustomerPayment, Lead, PayLink
 from services import after_pay_hooks as hooks
 from services.activity_log import log_event
+from services.pay_reminders import needs_reminder
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -92,6 +93,9 @@ def _link(l: PayLink) -> dict:
         "created_at": l.created_at or "", "sent_at": l.sent_at or "", "paid_at": l.paid_at or "",
         "view_count": l.view_count or 0, "last_viewed_at": l.last_viewed_at or "",
         "expired": hooks.deposit_link_expired(l),
+        # Friendly reminders (2026-10-30): how many, the last, and whether one is due.
+        "reminder_count": l.reminder_count or 0, "reminded_at": l.reminded_at or "",
+        "needs_reminder": needs_reminder(l),
     }
 
 
