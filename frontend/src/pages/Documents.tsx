@@ -117,7 +117,7 @@ export default function Documents() {
   // Files | Ideas (Alan's playbook, 2026-10-30). Ideas is his alone.
   const tabBar = isAlan ? (
     <div className="inline-flex rounded-xl bg-muted p-1">
-      {([["ideas", "Ideas", Lightbulb], ["files", "Files", FileText]] as const).map(([k, l, Icon]) => (
+      {([["ideas", "Ideas/Tasks", Lightbulb], ["files", "Files", FileText]] as const).map(([k, l, Icon]) => (
         <button key={k} type="button" onClick={() => setTab(k)}
           className={cn("inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold", tab === k ? "bg-background shadow-sm" : "text-muted-foreground")}>
           <Icon className="h-4 w-4" /> {l}
@@ -128,7 +128,7 @@ export default function Documents() {
   if (isAlan && tab === "ideas") {
     return (
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Lightbulb className="h-6 w-6" /> Ideas</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Lightbulb className="h-6 w-6" /> Ideas/Tasks</h1>
         {tabBar}
         <IdeasPlaybook />
       </div>
