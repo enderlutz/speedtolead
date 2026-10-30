@@ -1133,7 +1133,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               <h2 className="mb-4 text-center font-heading text-[40px] font-bold leading-tight sm:text-[48px]">See the colors</h2>
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
-                { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
+                { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained." },
               ]).map((g) => {
                 // Each set wears its package's skin (Alan, 2026-10-29: "so
                 // people can associate it with their eyes"): Signature's gold
