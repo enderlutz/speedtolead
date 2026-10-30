@@ -858,32 +858,37 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             over it, and the details card sits on the photo with the sides
             included. Mockup only until he says go. */}
         {cover ? (
-          <section className="relative overflow-hidden">
-            <img src="/proposal-mockup/hero-family.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#15130F]/25 via-[#15130F]/10 to-[#15130F]/90" />
-            <div className="relative flex min-h-[640px] flex-col justify-end gap-4 px-4 pb-5 pt-56 text-white sm:min-h-[560px] sm:px-6">
-              <div>
-                <p className="text-[13px] font-bold uppercase tracking-[0.2em] drop-shadow" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
-                <h1 className="font-heading text-[34px] font-bold leading-[1.1] drop-shadow-md">Hi {customer.name.split(" ")[0]}, here's your fence restoration plan.</h1>
+          // The whole photo, never cropped (Alan, 2026-10-30: "we have to be
+          // able to see the full family"): greeting above, details below,
+          // all on the same dark ground, the photo's edges fading into it so
+          // the page reads as one picture.
+          <section className="bg-[#15130F] text-[#F8F3E7]">
+            <div className="px-4 pb-3 pt-5 sm:px-6">
+              <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
+              <h1 className="font-heading text-[30px] font-bold leading-[1.12] sm:text-[36px]">Hi {customer.name.split(" ")[0]}, here's your fence restoration plan.</h1>
+            </div>
+            <div className="relative">
+              <img src="/proposal-mockup/hero-family.jpg" alt="" className="block aspect-[9/5] w-full object-cover sm:aspect-auto sm:h-auto" style={{ objectPosition: "48% 50%" }} draggable={false} />
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-[16%] bg-gradient-to-b from-[#15130F] to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[14%] bg-gradient-to-t from-[#15130F] to-transparent" />
+            </div>
+            <div className="px-4 pb-5 pt-3 sm:px-6">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                <Fact dark icon={UserRound} label="Prepared for">{customer.name}</Fact>
+                <Fact dark icon={Calendar} label="Date">{customer.date}</Fact>
+                <Fact dark icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
+                <Fact dark icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
               </div>
-              <div className="rounded-2xl bg-[#F8F3E7]/95 p-4 text-[#15130F] shadow-xl ring-1 backdrop-blur-sm" style={{ boxShadow: `0 0 0 1px ${GOLD}66, 0 12px 30px rgba(0,0,0,.35)` }}>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
-                  <Fact icon={UserRound} label="Prepared for">{customer.name}</Fact>
-                  <Fact icon={Calendar} label="Date">{customer.date}</Fact>
-                  <Fact icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
-                  <Fact icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
+              {customer.sides.length ? (
+                <div className="mt-3 border-t pt-3" style={{ borderColor: `${GOLD}55` }}>
+                  <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: "#E3BE63" }}>Sides of fence included in the price</p>
+                  <ul className="mt-1.5 grid gap-1 sm:grid-cols-2">
+                    {customer.sides.map((sd) => (
+                      <li key={sd} className="flex items-center gap-2 text-[15px] font-semibold"><Check className="h-4 w-4 shrink-0" style={{ color: GOLD }} /> {sd}</li>
+                    ))}
+                  </ul>
                 </div>
-                {customer.sides.length ? (
-                  <div className="mt-3 border-t border-[#15130F]/10 pt-3">
-                    <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Sides of fence included in the price</p>
-                    <ul className="mt-1.5 space-y-1">
-                      {customer.sides.map((sd) => (
-                        <li key={sd} className="flex items-center gap-2 text-[15px] font-semibold"><Check className="h-4 w-4 shrink-0" style={{ color: GOLD }} /> {sd}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -1650,12 +1655,12 @@ function SectionTitle({ kicker, title, sub, dark }: { kicker: string; title: str
   );
 }
 
-function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; label: string; children: React.ReactNode; wide?: boolean }) {
+function Fact({ icon: Icon, label, children, wide, dark }: { icon: React.ElementType; label: string; children: React.ReactNode; wide?: boolean; dark?: boolean }) {
   return (
     <div className={cn("flex items-start gap-2", wide && "col-span-2")}>
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "#8C6224" }} />
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: dark ? "#E3BE63" : "#8C6224" }} />
       <div className="min-w-0">
-        <p className="text-[12px] font-bold uppercase tracking-wider text-[#15130F]/75">{label}</p>
+        <p className={cn("text-[12px] font-bold uppercase tracking-wider", dark ? "text-[#E3BE63]/90" : "text-[#15130F]/75")}>{label}</p>
         <p className="truncate text-[15px] font-semibold">{children}</p>
       </div>
     </div>
