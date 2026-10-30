@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-30", title: "No \"Example\" tags, no Step 1/Step 2 labels",
+    what: "The package photos no longer carry the small \"Example\" tag (nor the \"Example · all colors below\" one on the bigger layout), and the headings \"Choose 1 of these 3\" and \"See the colors\" lose the \"Step 1 of 3\" / \"Step 2 of 3\" lines above them. \"Step 3 of 3\" over the payment part stays for now." },
   { date: "2026-10-29", title: "After the final payment: their fence photos and one Google button",
     what: "The \"How did we do?\" star screen is gone (customers thought tapping 5 stars was their Google review). The first screen now says Paid in full, shows their fence's after photos (swipe, tap to enlarge), then 1 · Save the photos to your phone (one tap → Save to Photos) and 2 · a big Write us a Google review (\"Leave your honest review\", \"In Google, tap the camera to add your photos\"). No after photos uploaded: just the Google button. A small \"Something not right? Tell Alan\" is there for everyone and texts Alan. Then referral, other services, done. The office picks which photos show on the invoice (Photos for their Google review).",
     open: { label: "See it", to: "/new-proposal/mockup" } },

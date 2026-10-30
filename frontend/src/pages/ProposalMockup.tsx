@@ -979,7 +979,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         <section id="mock-packages" className={cn("scroll-mt-14 px-1 py-6 sm:px-4", wood ? "bg-[#2A1A10]" : "bg-white")}
           style={wood ? { backgroundImage: "linear-gradient(rgba(20,12,6,0.45), rgba(20,12,6,0.55)), url(/proposal-mockup/wood-packages.jpg)", backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
           <div className="px-1">
-            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer." dark={wood} />
+            <SectionTitle title="Choose 1 of these 3" sub="Higher ones last longer." dark={wood} />
             {/* The things people ask about before they pick, in one line each
                 (Alan, 2026-10-28: "the main three things people want to know
                 that it's included"), plus tax. */}
@@ -1018,7 +1018,6 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                         <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[44px]" : "h-[90px]")} draggable={false} />
                       ))}
                       <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
-                      <span className="absolute bottom-1 right-1 z-20 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example</span>
                     </div>
                     <div className="flex flex-1 flex-col px-1 pb-1.5 pt-1">
                       <p className="font-heading text-[22px] font-bold leading-[24px]" style={{ color: s.name }}>{p.short}</p>
@@ -1079,7 +1078,6 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                               <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
                             ) : null}
                             {i === 0 ? (
-                              <span className="absolute right-1.5 top-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[12px] font-bold text-white">Example · all colors below</span>
                             ) : null}
                           </div>
                         ))}
@@ -1133,7 +1131,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
               {/* Just the heading (Alan, 2026-10-29: "remove all these words"). */}
-              <SectionTitle kicker="Step 2 of 3" title="See the colors" />
+              <SectionTitle title="See the colors" />
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
                 { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },
@@ -1645,10 +1643,10 @@ const SHINE_CSS = `
 @media (prefers-reduced-motion: reduce) { .mock-shine::after, .mock-twinkle { animation: none; } }
 `;
 
-function SectionTitle({ kicker, title, sub, dark }: { kicker: string; title: string; sub?: string; dark?: boolean }) {
+function SectionTitle({ kicker, title, sub, dark }: { kicker?: string; title: string; sub?: string; dark?: boolean }) {
   return (
     <div className="mb-3">
-      <p className={cn("text-[15px] font-bold uppercase tracking-[0.15em]", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>{kicker}</p>
+      {kicker ? <p className={cn("text-[15px] font-bold uppercase tracking-[0.15em]", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>{kicker}</p> : null}
       <h2 className={cn("font-heading text-[30px] font-bold leading-tight", dark && "text-[#F8F3E7]")}>{title}</h2>
       {sub ? <p className={cn("mt-1 text-[17px] leading-snug", dark ? "text-[#F8F3E7]/90" : "text-[#15130F]/80")}>{sub}</p> : null}
     </div>
