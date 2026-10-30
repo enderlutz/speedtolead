@@ -1129,7 +1129,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
               {/* Just the heading (Alan, 2026-10-29: "remove all these words"). */}
-              <SectionTitle title="See the colors" />
+              {/* Big and centred (Alan, 2026-10-30: "make it way bigger and in the middle"). */}
+              <h2 className="mb-4 text-center font-heading text-[40px] font-bold leading-tight sm:text-[48px]">See the colors</h2>
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
                 { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the wood.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained. Midnight Gray: photo coming." },

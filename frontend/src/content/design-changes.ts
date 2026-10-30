@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-30", title: "\"See the colors\" big and centred",
+    what: "The \"See the colors\" heading is bigger (40px on a phone, 48px on a laptop) and sits in the middle of the screen instead of on the left." },
   { date: "2026-10-30", title: "No \"Example\" tags, no Step 1/Step 2 labels",
     what: "The package photos no longer carry the small \"Example\" tag (nor the \"Example · all colors below\" one on the bigger layout), and the headings \"Choose 1 of these 3\" and \"See the colors\" lose the \"Step 1 of 3\" / \"Step 2 of 3\" lines above them. \"Step 3 of 3\" over the payment part stays for now." },
   { date: "2026-10-29", title: "After the final payment: their fence photos and one Google button",
