@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-30", title: "The color sets fill the page",
+    what: "Under \"See the colors\", the Signature colors sit on a gold band and the Legacy colors on a dark band that each run the full width of the page, edge to edge, one right after the other, instead of two rounded cards with cream around them." },
   { date: "2026-10-30", title: "\"See the colors\" big and centred",
     what: "The \"See the colors\" heading is bigger (40px on a phone, 48px on a laptop) and sits in the middle of the screen instead of on the left." },
   { date: "2026-10-30", title: "No \"Example\" tags, no Step 1/Step 2 labels",

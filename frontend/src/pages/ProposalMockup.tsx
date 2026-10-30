@@ -1141,7 +1141,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 // and the tiles ringed in that package's rule colour.
                 const sk = SKINS[g.key];
                 return (
-                  <div key={g.key} className={cn("relative overflow-hidden rounded-2xl p-3 shadow-md", g.key === "legacy" && "mt-5")} style={{ ...sk.card, color: sk.text }}>
+                  // Edge to edge (Alan, 2026-10-30: "it needs to actually fill up
+                  // the whole page… take out that white space"): each set is a
+                  // full-width band in its package's colour, one after the other.
+                  <div key={g.key} className={cn("relative -mx-4 overflow-hidden px-4 py-5", g.key === "signature" && "mt-1")} style={{ ...sk.card, borderRadius: 0, color: sk.text }}>
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="relative mb-2.5 flex items-center gap-2">
                       <TierBadge pkg={g.key} />
