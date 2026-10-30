@@ -687,14 +687,14 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // link texted after the job; paidUpFront is the financed customer who
   // owes nothing then and only gets the after-the-job screens.
   const [afterPay, setAfterPay] = useState<null | { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }>(null);
-  // Wood behind the packages: the mockup only, with a switch to compare (2026-10-30).
+  // Wood behind the packages, the cover page and the "See the colors" band are
+  // live on every proposal (Alan, 2026-10-30: "it should be looking exactly
+  // like the proposal that we just edited"). The switches stay for staff to compare.
   const [woodOn, setWoodOn] = useState(true);
-  const wood = !preview && woodOn;
-  // The cover page, photo and details as one (2026-10-30): mockup only, with its switch.
+  const wood = woodOn;
   const [coverOn, setCoverOn] = useState(true);
-  const cover = !preview && coverOn;
-  // "See the colors" on a fence of our colors (2026-10-30): mockup only.
-  const fenceHead = !preview;
+  const cover = coverOn;
+  const fenceHead = true;
   // The job-done screens with a real job's after photos (Alan, 2026-10-29).
   // ?photos=<lead id> picks the job; otherwise the lead this mock is dressed in.
   const [afterPhotos, setAfterPhotos] = useState<string[]>([]);
@@ -815,8 +815,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
             className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" />
-          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
-          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (mockup only)">Cover: {coverOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (staff switch)">Wood: {woodOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (staff switch)">Cover: {coverOn ? "on" : "off"}</button>
         </div>
       </div>}
 
@@ -825,8 +825,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <span className="text-[12px] font-bold uppercase tracking-wide text-[#E3BE63]">Staff view</span>
           <span className="text-[12px] text-white/70">See what {dressed?.name?.split(" ")[0] || "they"} get after paying:</span>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" />
-          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
-          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (mockup only)">Cover: {coverOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (staff switch)">Wood: {woodOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (staff switch)">Cover: {coverOn ? "on" : "off"}</button>
         </div>
       ) : null}
 
@@ -858,7 +858,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             image, and then the packages would feel like the second page").
             Like the printed proposal: the photo fills the page, the greeting
             over it, and the details card sits on the photo with the sides
-            included. Mockup only until he says go. */}
+            included. Live since 2026-10-30. */}
         {cover ? (
           // The whole photo, never cropped (Alan, 2026-10-30: "we have to be
           // able to see the full family"): greeting above, details below,
@@ -977,7 +977,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* On the wood (Alan, 2026-10-30: the old proposal's packages sat on
             a dark wood board; "the wood grain look… makes it look less like a
             scam"). The board from the printed proposal, darkened so the words
-            read; the cards keep their own colours. Mockup only until he says go. */}
+            read; the cards keep their own colours. Live since 2026-10-30. */}
         <section id="mock-packages" className={cn("scroll-mt-14 px-1 py-6 sm:px-4", wood ? "bg-[#2A1A10]" : "bg-white")}
           style={wood ? { backgroundImage: "linear-gradient(rgba(20,12,6,0.45), rgba(20,12,6,0.55)), url(/proposal-mockup/wood-packages.jpg)", backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
           <div className="px-1">
@@ -1136,7 +1136,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 // (Alan, 2026-10-30: "get creative… we want people to know they
                 // have to go lower to see the colors, easy to read"). A dark band
                 // flowing on from the wood: chips of real fences we stained, the
-                // heading big, and a bouncing arrow down. Mockup only until he says go.
+                // heading big, and a bouncing arrow down. Live since 2026-10-30.
                 <div className="relative -mx-4 -mt-6 flex flex-col items-center bg-[#15130F] px-4 pb-6 pt-7 text-center text-[#F8F3E7]">
                   {/* Round chips cut from the real photos, overlapping like a fan deck. */}
                   <div className="flex justify-center">
