@@ -10,6 +10,9 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-29", title: "After the final payment: their fence photos and one Google button",
+    what: "The \"How did we do?\" star screen is gone (customers thought tapping 5 stars was their Google review). The first screen now says Paid in full, shows their fence's after photos (swipe, tap to enlarge), then 1 · Save the photos to your phone (one tap → Save to Photos) and 2 · a big Write us a Google review (\"Leave your honest review\", \"In Google, tap the camera to add your photos\"). No after photos uploaded: just the Google button. A small \"Something not right? Tell Alan\" is there for everyone and texts Alan. Then referral, other services, done. The office picks which photos show on the invoice (Photos for their Google review).",
+    open: { label: "See it", to: "/new-proposal/mockup" } },
   { date: "2026-10-29", title: "The color sets wear their package's look",
     what: "Under \"See the colors\", the Signature Finish colors sit on the Signature package's gold card and the Legacy Finish colors on the Legacy package's dark card with the thin gold frame, each with its badge (Most popular / Premium) and the color tiles edged in that package's color, so the eye links each set of colors to its package." },
   { date: "2026-10-29", title: "All the colors, no Signature/Legacy tabs",

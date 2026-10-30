@@ -12,6 +12,8 @@ type After = {
   paid: boolean; kind: string; flow: "A" | "B"; amount: number; method: string; paid_total: number;
   first_name: string; address: string; answers: Record<string, unknown>;
   ask_review?: boolean; referral_url?: string;
+  /** Their fence's after photos; an /api path is ours, else a CDN url. */
+  photos?: string[];
 };
 
 export default function AfterPayPage() {
@@ -86,6 +88,9 @@ export default function AfterPayPage() {
         receiptUrl={after.kind === "done" ? undefined : `/receipt/${token}`}
         onScreen={reached}
         askReview={after.ask_review !== false}
+        // Job-done screens: their photos and one Google button, no star screen (2026-10-29).
+        photoReview={after.flow === "B"}
+        photos={(after.photos || []).map((u) => (u.startsWith("/") ? `${BASE}${u}` : u))}
         referralUrl={after.referral_url || undefined}
         onReferFriend={after.referral_url ? async (name, phone) => {
           const code = (after.referral_url || "").split("/").pop() || "";

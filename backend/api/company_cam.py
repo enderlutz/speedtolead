@@ -338,6 +338,8 @@ def _photo_dict(p: CompanyCamPhoto) -> dict:
         "note_by": p.note_by or "",
         "note_at": p.note_at or "",
         "is_damage": bool(p.is_damage),
+        # Left off the customer's job-done page (unticked on the invoice).
+        "customer_hidden": bool(p.customer_hidden),
         # A Storage url is served straight from the CDN; anything else comes
         # back through our own endpoint.
         "url": p.storage_url or f"/api/company-cam/{p.lead_id}/photos/{p.id}/image",
@@ -1203,6 +1205,7 @@ class PhotoPatch(BaseModel):
     side: str | None = None
     note: str | None = None
     is_damage: bool | None = None
+    customer_hidden: bool | None = None
 
 
 @router.patch("/company-cam/{lead_id}/photos/{photo_id}", dependencies=[Depends(crew_guard)])
@@ -1227,6 +1230,8 @@ def update_photo(
             p.note_at = _now() if p.note.strip() else ""
         if body.is_damage is not None:
             p.is_damage = bool(body.is_damage)
+        if body.customer_hidden is not None:
+            p.customer_hidden = bool(body.customer_hidden)
         db.commit()
         return _photo_dict(p)
     finally:

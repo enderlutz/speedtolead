@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Copy, Ban, Pencil, CreditCard, Zap, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
-import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type SuggestedInvoice, type StripeHealth, type StripeSettings } from "@/lib/api";
+import { api, type CompanyCamPhoto, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type SuggestedInvoice, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceSheet } from "@/components/InvoiceSheet";
 import { dueText } from "@/lib/due";
@@ -401,6 +401,75 @@ const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qt
 // A part is fine: 12.5 rails (Alan, 2026-10-29).
 const qtyOf = (r: Row) => { const q = Math.round((Number(r.qty) || 0) * 100) / 100; return q > 0 ? q : 1; };
 
+// Which after photos the customer gets on their job-done page, to save and
+// put in their Google review (Alan, 2026-10-29). All on unless unticked; the
+// same pick the page uses: after staining, else after cleaning, else a
+// washing job's afters. None uploaded: the page shows just the review button.
+const PHOTO_CAP = 12;
+function SharePhotos({ leadId }: { leadId: string }) {
+  const [photos, setPhotos] = useState<CompanyCamPhoto[] | null>(null);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    const made: string[] = [];
+    (async () => {
+      try {
+        const cc = await api.getCompanyCam(leadId);
+        const all = cc.photos || {};
+        const key = ["stain_after", "clean_after"].find((k) => (all[k] || []).length);
+        const list = key ? all[key] : Object.keys(all).filter((k) => k.startsWith("pw_") && k.endsWith("_after")).flatMap((k) => all[k]);
+        if (!alive) return;
+        setPhotos(list);
+        for (const ph of list) {
+          const u = ph.from_storage ? ph.url : await api.fetchCompanyCamPhotoUrl(leadId, ph.id);
+          if (!alive) { if (u && !ph.from_storage) URL.revokeObjectURL(u); return; }
+          if (u) { if (!ph.from_storage) made.push(u); setThumbs((t) => ({ ...t, [ph.id]: u })); }
+        }
+      } catch {
+        if (alive) setPhotos([]);
+      }
+    })();
+    return () => { alive = false; made.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [leadId]);
+  const toggle = async (ph: CompanyCamPhoto) => {
+    const hide = !ph.customer_hidden;
+    setPhotos((ps) => (ps || []).map((x) => (x.id === ph.id ? { ...x, customer_hidden: hide } : x)));
+    try {
+      await api.updateCompanyCamPhoto(leadId, ph.id, { customer_hidden: hide });
+    } catch {
+      setPhotos((ps) => (ps || []).map((x) => (x.id === ph.id ? { ...x, customer_hidden: !hide } : x)));
+      toast.error("Couldn't save that. Try again.");
+    }
+  };
+  if (photos === null) return null;
+  const shown = photos.filter((p) => !p.customer_hidden).slice(0, PHOTO_CAP);
+  return (
+    <div className="border-t border-border px-3 py-2">
+      <p className="text-sm font-semibold">Photos for their Google review</p>
+      {photos.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No after photos from the crew yet. Their page will show just the Google review button.</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            After paying, they see these and can save them to their phone. Tap one to leave it out. {shown.length} shown{photos.filter((p) => !p.customer_hidden).length > PHOTO_CAP ? ` (the first ${PHOTO_CAP})` : ""}.
+          </p>
+          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
+            {photos.map((ph) => (
+              <button key={ph.id} type="button" onClick={() => void toggle(ph)} aria-pressed={!ph.customer_hidden}
+                className={cn("relative h-16 w-16 shrink-0 overflow-hidden rounded-md ring-2", ph.customer_hidden ? "opacity-35 ring-transparent" : "ring-emerald-500")}>
+                {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className="h-full w-full object-cover" /> : <span className="block h-full w-full animate-pulse bg-muted" />}
+                <span className={cn("absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold", ph.customer_hidden ? "bg-white/90 text-muted-foreground" : "bg-emerald-500 text-white")}>
+                  {ph.customer_hidden ? <X className="h-3 w-3" /> : "✓"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [], bookedServices = [], suggested, startOpen = false }: {
   leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean;
   /** An unpaid invoice to load back in and change (Alan, 2026-10-15). */
@@ -676,6 +745,7 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
             className={cn("h-7 rounded-md border-0 bg-transparent px-1 text-xs tabular-nums outline-none", dueOn !== null ? "text-background [color-scheme:dark]" : "w-[7.5rem] text-muted-foreground")} />
         </label>
       </div>
+      <SharePhotos leadId={leadId} />
       <label className={cn("flex cursor-pointer items-center gap-3 border-t border-border px-3 py-2 text-sm", klarna && "bg-[#FFB3C7]/15")}>
         <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-pink-500" />
         <span className="min-w-0 flex-1">

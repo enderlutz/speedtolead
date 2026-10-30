@@ -1023,3 +1023,24 @@ def pw_progress(services: list[str], sections_with_photos: set[str]) -> tuple[in
                if pw_section_key(s, "before") in sections_with_photos
                and pw_section_key(s, "after") in sections_with_photos)
     return done, len(picked)
+
+
+# The job-done page's photos (Alan, 2026-10-29): the after-staining photos,
+# else after cleaning, else a washing job's afters, minus any the office
+# unticked on the invoice. None uploaded → none shown, just the review button.
+CUSTOMER_PHOTO_CAP = 12
+
+
+def customer_photos(db, lead_id: str) -> list:
+    from database import CompanyCamPhoto
+    rows = (db.query(CompanyCamPhoto)
+            .filter(CompanyCamPhoto.lead_id == lead_id, CompanyCamPhoto.section.like("%_after"))
+            .order_by(CompanyCamPhoto.section, CompanyCamPhoto.seq).all())
+    rows = [p for p in rows if p.storage_url or p.has_image_data]
+    for key in ("stain_after", "clean_after"):
+        pick = [p for p in rows if p.section == key]
+        if pick:
+            break
+    else:
+        pick = [p for p in rows if p.section.startswith("pw_")]
+    return [p for p in pick if not p.customer_hidden][:CUSTOMER_PHOTO_CAP]

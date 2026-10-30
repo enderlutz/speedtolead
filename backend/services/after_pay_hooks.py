@@ -348,7 +348,14 @@ def on_answer(lead_id: str, field: str, value, answers: dict | None = None) -> N
         elif field == "callback_requested" and value:
             _tag(lead, "callback_requested")
             score = answers.get("score")
-            alert_alan(f"{name} asked for a call from you{f' (score {score}/10)' if isinstance(score, (int, float)) else ''}.")
+            # "Something not right? Tell Alan" on the job-done page (2026-10-29):
+            # they were told you'll call today, so the text carries what they
+            # wrote and their number.
+            comment = answers.get("comment").strip() if isinstance(answers.get("comment"), str) else ""
+            alert_alan(f"⚠️ {name} asked for a call from you{f' (score {score}/10)' if isinstance(score, (int, float)) else ''}."
+                       " They were told you'll call today."
+                       + (f' They said: "{comment}"' if comment else "")
+                       + (f"\n{lead.contact_phone}" if lead and lead.contact_phone else ""))
         elif field == "services_interested" and isinstance(value, list) and value:
             wants = [str(v) for v in value]
             for w in wants:

@@ -82,9 +82,17 @@ def test_each_answer_fires_its_own_tag_note_or_alert(db, ghl_log):
     notes = [b for k, _, b in ghl_log if k == "note"]
     assert notes == ['After the job, Pat Customer said: "Crew was great"', "Pat Customer wants a quote on: House wash, Other: pool deck."]
     alerts = [m for k, cid, m in ghl_log if k == "sms" and cid == "alan-contact"]
-    assert alerts == ["Low score: Pat Customer gave us 3/10 after the job.",
-                      "Pat Customer asked for a call from you (score 3/10).",
-                      "Pat Customer wants quotes on: House wash, Other: pool deck."]
+    assert alerts[0] == "Low score: Pat Customer gave us 3/10 after the job."
+    assert alerts[1].startswith("⚠️ Pat Customer asked for a call from you (score 3/10). They were told you'll call today.")
+    assert alerts[2] == "Pat Customer wants quotes on: House wash, Other: pool deck."
+
+
+def test_tell_alan_carries_what_they_wrote(db, ghl_log):
+    """"Something not right? Tell Alan" on the job-done page (2026-10-29)."""
+    lead = _lead(db)
+    hooks.on_answer(lead.id, "callback_requested", True, {"comment": "Missed a spot by the gate"})
+    alerts = [m for k, cid, m in ghl_log if k == "sms" and cid == "alan-contact"]
+    assert len(alerts) == 1 and 'They said: "Missed a spot by the gate"' in alerts[0]
 
 
 def test_the_text_carries_the_link_and_respects_do_not_contact(db, ghl_log):

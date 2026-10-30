@@ -1163,7 +1163,40 @@ def after_info(token: str, s: str | None = None, request: Request = None, previe
             "ask_review": link.ask_review != 0,
             # Their own referral link, a real page (it used to 404).
             "referral_url": referral_url_for(db, lead) if lead else "",
+            # Their fence's after photos, to save and put in a Google review
+            # (Alan, 2026-10-29). Empty: just the review button.
+            "photos": _customer_photo_urls(db, link),
         }
+    finally:
+        db.close()
+
+
+def _customer_photo_urls(db, link: PayLink) -> list[str]:
+    if link.status != "paid" or link.kind not in ("balance", "done", "extra"):
+        return []
+    from services.company_cam import customer_photos
+    return [p.storage_url or f"/api/pay/{link.token}/photo/{p.id}" for p in customer_photos(db, link.lead_id)]
+
+
+@router.get("/pay/{token}/photo/{photo_id}")
+def after_photo(token: str, photo_id: str):
+    """Public, for the job-done page: one of the photos that page lists,
+    and only those (paid link, this lead, an after photo the office kept)."""
+    from fastapi.responses import Response
+    from services.company_cam import customer_photos
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status != "paid":
+            raise HTTPException(status_code=404, detail="Not found")
+        p = next((x for x in customer_photos(db, link.lead_id) if x.id == photo_id), None)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        if p.storage_url:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(p.storage_url)
+        return Response(content=p.image_data or b"", media_type=p.mime or "image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
     finally:
         db.close()
 

@@ -381,14 +381,14 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
             {askReview !== false ? (
               <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
                 <p className="text-[17px] font-bold leading-snug">Would you show your fence off on Google?</p>
-                <p className="mt-1 text-[15px] text-[#15130F]/80">It's how most Houston homeowners find us. Say whatever is true for you.</p>
+                <p className="mt-1 text-[15px] text-[#15130F]/80">Leave your honest review. It's how most Houston homeowners find us.</p>
                 <ol className="mt-3 space-y-3">
                   {photos?.length ? (
                     <li className="flex gap-3">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[15px] font-bold text-[#E3BE63]">1</span>
                       <button type="button" onClick={() => void savePhotos()} disabled={saving}
                         className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-[#15130F] bg-white text-[16px] font-bold active:scale-[0.98] disabled:opacity-60">
-                        {saving ? "Getting your photos…" : saved ? "Photos saved ✓" : "Save your photos"}
+                        {saving ? "Getting your photos…" : saved ? "Photos saved ✓" : "Save the photos to your phone"}
                       </button>
                     </li>
                   ) : null}
@@ -413,7 +413,12 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                 <label className="block text-[15px] font-bold">What's not right?
                   <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} autoFocus className="mt-1 w-full resize-none rounded-xl border border-[#15130F]/15 bg-white px-3 py-2.5 text-[16px] font-normal" />
                 </label>
-                <button type="button" onClick={() => { setTold(true); setCallback(true); answer("callback_requested", true); if (comment.trim()) answer("comment", comment.trim()); }}
+                <button type="button" onClick={() => {
+                    setTold(true); setCallback(true);
+                    // What they wrote is saved first, so Alan's text carries it.
+                    if (comment.trim()) { answer("comment", comment.trim()); setTimeout(() => answer("callback_requested", true), 800); }
+                    else answer("callback_requested", true);
+                  }}
                   className="mt-2 flex h-12 w-full items-center justify-center rounded-xl bg-[#15130F] text-[16px] font-bold text-[#E3BE63]">Send to Alan</button>
               </div>
             ) : (

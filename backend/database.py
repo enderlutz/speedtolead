@@ -2073,6 +2073,9 @@ class CompanyCamPhoto(Base):
     note_by = Column(Text, default="")
     note_at = Column(Text, default="")
     is_damage = Column(Boolean, default=False, nullable=False)
+    # Left off the customer's job-done page: the office unticks it on the
+    # invoice (Alan, 2026-10-29).
+    customer_hidden = Column(Boolean, default=False, nullable=False)
 
     storage_url = Column(Text, default="")
     image_data = deferred(Column(LargeBinary, nullable=True))
@@ -5112,6 +5115,10 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE company_cam_photos ADD COLUMN {col} TEXT DEFAULT ''"))
                 logger.info(f"Migration: added company_cam_photos.{col}")
+        if "customer_hidden" not in ccp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_hidden BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Migration: added company_cam_photos.customer_hidden")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

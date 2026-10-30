@@ -740,3 +740,36 @@ def test_the_sample_link_for_the_pay_page_peek_prefers_the_lead_then_the_newest_
     assert sp.sample_pay_link(a.id, STAFF)["token"] == bal["token"]  # the lead asked for wins
     sp.void_pay_link(dep["token"], STAFF)
     assert sp.sample_pay_link("", STAFF)["token"] == bal["token"]
+
+
+def test_the_job_done_page_shows_the_after_photos_the_office_kept(db, monkeypatch):
+    """Alan, 2026-10-29: their fence's after photos to save for a Google
+    review; none uploaded → none shown; unticked ones and other leads' never."""
+    from database import CompanyCamPhoto
+    _settings(monkeypatch, key="")
+    lead, other = _lead(db), _lead(db)
+    done = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="done"), STAFF)
+    assert sp.after_info(done["token"])["photos"] == []
+
+    def ph(lead_id, section, seq, hidden=False):
+        p = CompanyCamPhoto(id=str(uuid.uuid4()), lead_id=lead_id, section=section, seq=seq,
+                            image_data=b"jpg", has_image_data=True, customer_hidden=hidden)
+        db.add(p)
+        db.commit()
+        return p.id
+    before = ph(lead.id, "stain_before", 1)
+    a1, a2 = ph(lead.id, "stain_after", 1), ph(lead.id, "stain_after", 2, hidden=True)
+    ph(lead.id, "clean_after", 1)
+    theirs = ph(other.id, "stain_after", 1)
+    urls = sp.after_info(done["token"])["photos"]
+    assert urls == [f"/api/pay/{done['token']}/photo/{a1}"]
+    assert sp.after_photo(done["token"], a1).body == b"jpg"
+    for pid in (a2, before, theirs):
+        with pytest.raises(HTTPException) as e:
+            sp.after_photo(done["token"], pid)
+        assert e.value.status_code == 404
+    # A link still open shows nothing.
+    open_link = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    assert sp.after_info(open_link["token"])["photos"] == []
+    with pytest.raises(HTTPException):
+        sp.after_photo(open_link["token"], a1)
