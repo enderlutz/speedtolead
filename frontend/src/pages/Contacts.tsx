@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AtContacts } from "@/components/AtContacts";
+import { AddFromScreenshot } from "@/components/AddFromScreenshot";
 
 /**
  * Contacts — a straight mirror of the GHL contact list.
@@ -464,10 +465,13 @@ function SterlingContacts() {
             Everyone in Go High Level, newest form fill first — a customer who fills the form again comes back to the top.
           </p>
         </div>
-        <Button onClick={runSync} disabled={syncing} variant="outline" size="sm">
-          <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "Syncing…" : "Sync from GHL"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <AddFromScreenshot />
+          <Button onClick={runSync} disabled={syncing} variant="outline" size="sm">
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing…" : "Sync from GHL"}
+          </Button>
+        </div>
       </div>
 
       {stats ? (

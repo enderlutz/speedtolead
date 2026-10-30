@@ -1631,6 +1631,35 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
+  /** A caller from a screenshot (Alan, 2026-10-29): the AI reads the contact
+   *  card / texts; nothing is saved until createManualLead. */
+  readCallerScreenshots: async (files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/from-screenshot/read`, {
+      method: "POST", body: fd, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((d as { detail?: string }).detail || "Couldn't read the screenshot");
+    return d as CallerFields & { existing: { lead_id: string; name: string } | null };
+  },
+  createManualLead: async (b: CallerFields) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/manual`, {
+      method: "POST", body: JSON.stringify(b),
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const det = (d as { detail?: string | { message: string; lead_id: string } }).detail;
+      const err = new Error(typeof det === "string" ? det : det?.message || "Couldn't add them") as Error & { leadId?: string };
+      if (det && typeof det !== "string") err.leadId = det.lead_id;
+      throw err;
+    }
+    return d as { lead_id: string; ghl_contact_id: string; ghl_ok: boolean };
+  },
+
   // Measurement screenshot (Google Maps) — single image per lead
   uploadMeasurement: async (leadId: string, file: File) => {
     const fd = new FormData();
@@ -4069,6 +4098,8 @@ export interface ContactRow {
 
 
 // --- Company Cam: the job-site record for one customer ---
+
+export type CallerFields = { name: string; phone: string; email: string; address: string; notes: string };
 
 export interface CompanyCamPhoto {
   id: string;
