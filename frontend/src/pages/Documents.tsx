@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileText, Image as ImageIcon, Loader2, Pencil, Search, Trash2, Upload } from "lucide-react";
+import { FileText, Image as ImageIcon, Lightbulb, Loader2, Pencil, Search, Trash2, Upload } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { IdeasPlaybook } from "@/components/IdeasPlaybook";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, type DocCategory, type DocumentRow } from "@/lib/api";
+import { api, getCurrentUser, type DocCategory, type DocumentRow } from "@/lib/api";
 
 // The business's PDFs in one place (Alan, 2026-10-16: "somewhere we can store
 // all these PDFs very simply, so I can easily go back to them"), sorted into
@@ -15,6 +18,10 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-US", {
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 export default function Documents() {
+  const isAlan = (getCurrentUser()?.sub || "").toLowerCase() === "alanbonner" && !getCurrentUser()?.impersonated_by;
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "ideas" ? "ideas" : "files";
+  const setTab = (t: "files" | "ideas") => setParams(t === "ideas" ? { tab: "ideas" } : {}, { replace: true });
   const [docs, setDocs] = useState<DocumentRow[] | null>(null);
   const [cats, setCats] = useState<DocCategory[]>([]);
   const [q, setQ] = useState("");
@@ -105,8 +112,30 @@ export default function Documents() {
     .map((c) => ({ ...c, items: shown.filter((d) => (d.category || "other") === c.key) }))
     .filter((c) => c.items.length > 0), [cats, shown]);
 
+  // Files | Ideas (Alan's playbook, 2026-10-30). Ideas is his alone.
+  const tabBar = isAlan ? (
+    <div className="inline-flex rounded-xl bg-muted p-1">
+      {([["files", "Files", FileText], ["ideas", "Ideas", Lightbulb]] as const).map(([k, l, Icon]) => (
+        <button key={k} type="button" onClick={() => setTab(k)}
+          className={cn("inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold", tab === k ? "bg-background shadow-sm" : "text-muted-foreground")}>
+          <Icon className="h-4 w-4" /> {l}
+        </button>
+      ))}
+    </div>
+  ) : null;
+  if (isAlan && tab === "ideas") {
+    return (
+      <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Lightbulb className="h-6 w-6" /> Ideas</h1>
+        {tabBar}
+        <IdeasPlaybook />
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
+      {tabBar}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="h-6 w-6" /> Documents</h1>

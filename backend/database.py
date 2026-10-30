@@ -3792,6 +3792,38 @@ class Document(Base):
     blurb = Column(Text, default="")
 
 
+class Idea(Base):
+    """One idea in Alan's playbook (2026-10-30: "ideas for different things
+    in the business… I like to work on a few different ideas a day… log my
+    progress"). Sorted by area of the business and by when; it moves through
+    stages and keeps a dated log. Private to Alan."""
+    __tablename__ = "ideas"
+    __table_args__ = (Index("idx_ideas_area", "area"),)
+
+    id = Column(Text, primary_key=True)
+    area = Column(Text, nullable=False, default="operations")
+    title = Column(Text, nullable=False, default="")
+    details = Column(Text, default="")
+    stage = Column(Text, default="idea")          # idea | working | testing | done | parked
+    timeframe = Column(Text, default="someday")   # week | month | quarter | year | someday
+    source = Column(Text, default="")             # where it came from, e.g. "10M plan"
+    sort = Column(Integer, default=0)
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
+class IdeaLog(Base):
+    """A dated progress note on an idea ("called 3 HOAs today")."""
+    __tablename__ = "idea_logs"
+    __table_args__ = (Index("idx_idea_logs_idea", "idea_id"),)
+
+    id = Column(Text, primary_key=True)
+    idea_id = Column(Text, nullable=False)
+    body = Column(Text, default="")
+    stage = Column(Text, default="")               # the stage it moved to, when the note is a move
+    created_at = Column(Text, default="")
+
+
 class TrainingModule(Base):
     """One lesson in the VA training course (Alan, 2026-10-16): a screen
     recording of him doing the task (Loom), the steps written out from it, the

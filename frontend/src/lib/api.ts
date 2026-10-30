@@ -1636,6 +1636,13 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
+  /** Alan's ideas playbook (2026-10-30). */
+  listIdeas: () => request<{ ideas: IdeaRow[]; areas: IdeaPick[]; stages: IdeaPick[]; timeframes: IdeaPick[] }>(`/api/ideas`),
+  addIdea: (b: IdeaPatch) => request<IdeaRow>(`/api/ideas`, { method: "POST", body: JSON.stringify(b) }),
+  editIdea: (id: string, b: IdeaPatch) => request<IdeaRow>(`/api/ideas/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
+  deleteIdea: (id: string) => request<{ ok: boolean }>(`/api/ideas/${id}`, { method: "DELETE" }),
+  addIdeaLog: (id: string, body: string) => request<IdeaRow>(`/api/ideas/${id}/log`, { method: "POST", body: JSON.stringify({ body }) }),
+  deleteIdeaLog: (id: string, logId: string) => request<{ ok: boolean }>(`/api/ideas/${id}/log/${logId}`, { method: "DELETE" }),
   /** A caller from a screenshot (Alan, 2026-10-29): the AI reads the contact
    *  card / texts; nothing is saved until createManualLead. */
   readCallerScreenshots: async (files: File[]) => {
@@ -4106,6 +4113,11 @@ export interface ContactRow {
 
 
 // --- Company Cam: the job-site record for one customer ---
+
+export type IdeaLog = { id: string; body: string; stage: string; created_at: string };
+export type IdeaRow = { id: string; area: string; title: string; details: string; stage: string; timeframe: string; source: string; sort: number; created_at: string; updated_at: string; logs: IdeaLog[] };
+export type IdeaPick = { key: string; label: string };
+export type IdeaPatch = { title?: string; details?: string; area?: string; stage?: string; timeframe?: string; source?: string };
 
 export type CallerFields = { name: string; phone: string; email: string; address: string; notes: string };
 
