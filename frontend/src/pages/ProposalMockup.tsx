@@ -693,6 +693,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // The cover page, photo and details as one (2026-10-30): mockup only, with its switch.
   const [coverOn, setCoverOn] = useState(true);
   const cover = !preview && coverOn;
+  // "See the colors" on a fence of our colors (2026-10-30): mockup only.
+  const fenceHead = !preview;
   // The job-done screens with a real job's after photos (Alan, 2026-10-29).
   // ?photos=<lead id> picks the job; otherwise the lead this mock is dressed in.
   const [afterPhotos, setAfterPhotos] = useState<string[]>([]);
@@ -1130,7 +1132,29 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
               {/* Just the heading (Alan, 2026-10-29: "remove all these words"). */}
               {/* Big and centred (Alan, 2026-10-30: "make it way bigger and in the middle"). */}
-              <h2 className="mb-4 text-center font-heading text-[40px] font-bold leading-tight sm:text-[48px]">See the colors</h2>
+              {fenceHead ? (
+                // (Alan, 2026-10-30: "get creative… we want people to know they
+                // have to go lower to see the colors, easy to read"). A dark band
+                // flowing on from the wood: chips of real fences we stained, the
+                // heading big, and a bouncing arrow down. Mockup only until he says go.
+                <div className="relative -mx-4 -mt-6 flex flex-col items-center bg-[#15130F] px-4 pb-6 pt-7 text-center text-[#F8F3E7]">
+                  {/* Round chips cut from the real photos, overlapping like a fan deck. */}
+                  <div className="flex justify-center">
+                    {[...SIGNATURE_PHOTOS, ...LEGACY_PHOTOS].slice(0, 9).map((c, i) => (
+                      <img key={c.name} src={c.src} alt="" loading="lazy" draggable={false}
+                        className={cn("h-12 w-12 rounded-full object-cover shadow-lg sm:h-14 sm:w-14", i > 0 && "-ml-3")}
+                        style={{ boxShadow: `0 0 0 2px #15130F, 0 0 0 4px ${GOLD}` }} />
+                    ))}
+                  </div>
+                  <h2 className="mt-4 font-heading text-[42px] font-bold leading-none sm:text-[50px]">See the colors</h2>
+                  <p className="mt-2 text-[17px] font-semibold text-[#F8F3E7]/90">Scroll down to see all {SIGNATURE_PHOTOS.length + LEGACY_PHOTOS.length}</p>
+                  <span className="mt-3 flex h-11 w-11 animate-bounce items-center justify-center rounded-full shadow-lg" style={{ background: GOLD }}>
+                    <ChevronDown className="h-6 w-6 text-[#15130F]" />
+                  </span>
+                </div>
+              ) : (
+                <h2 className="mb-4 text-center font-heading text-[40px] font-bold leading-tight sm:text-[48px]">See the colors</h2>
+              )}
               {([
                 { key: "signature" as const, title: "Signature Finish colors", what: "Semi-transparent. You still see the wood grain.", colors: SIGNATURE_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Signature · semi-transparent", foot: "Real fences we stained." },
                 { key: "legacy" as const, title: "Legacy Finish colors", what: "Solid. One even color that covers the imperfections.", colors: LEGACY_PHOTOS as { name: string; src: string; full?: string; note?: string }[], finish: "Legacy · solid color", foot: "Real fences we stained." },
@@ -1144,7 +1168,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                   // Edge to edge (Alan, 2026-10-30: "it needs to actually fill up
                   // the whole page… take out that white space"): each set is a
                   // full-width band in its package's colour, one after the other.
-                  <div key={g.key} className={cn("relative -mx-4 overflow-hidden px-4 py-5", g.key === "signature" && "mt-1")} style={{ ...sk.card, borderRadius: 0, color: sk.text }}>
+                  <div key={g.key} className={cn("relative -mx-4 overflow-hidden px-4 py-5", g.key === "signature" && !fenceHead && "mt-1")} style={{ ...sk.card, borderRadius: 0, color: sk.text }}>
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="relative mb-2.5 flex items-center gap-2">
                       <TierBadge pkg={g.key} />
