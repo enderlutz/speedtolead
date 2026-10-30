@@ -690,6 +690,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // Wood behind the packages: the mockup only, with a switch to compare (2026-10-30).
   const [woodOn, setWoodOn] = useState(true);
   const wood = !preview && woodOn;
+  // The cover page, photo and details as one (2026-10-30): mockup only, with its switch.
+  const [coverOn, setCoverOn] = useState(true);
+  const cover = !preview && coverOn;
   // The job-done screens with a real job's after photos (Alan, 2026-10-29).
   // ?photos=<lead id> picks the job; otherwise the lead this mock is dressed in.
   const [afterPhotos, setAfterPhotos] = useState<string[]>([]);
@@ -811,6 +814,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" />
           <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (mockup only)">Cover: {coverOn ? "on" : "off"}</button>
         </div>
       </div>}
 
@@ -820,6 +824,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <span className="text-[12px] text-white/70">See what {dressed?.name?.split(" ")[0] || "they"} get after paying:</span>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" />
           <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
+          <button type="button" onClick={() => setCoverOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Photo and details as one cover page (mockup only)">Cover: {coverOn ? "on" : "off"}</button>
         </div>
       ) : null}
 
@@ -846,7 +851,43 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           </a>
         </div>
 
-        {/* Cover */}
+        {/* The cover page (Alan, 2026-10-30: "integrate the photo of the
+            family with the prepared for, date, property… all one seamless
+            image, and then the packages would feel like the second page").
+            Like the printed proposal: the photo fills the page, the greeting
+            over it, and the details card sits on the photo with the sides
+            included. Mockup only until he says go. */}
+        {cover ? (
+          <section className="relative overflow-hidden">
+            <img src="/proposal-mockup/hero-family.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#15130F]/25 via-[#15130F]/10 to-[#15130F]/90" />
+            <div className="relative flex min-h-[640px] flex-col justify-end gap-4 px-4 pb-5 pt-56 text-white sm:min-h-[560px] sm:px-6">
+              <div>
+                <p className="text-[13px] font-bold uppercase tracking-[0.2em] drop-shadow" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
+                <h1 className="font-heading text-[34px] font-bold leading-[1.1] drop-shadow-md">Hi {customer.name.split(" ")[0]}, here's your fence restoration plan.</h1>
+              </div>
+              <div className="rounded-2xl bg-[#F8F3E7]/95 p-4 text-[#15130F] shadow-xl ring-1 backdrop-blur-sm" style={{ boxShadow: `0 0 0 1px ${GOLD}66, 0 12px 30px rgba(0,0,0,.35)` }}>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
+                  <Fact icon={UserRound} label="Prepared for">{customer.name}</Fact>
+                  <Fact icon={Calendar} label="Date">{customer.date}</Fact>
+                  <Fact icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
+                  <Fact icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
+                </div>
+                {customer.sides.length ? (
+                  <div className="mt-3 border-t border-[#15130F]/10 pt-3">
+                    <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Sides of fence included in the price</p>
+                    <ul className="mt-1.5 space-y-1">
+                      {customer.sides.map((sd) => (
+                        <li key={sd} className="flex items-center gap-2 text-[15px] font-semibold"><Check className="h-4 w-4 shrink-0" style={{ color: GOLD }} /> {sd}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
+        {cover ? null : <>
         <section className="relative">
           <img src="/proposal-mockup/hero-family.jpg" alt="" className="h-60 w-full object-cover" draggable={false} />
           <div className="absolute inset-0 bg-gradient-to-t from-[#15130F] via-[#15130F]/40 to-transparent" />
@@ -861,6 +902,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <Fact icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
           <Fact icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
         </section>
+        </>}
         {expired && !reserved ? (
           <section className="flex items-start gap-2.5 bg-[#15130F] px-4 py-3 text-white">
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#E3BE63" }} />
@@ -909,7 +951,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             footage either: a fence we couldn't see is bid on the safe side,
             and a number next to it invites the wrong conversation (Alan,
             2026-10-10). */}
-        <section className="px-4 pt-5 pb-1">
+        {cover ? null : <section className="px-4 pt-5 pb-1">
           <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <p className="text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides of fence included in the price</p>
             <ul className="mt-1.5 space-y-1.5">
@@ -918,7 +960,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               ))}
             </ul>
           </div>
-        </section>
+        </section>}
 
         {/* Packages. All three on one screen, no scrolling (Alan,
             2026-10-10). On a phone that is a compare grid: the photos across
