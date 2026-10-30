@@ -687,6 +687,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // link texted after the job; paidUpFront is the financed customer who
   // owes nothing then and only gets the after-the-job screens.
   const [afterPay, setAfterPay] = useState<null | { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }>(null);
+  // Wood behind the packages: the mockup only, with a switch to compare (2026-10-30).
+  const [woodOn, setWoodOn] = useState(true);
+  const wood = !preview && woodOn;
   // The job-done screens with a real job's after photos (Alan, 2026-10-29).
   // ?photos=<lead id> picks the job; otherwise the lead this mock is dressed in.
   const [afterPhotos, setAfterPhotos] = useState<string[]>([]);
@@ -807,6 +810,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
             className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" />
+          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
         </div>
       </div>}
 
@@ -815,6 +819,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <span className="text-[12px] font-bold uppercase tracking-wide text-[#E3BE63]">Staff view</span>
           <span className="text-[12px] text-white/70">See what {dressed?.name?.split(" ")[0] || "they"} get after paying:</span>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" />
+          <button type="button" onClick={() => setWoodOn((v) => !v)} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" title="Wood behind the packages, like the printed proposal (mockup only)">Wood: {woodOn ? "on" : "off"}</button>
         </div>
       ) : null}
 
@@ -920,16 +925,21 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             the top, then short rows that line up — lasts, price, best for,
             what you get — and three Pick buttons. At full width, three cards
             that each carry the whole story, the way a pricing page does. */}
-        <section id="mock-packages" className="scroll-mt-14 bg-white px-1 py-6 sm:px-4">
+        {/* On the wood (Alan, 2026-10-30: the old proposal's packages sat on
+            a dark wood board; "the wood grain look… makes it look less like a
+            scam"). The board from the printed proposal, darkened so the words
+            read; the cards keep their own colours. Mockup only until he says go. */}
+        <section id="mock-packages" className={cn("scroll-mt-14 px-1 py-6 sm:px-4", wood ? "bg-[#2A1A10]" : "bg-white")}
+          style={wood ? { backgroundImage: "linear-gradient(rgba(20,12,6,0.45), rgba(20,12,6,0.55)), url(/proposal-mockup/wood-packages.jpg)", backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
           <div className="px-1">
-            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer." />
+            <SectionTitle kicker="Step 1 of 3" title="Choose 1 of these 3" sub="Higher ones last longer." dark={wood} />
             {/* The things people ask about before they pick, in one line each
                 (Alan, 2026-10-28: "the main three things people want to know
                 that it's included"), plus tax. */}
-            <p className="-mt-1 text-[15px] font-bold text-[#15130F]">With every one of these, at no extra charge:</p>
-            <ul className="mb-4 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug text-[#15130F]">
+            <p className={cn("-mt-1 text-[15px] font-bold", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>With every one of these, at no extra charge:</p>
+            <ul className={cn("mb-4 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>
               {["The cleaning", "Two coats of stain", "Screwing in any loose boards"].map((t) => (
-                <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#2F5137" }} />{t}</li>
+                <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: wood ? "#E3BE63" : "#2F5137" }} />{t}</li>
               ))}
             </ul>
           </div>
@@ -1067,7 +1077,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               })}
             </div>
           )}
-          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every price includes tax. Every package comes with our 1-year warranty on the work.</p>
+          <p className={cn("mt-3 text-center text-[15px]", wood ? "text-[#F8F3E7]/90" : "text-[#15130F]/75")}>Every price includes tax. Every package comes with our 1-year warranty on the work.</p>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
@@ -1588,12 +1598,12 @@ const SHINE_CSS = `
 @media (prefers-reduced-motion: reduce) { .mock-shine::after, .mock-twinkle { animation: none; } }
 `;
 
-function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub?: string }) {
+function SectionTitle({ kicker, title, sub, dark }: { kicker: string; title: string; sub?: string; dark?: boolean }) {
   return (
     <div className="mb-3">
-      <p className="text-[15px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{kicker}</p>
-      <h2 className="font-heading text-[30px] font-bold leading-tight">{title}</h2>
-      {sub ? <p className="mt-1 text-[17px] leading-snug text-[#15130F]/80">{sub}</p> : null}
+      <p className={cn("text-[15px] font-bold uppercase tracking-[0.15em]", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>{kicker}</p>
+      <h2 className={cn("font-heading text-[30px] font-bold leading-tight", dark && "text-[#F8F3E7]")}>{title}</h2>
+      {sub ? <p className={cn("mt-1 text-[17px] leading-snug", dark ? "text-[#F8F3E7]/90" : "text-[#15130F]/80")}>{sub}</p> : null}
     </div>
   );
 }
