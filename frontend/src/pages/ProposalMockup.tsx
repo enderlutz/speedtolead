@@ -1077,8 +1077,6 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                             {p.captions?.[i] ? (
                               <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
                             ) : null}
-                            {i === 0 ? (
-                            ) : null}
                           </div>
                         ))}
                       </div>
