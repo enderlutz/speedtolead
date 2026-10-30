@@ -874,10 +874,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             </div>
             <div className="px-4 pb-5 pt-3 sm:px-6">
               <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-                <Fact dark icon={UserRound} label="Prepared for">{customer.name}</Fact>
+                {/* No "Prepared for": the greeting above already says who (Alan, 2026-10-30). */}
                 <Fact dark icon={Calendar} label="Date">{customer.date}</Fact>
+                <Fact dark icon={Eye} label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
                 <Fact dark icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
-                <Fact dark icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
               </div>
               {customer.sides.length ? (
                 <div className="mt-3 border-t pt-3" style={{ borderColor: `${GOLD}55` }}>
