@@ -524,7 +524,7 @@ function AfterPayButtons({ open, className }: { open: (v: { flow: PayFlow; metho
         onClick={() => open({ flow: "deposit", method: "card" })}>After deposit</button>
       <button type="button" className={className} title="Paid the whole job through Klarna: same 'you're booked' screens, nothing more due to us"
         onClick={() => open({ flow: "full", method: "klarna" })}>After Klarna</button>
-      <button type="button" className={className} title="After the final invoice is paid: thank you, how did we do, review, referral, other services"
+      <button type="button" className={className} title="After the final invoice is paid: their fence photos, save them, write us a Google review, referral, other services"
         onClick={() => open({ flow: "balance", method: "card" })}>After final invoice</button>
       <button type="button" className={className} title="Financed up front, so nothing is owed at the end: the job-done screens come with the receipt"
         onClick={() => open({ flow: "balance", method: "klarna", paidUpFront: true })}>Financed, job done</button>
@@ -687,6 +687,29 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // link texted after the job; paidUpFront is the financed customer who
   // owes nothing then and only gets the after-the-job screens.
   const [afterPay, setAfterPay] = useState<null | { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }>(null);
+  // The job-done screens with a real job's after photos (Alan, 2026-10-29).
+  // ?photos=<lead id> picks the job; otherwise the lead this mock is dressed in.
+  const [afterPhotos, setAfterPhotos] = useState<string[]>([]);
+  useEffect(() => {
+    if (preview) return;
+    const leadId = params.get("photos") || previewLead || LIVE_LEAD_ID;
+    const urls: string[] = [];
+    let alive = true;
+    (async () => {
+      try {
+        const cc = await api.getCompanyCam(leadId);
+        const all = cc.photos || {};
+        const key = ["stain_after", "clean_after"].find((k) => (all[k] || []).length)
+          || Object.keys(all).find((k) => k.startsWith("pw_") && k.endsWith("_after") && all[k].length);
+        for (const ph of (key ? all[key] : []).slice(0, 8)) {
+          const u = ph.from_storage ? ph.url : await api.fetchCompanyCamPhotoUrl(leadId, ph.id);
+          if (u) urls.push(u);
+        }
+        if (alive) setAfterPhotos([...urls]);
+      } catch { /* no photos: the screen shows without them */ }
+    })();
+    return () => { alive = false; urls.forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u); }); };
+  }, [preview, params, previewLead]);
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   // Our own booking invite in place of the Google Calendar one (Alan,
   // 2026-10-14). The mockup holds the next Thursday.
@@ -1451,6 +1474,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           repairs={repairs}
           staff={!preview || staffPeek}
           onClose={() => setAfterPay(null)}
+          photos={afterPay.flow === "balance" ? afterPhotos : undefined}
+          photoReview={afterPay.flow === "balance"}
         />
       ) : null}
 

@@ -53,7 +53,13 @@ const FLOW_A: Screen[] = ["locked", "prep", "neighbor", "doneA"];
 // link is still there for them, small: asking only happy customers is
 // against Google's rules), then referral and services. A link sent with the
 // review switched off skips the review ask for everyone.
-function flowB(stars: number | null, askReview: boolean): Screen[] {
+// The photo version (Alan, 2026-10-29): no star screen. Customers tapped 5
+// stars and thought that was their Google review, and only the happy ones
+// were sent on to Google (gating). Now the first screen is their fence's
+// after photos, Save your photos, and one big Write us a Google review,
+// the same for everyone; anyone unhappy has a small "Tell Alan" right there.
+function flowB(stars: number | null, askReview: boolean, photoReview?: boolean): Screen[] {
+  if (photoReview) return ["paid", "referral", "next", "doneB"];
   const unhappy = stars !== null && stars <= 3;
   return ["paid", "score", ...(unhappy ? ["sorry" as Screen] : askReview ? ["review" as Screen] : []), "referral", "next", "doneB"];
 }
@@ -63,7 +69,7 @@ const NAMES: Record<Screen, string> = {
   paid: "Paid in full", score: "How did we do?", sorry: "We'll make it right", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl, onReferFriend }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl, onReferFriend, photos, photoReview }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -86,10 +92,14 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   referralUrl?: string;
   /** Send us a friend's name and number; Alan's welcome text goes out. */
   onReferFriend?: (name: string, phone: string) => Promise<void>;
+  /** The job's after photos the office picked, shown on the paid screen. */
+  photos?: string[];
+  /** The photo version of the job-done screens (mockup until Alan says go). */
+  photoReview?: boolean;
 }) {
   const init = initial || {};
   const [stars, setStars] = useState<number | null>(typeof init.stars === "number" ? init.stars : null);
-  const screens = useMemo(() => (flow === "balance" ? flowB(stars, askReview !== false) : FLOW_A), [flow, stars, askReview]);
+  const screens = useMemo(() => (flow === "balance" ? flowB(stars, askReview !== false, photoReview) : FLOW_A), [flow, stars, askReview, photoReview]);
   const savedServices = Array.isArray(init.services_interested) ? (init.services_interested as string[]) : [];
   const [step, setStep] = useState(0);
   const [prep, setPrep] = useState(init.prep_acknowledged === true);
@@ -126,6 +136,37 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
     }
   };
   const [behind, setBehind] = useState(false);
+  const [saved, setSaved] = useState(init.photos_saved === true);
+  const [saving, setSaving] = useState(false);
+  const [tell, setTell] = useState(false);
+  const [told, setTold] = useState(init.callback_requested === true);
+  const [big, setBig] = useState<number | null>(null);
+  // One tap → the phone's share sheet with every photo, where "Save to
+  // Photos" puts them all in the camera roll. A web page can't save to the
+  // camera roll by itself; where sharing files isn't possible, they open
+  // one by one to press and hold.
+  const savePhotos = async () => {
+    if (!photos?.length || saving) return;
+    setSaving(true);
+    try {
+      const files = await Promise.all(photos.map(async (u, i) => {
+        const b = await (await fetch(u)).blob();
+        return new File([b], `sterling-fence-${i + 1}.jpg`, { type: b.type || "image/jpeg" });
+      }));
+      if (navigator.canShare?.({ files })) {
+        await navigator.share({ files });
+      } else {
+        setBig(0);
+        setToast("Press and hold a photo, then tap Save");
+      }
+      setSaved(true);
+      answer("photos_saved", true);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) { setBig(0); setToast("Press and hold a photo, then tap Save"); }
+    } finally {
+      setSaving(false);
+    }
+  };
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
 
   const screen = screens[step];
@@ -187,7 +228,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
     if (askReview === false) fires.push("Google review: not asked on this link (switched off)");
     if (comment.trim()) fires.push(`Note on the contact: "${comment.trim()}"`);
     if (review) fires.push("GHL tag: review_link_clicked");
-    if (callback) fires.push("Task: Alan calls the customer");
+    if (callback) fires.push(photoReview ? `Alert: text Alan, ${firstName} says something's not right: call today` : "Task: Alan calls the customer");
+    if (saved) fires.push("Their fence photos saved to their phone");
     if (sharedHow) fires.push("GHL tag: referral_shared", `Referral: watch ${code}, $100 off for the friend, $100 to ${firstName} when their job is done`);
     SERVICES.filter((s) => services[s]).forEach((s) => fires.push(`Lead created: ${s === "Other" && other.trim() ? `Other ("${other.trim()}")` : s}`));
     if (feature) fires.push("GHL tag: testimonial_permission");
@@ -318,6 +360,70 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
       );
       break;
     case "paid":
+      if (photoReview) {
+        body = (
+          <>
+            <h2 className="font-heading text-3xl font-bold leading-tight">Paid in full. Thank you, {firstName}.</h2>
+            <p className="-mt-2 text-[15px] text-[#15130F]/75">{formatCurrency(amount)} paid today{lender ? ` through ${lender}` : ""}. {receiptUrl || !page ? "Your receipt is at the end." : ""}</p>
+            {photos?.length ? (
+              <>
+                <p className="text-[17px] font-bold">Here's your fence 🎉</p>
+                <div className="-mx-5 flex snap-x snap-mandatory gap-2 overflow-x-auto px-5 pb-1">
+                  {photos.map((u, i) => (
+                    <button key={u} type="button" onClick={() => setBig(i)} className="shrink-0 snap-start overflow-hidden rounded-2xl ring-1 ring-[#15130F]/10">
+                      <img src={u} alt={`Your fence, photo ${i + 1}`} className="h-56 w-64 object-cover" draggable={false} />
+                    </button>
+                  ))}
+                </div>
+                <p className="-mt-2 text-[13px] text-[#15130F]/70">{photos.length} photo{photos.length === 1 ? "" : "s"} · swipe to see them all</p>
+              </>
+            ) : null}
+            {askReview !== false ? (
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+                <p className="text-[17px] font-bold leading-snug">Would you show your fence off on Google?</p>
+                <p className="mt-1 text-[15px] text-[#15130F]/80">It's how most Houston homeowners find us. Say whatever is true for you.</p>
+                <ol className="mt-3 space-y-3">
+                  {photos?.length ? (
+                    <li className="flex gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[15px] font-bold text-[#E3BE63]">1</span>
+                      <button type="button" onClick={() => void savePhotos()} disabled={saving}
+                        className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-[#15130F] bg-white text-[16px] font-bold active:scale-[0.98] disabled:opacity-60">
+                        {saving ? "Getting your photos…" : saved ? "Photos saved ✓" : "Save your photos"}
+                      </button>
+                    </li>
+                  ) : null}
+                  <li className="flex gap-3">
+                    {photos?.length ? <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[15px] font-bold text-[#E3BE63]">2</span> : null}
+                    <div className="flex-1">
+                      {/* Identical for everyone, by law. Never gated or hidden. */}
+                      <a href={REVIEW_URL} target="_blank" rel="noreferrer" onClick={() => { setReview(true); answer("review_clicked", true); }}
+                        className="flex h-16 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
+                        <Star className="h-5 w-5 fill-[#15130F]" /> {review ? "Opened Google ✓" : "Write us a Google review"}
+                      </a>
+                      {photos?.length ? <p className="mt-1.5 text-[14px] text-[#15130F]/75">In Google, tap the camera 📷 to add your photos.</p> : null}
+                    </div>
+                  </li>
+                </ol>
+              </div>
+            ) : null}
+            {told ? (
+              <p className="rounded-2xl border border-[#C9972F] bg-[#FFF7E6] p-3.5 text-[15px] font-semibold">Thank you for telling us. Alan will call you today.</p>
+            ) : tell ? (
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+                <label className="block text-[15px] font-bold">What's not right?
+                  <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} autoFocus className="mt-1 w-full resize-none rounded-xl border border-[#15130F]/15 bg-white px-3 py-2.5 text-[16px] font-normal" />
+                </label>
+                <button type="button" onClick={() => { setTold(true); setCallback(true); answer("callback_requested", true); if (comment.trim()) answer("comment", comment.trim()); }}
+                  className="mt-2 flex h-12 w-full items-center justify-center rounded-xl bg-[#15130F] text-[16px] font-bold text-[#E3BE63]">Send to Alan</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setTell(true)} className="min-h-[44px] text-center text-[15px] text-[#15130F]/75 underline underline-offset-2">Something not right? Tell Alan</button>
+            )}
+          </>
+        );
+        foot = next("Continue", true);
+        break;
+      }
       body = (
         <>
           {tick}
@@ -517,6 +623,19 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                 <button type="button" onClick={() => { setSheet(false); shared("text"); setToast("Text sent (pretend)"); }} className="ml-auto mt-3 flex h-11 items-center rounded-full bg-[#1f8bff] px-5 text-[15px] font-bold text-white">Send</button>
               )}
               <p className="mt-2 text-[12px] text-black/60">{page ? "Your Messages app opens with this written. Pick who to send it to." : "On a real phone this opens Messages with the text already written."}</p>
+            </div>
+          </div>
+        ) : null}
+        {big !== null && photos?.[big] ? (
+          <div className="absolute inset-0 z-10 flex flex-col bg-black/90" onClick={() => setBig(null)}>
+            <p className="px-4 pt-4 text-center text-[15px] text-white/85">Press and hold the photo, then tap Save to Photos</p>
+            <img src={photos[big]} alt={`Your fence, photo ${big + 1}`} className="m-auto max-h-[75%] max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
+            <div className="flex items-center justify-between px-4 pb-5 text-white" onClick={(e) => e.stopPropagation()}>
+              <button type="button" disabled={big === 0} onClick={() => setBig(big - 1)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold disabled:opacity-30">Back</button>
+              <span className="text-[15px] tabular-nums">{big + 1} of {photos.length}</span>
+              {big < photos.length - 1
+                ? <button type="button" onClick={() => setBig(big + 1)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold">Next</button>
+                : <button type="button" onClick={() => setBig(null)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold">Close</button>}
             </div>
           </div>
         ) : null}
