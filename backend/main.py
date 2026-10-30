@@ -149,6 +149,19 @@ async def _scoreboard_loop():
         await asyncio.sleep(3600)
 
 
+async def _calendar_delete_loop():
+    """Background task: a held day deleted from Google Calendar is the same
+    as Not going ahead in the Invoice Queue (Alan, 2026-10-30)."""
+    await asyncio.sleep(240)
+    while True:
+        try:
+            from api.booking import run_deleted_event_sweep
+            await asyncio.to_thread(run_deleted_event_sweep)
+        except Exception as e:
+            logger.error(f"Calendar delete sweep error: {e}")
+        await asyncio.sleep(600)
+
+
 async def _wrapped_dispatcher_loop():
     """Background task: hourly tick that fires Saturday-morning weekly
     Wrapped SMS + last-day-of-month monthly Wrapped SMS to Alan."""
@@ -715,6 +728,7 @@ async def lifespan(app: FastAPI):
     weekly = asyncio.create_task(_weekly_reminder_loop())
     on_call_loop = asyncio.create_task(_on_call_loop())  # noqa: F841 — runs for the app's life
     fast_sync_loop = asyncio.create_task(_fast_sync_loop())  # noqa: F841
+    calendar_delete_loop = asyncio.create_task(_calendar_delete_loop())  # noqa: F841
     fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     scoreboard_loop = asyncio.create_task(_scoreboard_loop())  # noqa: F841 — runs for the app's life

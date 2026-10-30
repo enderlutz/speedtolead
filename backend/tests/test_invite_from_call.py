@@ -14,13 +14,13 @@ CALL = ("Right now we actually have next Saturday available. Can we possibly do 
 
 
 def _setup(db):
-    lead = Lead(id=str(uuid.uuid4()), contact_name="Robin Test", contact_phone="+17135550123", ghl_contact_id="g-rt",
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Robin Test", contact_phone="+17135550123", ghl_contact_id="g-" + uuid.uuid4().hex[:8],
                 status="new", form_data=json.dumps({"fence_sides": ["Inside Back"]}), address="1 Oak St")
     db.add(lead)
     rec = CallRecording(id=str(uuid.uuid4()), lead_id=lead.id, created_at="2026-10-30T19:39:00Z")
     db.add(rec)
     db.add(CallTranscript(id=str(uuid.uuid4()), recording_id=rec.id, lead_id=lead.id, full_text=CALL, created_at="2026-10-30T20:00:00Z"))
-    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, ghl_contact_id="g-rt", direction="inbound",
+    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, ghl_contact_id=lead.ghl_contact_id, direction="inbound",
                    body="All that are within my property side", message_type="TYPE_SMS", created_at="2026-10-30T03:41:00Z"))
     db.add(Estimate(id=str(uuid.uuid4()), lead_id=lead.id, service_type="fence_staining", status="sent",
                     tiers=json.dumps({"essential": 1617.0, "signature": 1848.0, "legacy": 2329.25}), created_at="2026-10-30T19:40:00Z"))
@@ -85,3 +85,33 @@ def test_nothing_said_keeps_the_usual_invite(db, monkeypatch):
     icf.build(db, lead, b.date)
     _, text = bk._customer_text(db, lead, b, paid)
     assert "a day or two before" in text and "Signature Finish package in Pecan" in text
+
+
+def test_a_held_day_deleted_from_google_calendar_is_not_going_ahead(db, monkeypatch):
+    """Alan, 2026-10-30: deleting the calendar event = Not going ahead."""
+    from api import booking as bk
+    from services import google_calendar as gcal
+    alerts = []
+    monkeypatch.setattr(bk.hooks, "alert_alan", lambda m: alerts.append(m))
+    unpaid, paid_lead, kept = _setup(db), _setup(db), _setup(db)
+    rows = {}
+    for lead, eid in ((unpaid, "ev-unpaid"), (paid_lead, "ev-paid"), (kept, "ev-kept")):
+        b = Booking(token=uuid.uuid4().hex[:22], lead_id=lead.id, date="2099-11-14", tier="signature", total_cents=184800,
+                    price_cents=184800, status="held", google_event_id=eid, created_at="2026-10-30T19:56:00Z")
+        db.add(b)
+        rows[eid] = b
+    dep = PayLink(token=uuid.uuid4().hex[:20], lead_id=unpaid.id, kind="deposit", amount_cents=25000, status="open", created_at="2026-10-30T19:56:00Z")
+    db.add(dep)
+    db.add(PayLink(token=uuid.uuid4().hex[:20], lead_id=paid_lead.id, kind="deposit", amount_cents=25000, status="paid",
+                   paid_at="2026-10-30T19:57:00Z", created_at="2026-10-30T19:56:00Z"))
+    db.commit()
+    monkeypatch.setattr(gcal, "event_status", lambda db, eid: {"ev-unpaid": "cancelled", "ev-paid": "gone", "ev-kept": "confirmed"}[eid])
+    out = bk.sweep_deleted_events(db)
+    db.refresh(dep)
+    assert rows["ev-unpaid"].status == "cancelled" and dep.status == "void"
+    assert rows["ev-paid"].status == "held" and rows["ev-paid"].google_event_id == "" and len(alerts) == 1
+    assert rows["ev-kept"].status == "held"
+    assert out["checked"] == 3
+    # The paid one is told once, not every ten minutes.
+    bk.sweep_deleted_events(db)
+    assert len(alerts) == 1

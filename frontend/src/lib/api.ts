@@ -2328,6 +2328,9 @@ export const api = {
   /** Change a sent booking (the date, a price) without texting or emailing them. */
   updateBooking: (leadId: string) =>
     request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
+  /** The invite as the calls and texts say (2026-10-30); send=true also updates the calendar. */
+  inviteFromCall: (leadId: string, send = false) =>
+    request<{ summary: string; text: string; sent: boolean; to_customer: boolean }>(`/api/leads/${leadId}/booking/from-call?send=${send ? 1 : 0}`, { method: "POST" }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
   /** One tap (Alan and Olga, 2026-10-27): text the $250 link that opens straight
    *  into Stripe, no package needed, and hold the day the call settled on. */

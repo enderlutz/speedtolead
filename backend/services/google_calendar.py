@@ -395,6 +395,26 @@ def upsert_internal_event(
         return (None, "")
 
 
+def event_status(db: Session, event_id: str) -> str | None:
+    """"confirmed", "cancelled" (deleted in Google Calendar; Google keeps
+    the stub for a while), "gone" (404/410), or None when Google couldn't be
+    asked. Used to notice an event Alan deleted by hand (2026-10-30)."""
+    if not event_id:
+        return None
+    try:
+        access = _get_access_token(db)
+        r = _client.get(f"{CALENDAR_BASE}/calendars/{_calendar_id(db)}/events/{event_id}",
+                        headers={"Authorization": f"Bearer {access}"})
+    except Exception as e:
+        logger.warning(f"Google Calendar event_status failed: {e}")
+        return None
+    if r.status_code in (404, 410):
+        return "gone"
+    if r.status_code != 200:
+        return None
+    return "cancelled" if (r.json() or {}).get("status") == "cancelled" else "confirmed"
+
+
 def delete_event(db: Session, event_id: str) -> bool:
     if not event_id:
         return False

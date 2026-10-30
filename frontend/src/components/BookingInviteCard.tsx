@@ -249,6 +249,19 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       toast.success(`Updated${out.booking ? ` to ${longDay(out.booking.date)}` : ""}. Their page and your calendar changed. Nothing was texted.`);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't update"); } finally { setBusy(null); }
   };
+  // The invite built from the calls and texts (Alan, 2026-10-30: "build the
+  // calendar invite based on how the call went… don't just make some
+  // bullshit up"). See it first; Update sends it to the calendar.
+  const [fromCall, setFromCall] = useState<{ text: string; to_customer: boolean } | null>(null);
+  const [callBusy, setCallBusy] = useState<"" | "read" | "send">("");
+  const readCall = async (send = false) => {
+    setCallBusy(send ? "send" : "read");
+    try {
+      const out = await api.inviteFromCall(lead.id, send);
+      if (send) { toast.success(out.to_customer ? "Calendar updated. Google emails them the updated invite." : "Your calendar is updated."); setFromCall(null); }
+      else setFromCall(out);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't read the call"); } finally { setCallBusy(""); }
+  };
   const onCancel = async () => {
     if (!window.confirm(`Cancel ${first}'s booking? Their link will say it was cancelled. Nothing is texted.`)) return;
     setBusy("cancel");
@@ -297,10 +310,27 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
                 draftDiffersFromSent ? "bg-ink text-gold-light" : "border border-input bg-background hover:bg-muted")}>
               <Save className="h-3.5 w-3.5" /> {busy === "update" ? "Updating…" : "Update without texting"}
             </button>
+            <button type="button" onClick={() => void readCall(false)} disabled={!!callBusy} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+              title="Read the calls and texts and write the calendar invite from what was agreed">
+              <CalendarCheck className="h-3.5 w-3.5" /> {callBusy === "read" ? "Listening to the call…" : "Build invite from the call"}
+            </button>
             <button type="button" onClick={onCancel} disabled={busy === "cancel"} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-background px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
               <X className="h-3.5 w-3.5" /> Cancel booking
             </button>
           </div>
+          {fromCall ? (
+            <div className="mt-2 space-y-2 rounded-lg border border-input bg-muted/40 p-3">
+              <p className="text-xs font-semibold">The invite, from the calls and texts. Each line was checked against what was said; anything not said stays out.</p>
+              <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md bg-background p-2.5 font-sans text-[13px] leading-snug">{fromCall.text}</pre>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => void readCall(true)} disabled={!!callBusy}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-ink px-3 text-xs font-bold text-gold-light disabled:opacity-50">
+                  <Send className="h-3.5 w-3.5" /> {callBusy === "send" ? "Updating…" : fromCall.to_customer ? "Update the calendar (they get the updated invite)" : "Update my calendar"}
+                </button>
+                <button type="button" onClick={() => setFromCall(null)} className="h-9 px-2 text-xs font-semibold text-muted-foreground">Close</button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -934,3 +934,52 @@ def invite_from_call_preview(lead_id: str, send: int = 0, user: dict = Depends(r
         return {"facts": facts, "summary": summary, "text": text, "sent": bool(send and link), "to_customer": paid is not None}
     finally:
         db.close()
+
+
+# ── Deleted from Google Calendar = not going ahead (Alan, 2026-10-30) ────
+# "If we delete a calendar invite from Google Calendar, meaning that customer
+# was sent a $250 deposit and they never paid it… delete them from the
+# invoice queue… it's basically a simultaneous answer." Not going ahead in
+# the Invoice Queue already takes the held day off the calendar; this is the
+# other way round. Only an unpaid hold is let go. A paid one is never
+# cancelled by a missing event: Alan gets one text to put it back or cancel
+# it in the app. Nothing is ever sent to the customer.
+
+def sweep_deleted_events(db) -> dict:
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    out = {"checked": 0, "let_go": [], "paid_missing": []}
+    rows = (db.query(Booking).filter(Booking.status == "held", Booking.google_event_id.isnot(None),
+                                     Booking.google_event_id != "", Booking.date >= today).all())
+    for b in rows:
+        st = gcal.event_status(db, b.google_event_id)
+        out["checked"] += 1
+        if st not in ("cancelled", "gone"):
+            continue
+        lead = db.query(Lead).filter(Lead.id == b.lead_id).first()
+        name = ((lead.contact_name if lead else "") or "A customer").strip()
+        if lead is not None and _confirmed(db, lead) is not None:
+            b.google_event_id = ""     # alert once; a later sync puts a fresh event back
+            db.commit()
+            hooks.alert_alan(f"{name}'s day ({_long(b.date)}) was deleted from the calendar, but they paid the $250. "
+                             "The job is still booked. To cancel it, do it from their page; otherwise it goes back on the calendar.")
+            log_event(b.lead_id, "booking_event_deleted_paid", f"{b.date}: calendar event deleted, deposit paid; left booked")
+            out["paid_missing"].append(name)
+            continue
+        b.status = "cancelled"
+        voided = 0
+        for link in db.query(PayLink).filter(PayLink.lead_id == b.lead_id, PayLink.kind == "deposit", PayLink.status == "open").all():
+            link.status = "void"
+            voided += 1
+        db.commit()
+        log_event(b.lead_id, "booking_cancelled",
+                  f"{b.date}: deleted from Google Calendar, so not going ahead ($250 link{'s' if voided != 1 else ''} stopped: {voided})")
+        out["let_go"].append(name)
+    return out
+
+
+def run_deleted_event_sweep() -> dict:
+    db = get_db()
+    try:
+        return sweep_deleted_events(db)
+    finally:
+        db.close()
