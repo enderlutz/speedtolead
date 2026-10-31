@@ -28,6 +28,13 @@ const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 // Already the review link the dashboard texts customers (api/customer_upsell.py).
 const REVIEW_URL = "https://g.page/r/CSqFYMG3SFFFEBM/review";
+// The review ask comes from a person, not a company (Alan, 2026-10-31: "put
+// my face... don't say I'm the owner, say project manager", same as the
+// booking invite). The same photo and role as api/booking.py's SENDERS.
+const ASKER = { name: "Alan Bonner", first: "Alan", role: "Project Manager, Sterling Fence Staining", photo: "/team/alan.jpg" };
+// Safari is usually not signed in to Google, so iPhones get a sign-in screen
+// first; Android phones almost never do. A reassurance, not a step.
+const IPHONE = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 // Alan's list in the spec, minus fence repairs: "if we've already stained
 // their fence it's too late now, usually" (2026-10-10).
 const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof washing", "Gutter cleaning", "Sprinkler repair", "Landscaping", "Other"];
@@ -394,7 +401,16 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
               </>
             ) : null}
             {askReview !== false ? (
-              <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+              <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+                <div className="flex items-center gap-3.5 bg-[#15130F] px-4 py-3.5 text-white">
+                  <img src={ASKER.photo} alt={ASKER.name} className="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-[#C9972F]" draggable={false} />
+                  <div className="min-w-0">
+                    <p className="text-[17px] font-bold leading-tight">{firstName}, it&rsquo;s {ASKER.first}.</p>
+                    <p className="mt-0.5 text-[15px] leading-snug text-white/85">A review from you is the biggest thing you could do for my crew.</p>
+                    <p className="mt-0.5 text-[13px] text-white/60">{ASKER.name} · {ASKER.role}</p>
+                  </div>
+                </div>
+                <div className="p-4">
                 <p className="text-[17px] font-bold leading-snug">Would you show your fence off on Google?</p>
                 <p className="mt-1 text-[15px] text-[#15130F]/80">Leave your honest review. It's how most Houston homeowners find us.</p>
                 <ol className="mt-3 space-y-3">
@@ -419,6 +435,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                           easy for her to understand where she needs to click"). */}
                       <p className="mt-2 text-[14px] font-semibold text-[#15130F]">When Google opens:</p>
                       <ol className="mt-1 space-y-1 text-[14px] leading-snug text-[#15130F]/85">
+                        {IPHONE ? <li>→ If Google asks you to sign in, that's normal. Use the account you use for Gmail.</li> : null}
                         <li>→ Tap the stars ☆☆☆☆☆</li>
                         <li>→ Write a few words about your fence</li>
                         {photos?.length ? <li>→ Tap the camera 📷 and pick the photos you saved</li> : null}
@@ -427,6 +444,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                     </div>
                   </li>
                 </ol>
+                </div>
               </div>
             ) : null}
             {told ? (

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Eye, Hammer, Loader2, Phone, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from "lucide-react";
 import { api, type InvoiceQueueResponse, type InvoiceQueueRow, type InvoiceStageKey } from "@/lib/api";
 import { Compose, StripeLinksCard } from "@/components/StripeLinksCard";
+import { GoogleReviewMark } from "@/components/GoogleReviewMark";
 import { cn, errMessage, formatCurrency } from "@/lib/utils";
 
 const STAGES: { key: InvoiceStageKey; label: string; short: string; money: string; empty: string; icon: React.ElementType }[] = [
@@ -144,9 +145,14 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
               </>
             ) : null}
             {r.stage === "closed" ? (
-              <Chip tone="green">
-                {r.closed_at ? `Closed ${ago(r.closed_at)} · ${r.closed_how}` : `Paid ${ago(r.when)} · Stripe`}
-              </Chip>
+              <>
+                <Chip tone="green">
+                  {r.closed_at ? `Closed ${ago(r.closed_at)} · ${r.closed_how}` : `Paid ${ago(r.when)} · Stripe`}
+                </Chip>
+                {r.review?.status === "posted" ? <Chip tone="gold">★ Left a review</Chip>
+                  : r.review?.status === "not_yet" ? <Chip tone="red">No review yet{r.review.reminded ? ` · reminded ${r.review.reminded}×` : ""}</Chip>
+                  : r.review?.clicked ? <Chip tone="muted">Tapped the Google button</Chip> : null}
+              </>
             ) : null}
           </div>
         </div>
@@ -203,6 +209,12 @@ function Row({ r, closeHow, onChanged }: { r: InvoiceQueueRow; closeHow: { key: 
           <ExternalLink className="h-4 w-4" /> Lead
         </Link>
       </div>
+
+      {r.stage === "closed" ? (
+        <div className="border-t border-[#E4DCCB] px-4 py-3">
+          <GoogleReviewMark leadId={r.lead_id} summary={r.review} onChanged={onChanged} compact />
+        </div>
+      ) : null}
 
       {closing ? (
         <div className="space-y-2 border-t border-[#E4DCCB] bg-[#FBF8F2] px-4 py-3">

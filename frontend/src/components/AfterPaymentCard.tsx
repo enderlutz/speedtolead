@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { HeartHandshake, Check, X, Star, ExternalLink } from "lucide-react";
 import { api, type PayLinkEntry } from "@/lib/api";
 import { Panel } from "@/components/Panel";
+import { GoogleReviewMark } from "@/components/GoogleReviewMark";
 import { ACCENT } from "@/lib/accents";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +104,9 @@ export function AfterPaymentCard({ leadId }: { leadId: string }) {
   if ((!paid || paid.length === 0) && refs.length === 0) return null;
   return (
     <Panel icon={HeartHandshake} title="After payment" sub="What they did on the thank-you screens: stars, comment, Google review, referrals" accent={ACCENT.emerald} bodyClassName="space-y-2 p-3.5">
+      {/* The job is paid for: did they leave the review? Alan marks it and
+          presses the reminder himself (2026-10-31). */}
+      {(paid || []).some((l) => !["deposit"].includes(l.kind)) ? <GoogleReviewMark leadId={leadId} /> : null}
       {(paid || []).map((l) => <Answers key={l.token} l={l} />)}
       {refs.length ? (
         <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">

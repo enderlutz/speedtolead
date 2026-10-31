@@ -30,6 +30,7 @@ from api.permissions import require_perm
 from database import get_db, Booking, CompanyCamJob, CustomerPayment, Lead, PayLink
 from services import after_pay_hooks as hooks
 from services.activity_log import log_event
+from services import google_review
 from services.pay_reminders import needs_reminder
 
 logger = logging.getLogger(__name__)
@@ -229,8 +230,17 @@ def stage_rows(db, now: datetime | None = None) -> list[dict]:
             "closed_by": (job.closed_by if job else "") or "",
             "closed_how": CLOSE_HOW.get((job.closed_how if job else "") or "", (job.closed_how if job else "") or ""),
             "paid_in_full_up_front": full_paid and not done_at,
+            # Did they leave the Google review? (Alan, 2026-10-31) The mark,
+            # whether they tapped the button, and how many times he's asked.
+            "review": _review(lead, ls),
         })
     return out
+
+
+def _review(lead: Lead, ls: list[PayLink]) -> dict:
+    s = google_review.state(lead)
+    return {"status": s["status"], "marked_by": s["marked_by"], "marked_at": s["marked_at"],
+            "reminded": len(s["reminders"]), "clicked": google_review.clicked([l for l in ls if l.status == "paid"])}
 
 
 def _sort(rows: list[dict], stage: str) -> list[dict]:

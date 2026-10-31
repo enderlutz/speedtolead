@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-31", title: "The review ask comes from Alan, not the company",
+    what: "On the paid-in-full screen, the Google review box now opens with Alan's photo and \"(name), it's Alan. A review from you is the biggest thing you could do for my crew.\" with \"Alan Bonner · Project Manager, Sterling Fence Staining\" under it, the same face as the booking invite. On iPhones, the steps under the button start with \"If Google asks you to sign in, that's normal. Use the account you use for Gmail.\" (Safari is usually signed out; Android phones skip it)." },
   { date: "2026-10-31", title: "Paid in full: photos save in one tap, Google steps spelled out",
     what: "The fence photos are loaded as the page opens, so tapping \"Save the photos to your phone\" opens the phone's share sheet straight away (Save to Photos on iPhone, Save/Download on Android) instead of sometimes falling back to press-and-hold. Under \"Write us a Google review\" it now says what to do when Google opens: tap the stars, write a few words, tap the camera 📷 and pick the photos you saved, tap Post." },
   { date: "2026-10-31", title: "Fence photos: arrows on the sides",

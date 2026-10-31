@@ -3749,6 +3749,13 @@ export const api = {
       `/api/leads/${leadId}/upsell/send-review-sms`,
       { method: "POST" },
     ),
+  /** Did they leave the Google review? (Alan, 2026-10-31) The mark, whether
+   *  they tapped the button, and the reminder he presses himself. */
+  reviewState: (leadId: string) => request<GoogleReviewState>(`/api/leads/${leadId}/review`),
+  setReviewStatus: (leadId: string, status: GoogleReviewStatus) =>
+    request<GoogleReviewState>(`/api/leads/${leadId}/review`, { method: "PUT", body: JSON.stringify({ status }) }),
+  sendReviewReminder: (leadId: string, message: string) =>
+    request<GoogleReviewState>(`/api/leads/${leadId}/review/remind`, { method: "POST", body: JSON.stringify({ message }) }),
   sendUpsellSms: (leadId: string, message: string) =>
     request<{ ok: boolean; message_sent: string }>(
       `/api/leads/${leadId}/upsell/send-draft-sms`,
@@ -5705,6 +5712,21 @@ export interface InvoiceQueueLink {
   view_count: number; last_viewed_at: string; expired: boolean;
   reminder_count?: number; reminded_at?: string; needs_reminder?: boolean;
 }
+export type GoogleReviewStatus = "" | "not_yet" | "posted";
+export interface GoogleReviewSummary {
+  status: GoogleReviewStatus; marked_by: string; marked_at: string;
+  /** Times the reminder text went out. */
+  reminded: number;
+  /** They tapped "Write us a Google review" on the paid-in-full page. */
+  clicked: boolean;
+}
+export interface GoogleReviewState {
+  status: GoogleReviewStatus; marked_by: string; marked_at: string;
+  reminders: { at: string; by: string; message: string }[];
+  after_url: string; clicked: boolean;
+  /** The reminder text, ready to edit. */
+  draft: string;
+}
 export interface InvoiceQueueRow {
   lead_id: string; stage: InvoiceStageKey; when: string;
   name: string; address: string; phone: string;
@@ -5716,6 +5738,7 @@ export interface InvoiceQueueRow {
   booked_date: string; done_at: string; done_by: string;
   closed_at: string; closed_by: string; closed_how: string;
   paid_in_full_up_front: boolean;
+  review?: GoogleReviewSummary;
 }
 export interface InvoiceQueueResponse {
   stages: { key: InvoiceStageKey; count: number; money: number; rows: InvoiceQueueRow[] }[];

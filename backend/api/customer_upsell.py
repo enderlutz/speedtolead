@@ -23,10 +23,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from database import get_db, Lead
+from database import get_db, Lead, PayLink
 from api.auth import require_staff
 from services.upsell_analyzer import analyze_lead_for_upsell
 from services import ghl
+from services import google_review
 from services.activity_log import log_event
 
 logger = logging.getLogger(__name__)
@@ -177,3 +178,85 @@ def _first_name(full: str | None) -> str:
         return "there"
     parts = full.strip().split()
     return parts[0] if parts else "there"
+
+
+# ── Did they leave the Google review? (Alan, 2026-10-31) ─────────────────
+# A mark per customer and a "Remind for review" button whose text he edits.
+# Never automatic.
+
+class ReviewStatusBody(BaseModel):
+    status: str   # posted | not_yet | ""
+
+
+class ReviewRemindBody(BaseModel):
+    message: str
+
+
+def _review_payload(db, lead: Lead, user: dict) -> dict:
+    url = google_review.after_url(db, lead.id)
+    links = db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.status == "paid").all()
+    return {
+        **google_review.state(lead),
+        "after_url": url,
+        "clicked": google_review.clicked(links),
+        "draft": google_review.draft(lead, url, google_review.sender_name(user)),
+    }
+
+
+@router.get("/leads/{lead_id}/review")
+def get_review(lead_id: str, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return _review_payload(db, lead, user)
+    finally:
+        db.close()
+
+
+@router.put("/leads/{lead_id}/review")
+def set_review(lead_id: str, body: ReviewStatusBody, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        by = user.get("name") or user.get("sub") or ""
+        status = (body.status or "").strip().lower()
+        try:
+            google_review.set_status(db, lead, status, by)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        log_event(lead_id, "google_review_marked",
+                  {"posted": "Marked: left a Google review", "not_yet": "Marked: no Google review yet"}.get(status, "Google review mark cleared"),
+                  {"actor": user.get("sub", "")})
+        return _review_payload(db, lead, user)
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/review/remind")
+def remind_review(lead_id: str, body: ReviewRemindBody, user: dict = Depends(require_staff)):
+    """Alan's second ask, the text he just edited. Sent once per press."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.ghl_contact_id:
+            raise HTTPException(status_code=400, detail="No GHL contact id on this lead")
+        message = (body.message or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="The text is empty")
+        ok = ghl.send_sms(lead.ghl_contact_id, message, location_id=lead.ghl_location_id or None)
+        if not ok:
+            err = ghl.last_send_error() if hasattr(ghl, "last_send_error") else "unknown"
+            log_event(lead_id, "review_reminder_failed", f"Review reminder failed to send: {err}", {"actor": user.get("sub", "")})
+            raise HTTPException(status_code=502, detail=f"GHL send failed: {err}")
+        by = user.get("name") or user.get("sub") or ""
+        google_review.add_reminder(db, lead, by, message)
+        log_event(lead_id, "review_reminder_sent", "Google review reminder texted", {"actor": user.get("sub", ""), "message": message})
+        return _review_payload(db, lead, user)
+    finally:
+        db.close()
