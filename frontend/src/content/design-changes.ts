@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-31", title: "Paid in full: photos save in one tap, Google steps spelled out",
+    what: "The fence photos are loaded as the page opens, so tapping \"Save the photos to your phone\" opens the phone's share sheet straight away (Save to Photos on iPhone, Save/Download on Android) instead of sometimes falling back to press-and-hold. Under \"Write us a Google review\" it now says what to do when Google opens: tap the stars, write a few words, tap the camera 📷 and pick the photos you saved, tap Post." },
   { date: "2026-10-31", title: "Fence photos: arrows on the sides",
     what: "On the paid-in-full screen, a tapped fence photo now has round left and right arrows on each side of the picture (and a swipe works), with \"1 of 12\" and Close right under it, instead of Back and Next down at the bottom of the screen." },
   { date: "2026-10-30", title: "Cover page, wood behind the packages, a colors band that says scroll",

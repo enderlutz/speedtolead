@@ -143,14 +143,28 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const [big, setBig] = useState<number | null>(null);
   const swipeX = useRef(0);
   // One tap → the phone's share sheet with every photo, where "Save to
-  // Photos" puts them all in the camera roll. A web page can't save to the
-  // camera roll by itself; where sharing files isn't possible, they open
-  // one by one to press and hold.
+  // Photos" (iPhone) or "Save"/"Download" (Android) puts them all on the
+  // phone. A web page can't save to the camera roll by itself; where
+  // sharing files isn't possible, they open one by one to press and hold.
+  // The photos are fetched when the page opens, not on the tap: an iPhone
+  // only opens the share sheet straight after a tap, and waiting on the
+  // download first made it refuse (Alan, 2026-10-31: "make sure that shit
+  // actually downloads").
+  const filesRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!photos?.length) return;
+    let off = false;
+    Promise.all(photos.map(async (u, i) => {
+      const b = await (await fetch(u)).blob();
+      return new File([b], `sterling-fence-${i + 1}.jpg`, { type: b.type || "image/jpeg" });
+    })).then((f) => { if (!off) filesRef.current = f; }).catch(() => { /* the tap fetches again */ });
+    return () => { off = true; };
+  }, [photos]);
   const savePhotos = async () => {
     if (!photos?.length || saving) return;
     setSaving(true);
     try {
-      const files = await Promise.all(photos.map(async (u, i) => {
+      const files = filesRef.current ?? await Promise.all(photos.map(async (u, i) => {
         const b = await (await fetch(u)).blob();
         return new File([b], `sterling-fence-${i + 1}.jpg`, { type: b.type || "image/jpeg" });
       }));
@@ -401,7 +415,15 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                         className="flex h-16 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
                         <Star className="h-5 w-5 fill-[#15130F]" /> {review ? "Opened Google ✓" : "Write us a Google review"}
                       </a>
-                      {photos?.length ? <p className="mt-1.5 text-[14px] text-[#15130F]/75">In Google, tap the camera 📷 to add your photos.</p> : null}
+                      {/* What she'll see in Google, in order (Alan, 2026-10-31: "make it very
+                          easy for her to understand where she needs to click"). */}
+                      <p className="mt-2 text-[14px] font-semibold text-[#15130F]">When Google opens:</p>
+                      <ol className="mt-1 space-y-1 text-[14px] leading-snug text-[#15130F]/85">
+                        <li>→ Tap the stars ☆☆☆☆☆</li>
+                        <li>→ Write a few words about your fence</li>
+                        {photos?.length ? <li>→ Tap the camera 📷 and pick the photos you saved</li> : null}
+                        <li>→ Tap <b>Post</b></li>
+                      </ol>
                     </div>
                   </li>
                 </ol>
