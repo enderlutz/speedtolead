@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-10-31", title: "Fence photos: arrows on the sides",
+    what: "On the paid-in-full screen, a tapped fence photo now has round left and right arrows on each side of the picture (and a swipe works), with \"1 of 12\" and Close right under it, instead of Back and Next down at the bottom of the screen." },
   { date: "2026-10-30", title: "Cover page, wood behind the packages, a colors band that says scroll",
     what: "Every proposal now opens on one dark cover: \"Hi (name), here's your fence restoration plan.\", the whole family photo, then Date, Price good for, Property and the sides included under it. The packages sit on wood grain like the printed proposal. \"See the colors\" is a dark band with round chips of real fences we stained, \"Scroll down to see all 19\" and a bouncing gold arrow.",
     open: { label: "See it", to: "/new-proposal/mockup" } },

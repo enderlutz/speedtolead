@@ -17,8 +17,8 @@
 // Rules kept from the spec: one idea per screen, Skip on every screen but
 // the confirmations, and the Google review button is the same for every
 // score. The review ask is never tied to the referral reward.
-import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft, ReceiptText, Star } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft, ReceiptText, Star } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 
 export type PayFlow = "deposit" | "full" | "balance";
@@ -141,6 +141,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const [tell, setTell] = useState(false);
   const [told, setTold] = useState(init.callback_requested === true);
   const [big, setBig] = useState<number | null>(null);
+  const swipeX = useRef(0);
   // One tap → the phone's share sheet with every photo, where "Save to
   // Photos" puts them all in the camera roll. A web page can't save to the
   // camera roll by itself; where sharing files isn't possible, they open
@@ -632,15 +633,36 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
           </div>
         ) : null}
         {big !== null && photos?.[big] ? (
-          <div className="absolute inset-0 z-10 flex flex-col bg-black/90" onClick={() => setBig(null)}>
-            <p className="px-4 pt-4 text-center text-[15px] text-white/85">Press and hold the photo, then tap Save to Photos</p>
-            <img src={photos[big]} alt={`Your fence, photo ${big + 1}`} className="m-auto max-h-[75%] max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
-            <div className="flex items-center justify-between px-4 pb-5 text-white" onClick={(e) => e.stopPropagation()}>
-              <button type="button" disabled={big === 0} onClick={() => setBig(big - 1)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold disabled:opacity-30">Back</button>
+          // Left and right on the photo itself (Alan, 2026-10-31: "make it go
+          // left and right, the back and next button is too low"): round
+          // arrows on each side, halfway down, a swipe works too, and on the
+          // real page the viewer is pinned to the screen, not the page bottom.
+          <div className={cn(page ? "fixed" : "absolute", "inset-0 z-30 flex flex-col items-center justify-center bg-black/90 px-3")}
+            onClick={() => setBig(null)}
+            onTouchStart={(e) => { swipeX.current = e.touches[0].clientX; }}
+            onTouchEnd={(e) => {
+              const dx = e.changedTouches[0].clientX - swipeX.current;
+              if (Math.abs(dx) > 40) { e.stopPropagation(); setBig(dx < 0 ? Math.min(photos.length - 1, big + 1) : Math.max(0, big - 1)); }
+            }}>
+            <p className="mb-3 text-center text-[15px] text-white/85">Press and hold the photo, then tap Save to Photos</p>
+            <div className="relative w-full max-w-[560px]" onClick={(e) => e.stopPropagation()}>
+              <img src={photos[big]} alt={`Your fence, photo ${big + 1}`} className="mx-auto max-h-[70dvh] w-full rounded-xl object-contain" />
+              {big > 0 ? (
+                <button type="button" onClick={() => setBig(big - 1)} aria-label="Back"
+                  className="absolute left-1.5 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/30">
+                  <ChevronLeft className="h-7 w-7" />
+                </button>
+              ) : null}
+              {big < photos.length - 1 ? (
+                <button type="button" onClick={() => setBig(big + 1)} aria-label="Next"
+                  className="absolute right-1.5 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/30">
+                  <ChevronRight className="h-7 w-7" />
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-3 flex items-center gap-4 text-white" onClick={(e) => e.stopPropagation()}>
               <span className="text-[15px] tabular-nums">{big + 1} of {photos.length}</span>
-              {big < photos.length - 1
-                ? <button type="button" onClick={() => setBig(big + 1)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold">Next</button>
-                : <button type="button" onClick={() => setBig(null)} className="h-12 rounded-xl bg-white/15 px-4 text-[16px] font-bold">Close</button>}
+              <button type="button" onClick={() => setBig(null)} className="h-11 rounded-xl bg-white/15 px-5 text-[16px] font-bold">Close</button>
             </div>
           </div>
         ) : null}
