@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
+import Map3DView from "@/components/Map3DView";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
@@ -357,6 +358,9 @@ export default function SatelliteMeasureCard({
   // and a captured aerial of a street of near-identical roofs is impossible
   // to match to a customer without a pin on it.
   const [pin, setPin] = useState<Pt | null>(null);
+  // The 3D look (2026-10-30): where the camera aims when it opens, or null
+  // while measuring on the flat view.
+  const [view3d, setView3d] = useState<Pt | null>(null);
   const pinOverlayRef = useRef<GMarker | null>(null);
   const [keyProblem, setKeyProblem] = useState("");
   const [diagnosing, setDiagnosing] = useState(false);
@@ -1365,7 +1369,40 @@ export default function SatelliteMeasureCard({
             >
               180°
             </button>
+            {status === "ready" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const c = mapRef.current?.getCenter?.();
+                  setView3d(c ? { lat: c.lat(), lng: c.lng() } : pin);
+                }}
+                title="See the property in 3D (look only; measure on the flat view)"
+                className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
+              >
+                3D
+              </button>
+            ) : null}
           </div>
+
+          {view3d ? (
+            <div className="absolute inset-0 z-20">
+              <Map3DView
+                center={view3d}
+                heading={rot}
+                lines={runs.map((r, idx) => ({
+                  path: r.closed && r.points.length > 2 ? [...r.points, r.points[0]] : r.points,
+                  color: RUN_COLORS[idx % RUN_COLORS.length],
+                }))}
+              />
+              <button
+                type="button"
+                onClick={() => setView3d(null)}
+                className={`absolute left-2 top-2 ${IS_TOUCH ? "h-11 px-4 text-sm" : "h-8 px-3 text-xs"} rounded-md bg-black/70 font-bold text-white backdrop-blur-sm hover:bg-black/85`}
+              >
+                Back to measuring
+              </button>
+            </div>
+          ) : null}
 
           {/* Fine zoom. Google's own control jumps a whole level at a time,
               which is either too close or too far for a scope photo. Scroll
