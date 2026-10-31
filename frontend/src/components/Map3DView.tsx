@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
 // The property in Google's photoreal 3D (Alan, 2026-10-30: "enable 3d
-// rendering on this"). Look only: spin, tilt and zoom to see the fence
-// behind the trees and how tall it stands. Measuring stays on the flat
-// view, since feet traced on a tilted picture would be wrong. The lines
-// already traced are draped on the ground in their run colours.
+// rendering on this… make it so that I can measure when I'm on angle").
+// Spin, tilt and zoom; each tap drops a point where it lands on Google's 3D
+// model, so the feet are the same as on the flat view however tilted the
+// camera is (only the spot's lat/lng is used). The traced lines are draped
+// on the ground in their run colours, a dot on every point.
 type Pt = { lat: number; lng: number };
 
-export default function Map3DView({ center, heading, lines }: {
+export default function Map3DView({ center, heading, lines, onPick }: {
   center: Pt;
   heading: number;
   lines: { path: Pt[]; color: string }[];
+  onPick?: (p: Pt) => void;
 }) {
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
   const boxRef = useRef<HTMLDivElement>(null);
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const mapRef = useRef<any>(null);
@@ -35,6 +39,13 @@ export default function Map3DView({ center, heading, lines }: {
         heading,
         mode: lib.MapMode?.HYBRID ?? "HYBRID",
       });
+      // A tap (not a drag) on the 3D picture: its spot on the model.
+      map.addEventListener("gmp-click", (e: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const pos = e?.position;
+        const lat = typeof pos?.lat === "function" ? pos.lat() : pos?.lat;
+        const lng = typeof pos?.lng === "function" ? pos.lng() : pos?.lng;
+        if (typeof lat === "number" && typeof lng === "number") pickRef.current?.({ lat, lng });
+      });
       map.style.width = "100%";
       map.style.height = "100%";
       boxRef.current.appendChild(map);
@@ -54,7 +65,17 @@ export default function Map3DView({ center, heading, lines }: {
     const map = mapRef.current, lib = libRef.current;
     if (status !== "ready" || !map || !lib) return;
     drawnRef.current.forEach((d) => d.remove());
-    drawnRef.current = lines.filter((l) => l.path.length > 1).map((l) => {
+    const dots = lines.flatMap((l) => l.path.map((p) => {
+      const m = new lib.Marker3DElement({
+        position: { lat: p.lat, lng: p.lng, altitude: 0 },
+        altitudeMode: lib.AltitudeMode?.CLAMP_TO_GROUND ?? "CLAMP_TO_GROUND",
+        drawsWhenOccluded: true,
+        sizePreserved: true,
+      });
+      map.append(m);
+      return m;
+    }));
+    drawnRef.current = [...dots, ...lines.filter((l) => l.path.length > 1).map((l) => {
       const line = new lib.Polyline3DElement({
         path: l.path.map((p) => ({ lat: p.lat, lng: p.lng, altitude: 0 })),
         strokeColor: l.color,
@@ -66,7 +87,7 @@ export default function Map3DView({ center, heading, lines }: {
       });
       map.append(line);
       return line;
-    });
+    })];
   }, [status, lines]);
 
   return (

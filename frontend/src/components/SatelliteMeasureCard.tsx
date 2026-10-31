@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
@@ -386,7 +386,29 @@ export default function SatelliteMeasureCard({
 
   const viewTotal = runs.reduce((s, r) => s + runFeet(r), 0);
   useEffect(() => { onTraced?.(Math.round(viewTotal)); }, [viewTotal, onTraced]);
+  // Every confirmed line adds straight into the estimate's Linear Feet
+  // (Alan, 2026-10-30: "every time I confirm a line, one dot to another dot,
+  // it adds that up… on a new estimate"): what's already saved plus what's
+  // traced now, no Capture needed. Only when the tracing changes, so opening
+  // the card never overwrites a number typed by hand.
+  const lastLiveRef = useRef(0);
+  const anyTracedRef = useRef(false);
+  // A different customer starts clean, so their form never gets the last one's feet.
+  useEffect(() => { lastLiveRef.current = 0; anyTracedRef.current = false; }, [leadId]);
+  useEffect(() => {
+    if (!onLinearFeet || forJob) return;
+    const traced = Math.round(viewTotal);
+    if (traced === lastLiveRef.current) return;
+    lastLiveRef.current = traced;
+    if (traced > 0 || anyTracedRef.current) onLinearFeet(Math.round((jobTotal || 0) + viewTotal));
+    anyTracedRef.current = traced > 0;
+  }, [viewTotal, jobTotal, onLinearFeet, forJob]);
   const anyPoints = runs.some((r) => r.points.length > 0);
+  // Same object until the tracing changes, so the 3D view only redraws then.
+  const lines3d = useMemo(() => runs.map((r, idx) => ({
+    path: r.closed && r.points.length > 2 ? [...r.points, r.points[0]] : r.points,
+    color: RUN_COLORS[idx % RUN_COLORS.length],
+  })), [runs]);
 
   // Google rejecting the key beats everything else: the script loads, the
   // promise resolves, and the div just stays grey. Without this the card
@@ -1376,7 +1398,7 @@ export default function SatelliteMeasureCard({
                   const c = mapRef.current?.getCenter?.();
                   setView3d(c ? { lat: c.lat(), lng: c.lng() } : pin);
                 }}
-                title="See the property in 3D (look only; measure on the flat view)"
+                title="See the property in 3D and measure on an angle"
                 className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
               >
                 3D
@@ -1389,11 +1411,16 @@ export default function SatelliteMeasureCard({
               <Map3DView
                 center={view3d}
                 heading={rot}
-                lines={runs.map((r, idx) => ({
-                  path: r.closed && r.points.length > 2 ? [...r.points, r.points[0]] : r.points,
-                  color: RUN_COLORS[idx % RUN_COLORS.length],
-                }))}
+                lines={lines3d}
+                onPick={addPoint}
               />
+              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-lg bg-black/70 px-3 py-2 text-white backdrop-blur-sm">
+                <span className="text-[13px] font-semibold">Tap the fence line to add points</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-[15px] font-bold tabular-nums">{Math.round((jobTotal || 0) + viewTotal)} ft</span>
+                  <button type="button" onClick={undoLastPoint} className={`${IS_TOUCH ? "h-10 px-3" : "h-8 px-2.5"} rounded-md bg-white/15 text-xs font-bold hover:bg-white/25`}>Undo</button>
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setView3d(null)}
