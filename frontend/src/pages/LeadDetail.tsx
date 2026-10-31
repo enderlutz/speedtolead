@@ -1752,7 +1752,7 @@ export default function LeadDetail() {
                           </a>
                         ) : undefined}
                         onSave={(v) => saveContactField("address", v)} />
-                      <EditableFact icon={Compass} accent={ACCENT.cyan} label="ZIP" className="w-full shrink-0 sm:w-36"
+                      <EditableFact icon={Compass} accent={ACCENT.cyan} label="ZIP" className="w-full shrink-0 sm:w-60"
                         value={lead.zip_code || ""} maxLength={5} inputMode="numeric" placeholder="77429"
                         onSave={(v) => saveContactField("zip_code", v)} />
                     </div>
