@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
 import clock
-from api import crew_line, ideas, pay_reminders, lead_from_screenshot, scoreboard, week_checkin, quick_deposit, pm_fixes, pm_shopping, call_tone, stripe_money, invoice_queue, materials, on_call, pm_calendar, bank, content, money_audit, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
+from api import plaud, crew_line, ideas, pay_reminders, lead_from_screenshot, scoreboard, week_checkin, quick_deposit, pm_fixes, pm_shopping, call_tone, stripe_money, invoice_queue, materials, on_call, pm_calendar, bank, content, money_audit, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -159,6 +159,19 @@ async def _calendar_delete_loop():
             await asyncio.to_thread(run_deleted_event_sweep)
         except Exception as e:
             logger.error(f"Calendar delete sweep error: {e}")
+        await asyncio.sleep(600)
+
+
+async def _plaud_brief_loop():
+    """Background task: after 9 PM Houston, Alan's nightly brief from his
+    Plaud recordings (2026-10-31). Once a day; quiet days skip."""
+    await asyncio.sleep(300)
+    while True:
+        try:
+            from services.plaud_brief import tick
+            await asyncio.to_thread(tick)
+        except Exception as e:
+            logger.error(f"Plaud brief error: {e}")
         await asyncio.sleep(600)
 
 
@@ -729,6 +742,7 @@ async def lifespan(app: FastAPI):
     on_call_loop = asyncio.create_task(_on_call_loop())  # noqa: F841 — runs for the app's life
     fast_sync_loop = asyncio.create_task(_fast_sync_loop())  # noqa: F841
     calendar_delete_loop = asyncio.create_task(_calendar_delete_loop())  # noqa: F841
+    plaud_brief_loop = asyncio.create_task(_plaud_brief_loop())  # noqa: F841
     fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     scoreboard_loop = asyncio.create_task(_scoreboard_loop())  # noqa: F841 — runs for the app's life
@@ -897,6 +911,7 @@ app.include_router(lead_from_screenshot.router, prefix="/api")
 app.include_router(pay_reminders.router, prefix="/api")
 app.include_router(ideas.router, prefix="/api")
 app.include_router(crew_line.router, prefix="/api")
+app.include_router(plaud.router, prefix="/api")
 app.include_router(reviews.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 

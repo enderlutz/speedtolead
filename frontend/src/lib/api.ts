@@ -1636,6 +1636,9 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
+  /** Alan's Plaud recordings and nightly briefs (2026-10-31). */
+  plaud: () => request<{ address: string; notes: { id: string; title: string; at: string; summary: string; transcript: string }[]; briefs: { day: string; body: string; text: string }[] }>(`/api/plaud`),
+  plaudBriefNow: () => request<{ ok: boolean; message: string }>(`/api/plaud/brief`, { method: "POST" }),
   /** The crew line (2026-10-30): text and call the crew on the Twilio number. */
   crewLine: () => request<{ ready: boolean; missing: string[]; number: string; crew: CrewLineRow[] }>(`/api/crew-line`),
   crewThread: (id: string) => request<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] }>(`/api/crew-line/${encodeURIComponent(id)}`),
