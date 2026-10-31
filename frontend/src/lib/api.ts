@@ -1638,9 +1638,10 @@ export const api = {
 
   /** The crew line (2026-10-30): text and call the crew on the Twilio number. */
   crewLine: () => request<{ ready: boolean; missing: string[]; number: string; crew: CrewLineRow[] }>(`/api/crew-line`),
-  crewThread: (id: string) => request<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] }>(`/api/crew-line/${id}`),
-  crewText: (id: string, body: string) => request<{ ok: boolean }>(`/api/crew-line/${id}/text`, { method: "POST", body: JSON.stringify({ body }) }),
-  crewCall: (id: string) => request<{ ok: boolean; message: string }>(`/api/crew-line/${id}/call`, { method: "POST" }),
+  crewThread: (id: string) => request<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] }>(`/api/crew-line/${encodeURIComponent(id)}`),
+  crewText: (id: string, body: string) => request<{ ok: boolean }>(`/api/crew-line/${encodeURIComponent(id)}/text`, { method: "POST", body: JSON.stringify({ body }) }),
+  crewSetPhone: (id: string, phone: string) => request<{ ok: boolean; phone: string }>(`/api/crew-line/${encodeURIComponent(id)}/phone`, { method: "PUT", body: JSON.stringify({ phone }) }),
+  crewCall: (id: string) => request<{ ok: boolean; message: string }>(`/api/crew-line/${encodeURIComponent(id)}/call`, { method: "POST" }),
   /** Alan's ideas playbook (2026-10-30). */
   listIdeas: () => request<{ ideas: IdeaRow[]; areas: IdeaPick[]; stages: IdeaPick[]; timeframes: IdeaPick[] }>(`/api/ideas`),
   addIdea: (b: IdeaPatch) => request<IdeaRow>(`/api/ideas`, { method: "POST", body: JSON.stringify(b) }),

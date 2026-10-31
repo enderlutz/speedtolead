@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from api import crew_line as cl
 from crew_line_models import CrewCall, CrewText
-from database import Employee, get_db
+from database import User, get_db
 from services import twilio_line as tw
 
 ALAN = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
@@ -27,10 +27,9 @@ def twilio(monkeypatch):
 
 def _worker(phone="(281) 555-2222"):
     db = get_db()
-    e = Employee(id=str(uuid.uuid4()), first_name="Chris", last_name="M", phone=phone, status="active", pay_rate=0)
-    db.add(e)
+    eid = f"worker{uuid.uuid4().hex[:6]}"
+    db.add(User(id=str(uuid.uuid4()), username=eid, display_name="Chris M", password_hash="x", role="worker", phone=phone))
     db.commit()
-    eid = e.id
     db.close()
     return eid
 
@@ -100,3 +99,11 @@ def test_bridge_dials_the_worker_recorded(db, twilio):
     r = _client().post(url.replace("https://x.test", ""), data={"CallSid": "CA2"},
                        headers={"X-Twilio-Signature": _sign(url, {"CallSid": "CA2"})})
     assert "+12815552222</Number>" in r.text and 'record="record-from-answer-dual"' in r.text
+
+
+def test_set_phone_on_the_login(db, twilio):
+    eid = _worker(phone="")
+    assert cl.threads(ALAN)["crew"][0]["can_text"] is False
+    cl.set_phone(eid, cl.PhoneBody(phone="(832) 555-3333"), ALAN)
+    row = cl.threads(ALAN)["crew"][0]
+    assert row["phone"] == "+18325553333" and row["can_text"] is True

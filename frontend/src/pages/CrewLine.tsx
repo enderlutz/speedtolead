@@ -48,7 +48,7 @@ export default function CrewLine() {
                 <span className="truncate text-[16px] font-semibold">{c.name}</span>
                 <span className="shrink-0 text-[13px] text-muted-foreground">{when(c.last_at)}</span>
               </span>
-              <span className="block truncate text-[14px] text-muted-foreground">{c.last || (c.phone ? c.phone : "No phone number on file")}</span>
+              <span className="block truncate text-[14px] text-muted-foreground">{c.last || (c.phone ? c.phone : "No cell yet · tap to add it")}</span>
             </span>
             {c.unread ? <span className="rounded-full bg-[#C9A24A] px-2 py-0.5 text-[13px] font-bold text-[#15130F]">{c.unread}</span> : null}
           </button>
@@ -63,6 +63,7 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
   const [t, setT] = useState<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] } | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cell, setCell] = useState("");
   const end = useRef<HTMLDivElement>(null);
   const load = useCallback(() => { api.crewThread(id).then(setT).catch((e) => toast.error(String(e.message || e))); }, [id]);
   useEffect(() => { load(); const i = setInterval(load, 10000); return () => clearInterval(i); }, [load]);
@@ -75,6 +76,10 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
     try { await api.crewText(id, body); setDraft(""); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Didn't send"); }
     finally { setBusy(false); }
+  }
+  async function savePhone() {
+    try { await api.crewSetPhone(id, cell); setCell(""); toast.success("Saved"); load(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Didn't save"); }
   }
   async function call() {
     try { const r = await api.crewCall(id); toast.success(r.message); }
@@ -96,6 +101,14 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
           <Phone className="h-4 w-4" /> Call
         </button>
       </div>
+      {t && !t.employee.phone ? (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <input value={cell} onChange={(e) => setCell(e.target.value)} inputMode="tel" placeholder={`${t.employee.name.split(" ")[0]}'s cell number`}
+            className="h-11 min-w-0 flex-1 rounded-lg border bg-white px-3 text-[16px]" />
+          <button type="button" onClick={savePhone} disabled={!cell.trim()}
+            className="h-11 rounded-lg bg-[#15130F] px-4 text-[15px] font-bold text-[#E3BE63] disabled:opacity-40">Save</button>
+        </div>
+      ) : null}
       <div className="flex-1 space-y-2 overflow-y-auto py-3">
         {(t?.items || []).map((it) => it.kind === "text" ? (
           <div key={it.id} className={it.direction === "outbound" ? "flex justify-end" : "flex justify-start"}>

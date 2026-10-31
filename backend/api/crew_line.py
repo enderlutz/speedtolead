@@ -20,7 +20,9 @@ from pydantic import BaseModel
 
 from api.ideas import require_alan
 from crew_line_models import CrewCall, CrewText
-from database import Employee, get_db
+from dataclasses import dataclass
+
+from database import Employee, User, get_db
 from services import twilio_line as tw
 
 router = APIRouter()
@@ -31,20 +33,44 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _name(e: Employee | None) -> str:
-    if not e:
-        return ""
-    return (e.display_name or f"{e.first_name} {e.last_name}").strip()
+@dataclass
+class Worker:
+    """A crew member: a dashboard login with the worker role (Chris Moran,
+    Jose…), keyed by username. The phone is the login's, else the linked
+    employee profile's."""
+    id: str
+    name: str
+    phone: str
+    role: str = ""
 
 
-def _by_phone(db, phone: str) -> Employee | None:
+def _workers(db) -> list[Worker]:
+    out = []
+    for u in db.query(User).filter(User.role == "worker").all():
+        if getattr(u, "disabled", False):
+            continue
+        phone = u.phone or ""
+        if not phone and u.employee_id:
+            e = db.query(Employee).filter(Employee.id == u.employee_id).first()
+            phone = (e.phone if e else "") or ""
+        out.append(Worker(id=u.username, name=(u.display_name or u.username).strip(), phone=phone,
+                          role=getattr(u, "job_title", "") or ""))
+    return sorted(out, key=lambda w: w.name.lower())
+
+
+def _worker(db, wid: str) -> Worker | None:
+    return next((w for w in _workers(db) if w.id == wid), None)
+
+
+def _name(w: Worker | None) -> str:
+    return w.name if w else ""
+
+
+def _by_phone(db, phone: str) -> Worker | None:
     k = tw.key10(phone)
     if not k:
         return None
-    for e in db.query(Employee).filter(Employee.status == "active").all():
-        if tw.key10(e.phone) == k:
-            return e
-    return None
+    return next((w for w in _workers(db) if tw.key10(w.phone) == k), None)
 
 
 def _xml(body: str) -> Response:
@@ -67,7 +93,7 @@ async def _checked(request: Request) -> dict:
 def threads(user: dict = Depends(require_alan)):
     db = get_db()
     try:
-        crew = db.query(Employee).filter(Employee.status == "active").order_by(Employee.first_name).all()
+        crew = _workers(db)
         out = []
         for e in crew:
             t = db.query(CrewText).filter(CrewText.employee_id == e.id).order_by(CrewText.created_at.desc()).first()
@@ -75,7 +101,7 @@ def threads(user: dict = Depends(require_alan)):
             last = max([x for x in (t, c) if x], key=lambda x: x.created_at or "", default=None)
             unread = db.query(CrewText).filter(CrewText.employee_id == e.id, CrewText.direction == "inbound",
                                                CrewText.status == "new").count()
-            out.append({"id": e.id, "name": _name(e), "role": e.role or "", "phone": e.phone or "",
+            out.append({"id": e.id, "name": _name(e), "role": e.role, "phone": e.phone,
                         "can_text": bool(tw.e164(e.phone)), "unread": unread,
                         "last_at": getattr(last, "created_at", "") or "",
                         "last": (t.body if last is t else ("📞 Call" if last else "")) if last else ""})
@@ -90,7 +116,7 @@ def threads(user: dict = Depends(require_alan)):
 def thread(employee_id: str, user: dict = Depends(require_alan)):
     db = get_db()
     try:
-        e = db.query(Employee).filter(Employee.id == employee_id).first()
+        e = _worker(db, employee_id)
         if not e:
             raise HTTPException(status_code=404, detail="Not on the crew list")
         items = [{"kind": "text", "id": t.id, "direction": t.direction, "body": t.body or "",
@@ -102,7 +128,29 @@ def thread(employee_id: str, user: dict = Depends(require_alan)):
         items.sort(key=lambda x: x["at"])
         db.query(CrewText).filter(CrewText.employee_id == employee_id, CrewText.status == "new").update({"status": "read"})
         db.commit()
-        return {"employee": {"id": e.id, "name": _name(e), "phone": e.phone or ""}, "items": items}
+        return {"employee": {"id": e.id, "name": _name(e), "phone": e.phone}, "items": items}
+    finally:
+        db.close()
+
+
+class PhoneBody(BaseModel):
+    phone: str
+
+
+@router.put("/crew-line/{employee_id}/phone")
+def set_phone(employee_id: str, b: PhoneBody, user: dict = Depends(require_alan)):
+    """Fill in a worker's cell, on their login."""
+    phone = tw.e164(b.phone)
+    if not phone:
+        raise HTTPException(status_code=400, detail="That doesn't look like a 10-digit phone number")
+    db = get_db()
+    try:
+        u = db.query(User).filter(User.username == employee_id, User.role == "worker").first()
+        if not u:
+            raise HTTPException(status_code=404, detail="Not on the crew list")
+        u.phone = phone
+        db.commit()
+        return {"ok": True, "phone": phone}
     finally:
         db.close()
 
@@ -120,7 +168,7 @@ def send_text(employee_id: str, b: TextBody, user: dict = Depends(require_alan))
         raise HTTPException(status_code=400, detail="Nothing to send")
     db = get_db()
     try:
-        e = db.query(Employee).filter(Employee.id == employee_id).first()
+        e = _worker(db, employee_id)
         to = tw.e164(e.phone if e else "")
         if not to:
             raise HTTPException(status_code=400, detail="No phone number for this worker")
@@ -144,7 +192,7 @@ def call(employee_id: str, user: dict = Depends(require_alan)):
         raise HTTPException(status_code=400, detail="The crew line number isn't set up yet")
     db = get_db()
     try:
-        e = db.query(Employee).filter(Employee.id == employee_id).first()
+        e = _worker(db, employee_id)
         if not tw.e164(e.phone if e else ""):
             raise HTTPException(status_code=400, detail="No phone number for this worker")
         try:
@@ -165,7 +213,7 @@ async def bridge(request: Request, employee_id: str = ""):
     await _checked(request)
     db = get_db()
     try:
-        e = db.query(Employee).filter(Employee.id == employee_id).first()
+        e = _worker(db, employee_id)
         to = tw.e164(e.phone if e else "")
         if not to:
             return _xml("<Say>That worker has no phone number.</Say>")
@@ -268,7 +316,7 @@ async def recording(request: Request, background: BackgroundTasks, employee_id: 
             e = _by_phone(db, phone)
             employee_id = e.id if e else ""
         if not phone and employee_id:
-            e = db.query(Employee).filter(Employee.id == employee_id).first()
+            e = _worker(db, employee_id)
             phone = e.phone if e else ""
         cid = str(uuid.uuid4())
         db.add(CrewCall(id=cid, employee_id=employee_id, phone=phone, direction=direction,
