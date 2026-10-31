@@ -1636,6 +1636,11 @@ export const api = {
       body: JSON.stringify({ label }),
     }),
 
+  /** The crew line (2026-10-30): text and call the crew on the Twilio number. */
+  crewLine: () => request<{ ready: boolean; missing: string[]; number: string; crew: CrewLineRow[] }>(`/api/crew-line`),
+  crewThread: (id: string) => request<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] }>(`/api/crew-line/${id}`),
+  crewText: (id: string, body: string) => request<{ ok: boolean }>(`/api/crew-line/${id}/text`, { method: "POST", body: JSON.stringify({ body }) }),
+  crewCall: (id: string) => request<{ ok: boolean; message: string }>(`/api/crew-line/${id}/call`, { method: "POST" }),
   /** Alan's ideas playbook (2026-10-30). */
   listIdeas: () => request<{ ideas: IdeaRow[]; areas: IdeaPick[]; stages: IdeaPick[]; timeframes: IdeaPick[] }>(`/api/ideas`),
   addIdea: (b: IdeaPatch) => request<IdeaRow>(`/api/ideas`, { method: "POST", body: JSON.stringify(b) }),
@@ -6603,3 +6608,8 @@ export type PhotoCustomerDetail = {
   lead_id: string; name: string; address: string;
   photos: { id: string; url: string; section: string; label: string; side: string; note: string; taken_at: string; damage: boolean }[];
 };
+
+export type CrewLineRow = { id: string; name: string; role: string; phone: string; can_text: boolean; unread: number; last_at: string; last: string };
+export type CrewLineItem =
+  | { kind: "text"; id: string; direction: string; body: string; media: string[]; status: string; at: string }
+  | { kind: "call"; id: string; direction: string; seconds: number; transcript: string; status: string; at: string };

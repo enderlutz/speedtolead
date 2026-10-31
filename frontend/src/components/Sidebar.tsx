@@ -106,6 +106,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] }, // folded into Call script, third view (2026-10-27)
   // Alan's opens on his Ideas playbook (2026-10-30: "put ideas before documents"); Files is its second tab.
   { to: "/documents", icon: Lightbulb, label: "Ideas/Tasks", restrictToAny: ["alanbonner"] },
+  // The crew line (2026-10-30): text and call the crew, recorded. Alan only.
+  { to: "/crew-line", icon: PhoneCall, label: "Crew line", restrictToAny: ["alanbonner"] },
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned"] },
   // Marketing (2026-10-28): Meta ads (owners) + the Social media library (social_media permission) in one tab.
   { to: "/marketing", icon: Megaphone, label: "Marketing", show: () => canSeeRevenue() || hasPerm("social_media") },

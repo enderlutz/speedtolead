@@ -107,6 +107,14 @@ class Settings(BaseSettings):
 
     # Deepgram (call transcription)
     deepgram_api_key: str = ""
+    # The crew line (Alan, 2026-10-30): a Twilio number to text and call the
+    # crew from the dashboard, every call recorded and transcribed. Set in
+    # Railway only. crew_line_ring_to is Alan's cell: calls ring it.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_crew_number: str = ""          # +1XXXXXXXXXX
+    crew_line_ring_to: str = ""           # +1XXXXXXXXXX
+    twilio_webhook_base: str = "https://estimate.sterlingfencetx.com"
 
     # Gemini (listens to call recordings for tone, services/call_tone.py)
     gemini_api_key: str = ""

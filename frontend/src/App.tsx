@@ -55,6 +55,7 @@ const InvoiceQueue = lazy(() => import("@/pages/InvoiceQueue"));
 // in one hub; the old addresses open it on their section.
 const Money = lazy(() => import("@/pages/Money"));
 const Documents = lazy(() => import("@/pages/Documents"));
+const CrewLine = lazy(() => import("@/pages/CrewLine"));
 // Marketing (2026-10-28): Meta ads + the Social media library in one hub; /social opens it on Social media.
 const Marketing = lazy(() => import("@/pages/Marketing"));
 const DailyTasks = lazy(() => import("@/pages/DailyTasks"));
@@ -294,6 +295,7 @@ function AppLayout() {
               <Route path="/calls" element={<RequireView view="calls"><CallScript /></RequireView>} />
               <Route path="/training" element={<Navigate to="/calls?view=training" replace />} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
+              <Route path="/crew-line" element={<RevenueOnly><CrewLine /></RevenueOnly>} />
               <Route path="/marketing" element={<MarketingOnly><Marketing /></MarketingOnly>} />
               <Route path="/money" element={<MoneyOnly><Money /></MoneyOnly>} />
               {/* Plaid's bank login comes back to /money-audit, so it stays a real page. */}
