@@ -1295,7 +1295,11 @@ export default function SatelliteMeasureCard({
             the controls sit outside the transform so they never turn. */}
         <div
           ref={frameRef}
-          className="relative w-full aspect-square max-w-full overflow-hidden rounded-xl border bg-muted select-none"
+          className="relative mx-auto w-full aspect-square max-w-full overflow-hidden rounded-xl border bg-muted select-none"
+          // Fits the screen (Alan, 2026-10-31: "make this fit more, it's too
+          // big in the screen"): the square is never taller than the window
+          // leaves room for, so the whole map and its zoom bar show at once.
+          style={{ maxWidth: "min(100%, calc(100dvh - 11rem))" }}
         >
           <div
             ref={mapDivRef}
