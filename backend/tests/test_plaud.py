@@ -27,13 +27,13 @@ def test_recording_comes_in_scrubbed_and_once(db):
     addr = pa.recordings(ALAN)["address"]
     key = addr.rsplit("/", 1)[-1]
     body = {"Title": "Call with Chris", "Transcript": "card 4111 1111 1111 1111, switch to Legacy",
-            "Summary": "Scope change", "ID": "rec1", "Start Time": "2026-10-31T20:00:00Z"}
+            "Summary": "Scope change", "ID": "rec1", "start time ": "2026-10-31T20:00:00Z"}
     c = _client()
     assert c.post(f"/api/plaud/in/{key}", json=body).status_code == 200
     assert c.post(f"/api/plaud/in/{key}", json=body).status_code == 200
     notes = pa.recordings(ALAN)["notes"]
     assert len(notes) == 1 and "[number]" in notes[0]["transcript"] and "4111" not in notes[0]["transcript"]
-    assert notes[0]["title"] == "Call with Chris"
+    assert notes[0]["title"] == "Call with Chris" and notes[0]["at"] == "2026-10-31T20:00:00Z"
 
 
 def test_nightly_brief_once_with_tasks(db, monkeypatch):

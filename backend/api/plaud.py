@@ -6,6 +6,7 @@ nothing else can post. Alan only to read.
 from __future__ import annotations
 
 import hashlib
+import re
 import hmac
 import secrets
 import uuid
@@ -37,7 +38,7 @@ def _key(db) -> str:
 
 def _pick(d: dict, *names: str) -> str:
     """Zapier field names vary with how the Zap is set up; take the first that's there."""
-    low = {str(k).lower().replace(" ", "_"): v for k, v in d.items()}
+    low = {re.sub(r"[^a-z0-9]+", "_", str(k).strip().lower()).strip("_"): v for k, v in d.items()}
     for n in names:
         v = low.get(n)
         if v not in (None, ""):
@@ -67,10 +68,12 @@ async def ingest(key: str, request: Request):
             n = PlaudNote(id=str(uuid.uuid4()), plaud_id=pid, received_at=_now())
             db.add(n)
         n.title = _pick(body, "title", "name", "file_name")[:300]
-        n.recorded_at = _pick(body, "recorded_at", "start_time", "created_at", "date", "created") or n.received_at
+        n.recorded_at = _pick(body, "recorded_at", "start_time", "create_time", "created_at", "date", "created") or n.received_at
         n.transcript, n.summary = transcript, summary
         db.commit()
-        return {"ok": True}
+        # The field names that came in (no values), shown in Zapier's test
+        # result so a mis-mapped field is easy to spot.
+        return {"ok": True, "fields": sorted(str(k) for k in body), "recorded_at": n.recorded_at}
     finally:
         db.close()
 
