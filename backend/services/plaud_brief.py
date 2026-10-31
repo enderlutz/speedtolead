@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 HOU = ZoneInfo("America/Chicago")
 MODEL = "claude-opus-5-5"
 HOUR = 21
-MAX_CHARS = 120000
+MAX_CHARS = 600000   # whole transcripts, every word (Alan, 2026-10-31: "I need you reading the entire transcript")
 AREAS = {"content", "marketing", "sales", "followup", "customer", "operations", "automation",
          "hiring", "accounting", "hoa", "expansion"}
 
@@ -92,7 +92,7 @@ def _ask(notes: list[PlaudNote]) -> dict:
         if used >= MAX_CHARS:
             break
     msg = anthropic.Anthropic(api_key=key).messages.create(
-        model=MODEL, max_tokens=3000,
+        model=MODEL, max_tokens=6000,
         messages=[{"role": "user", "content": PROMPT + "\n\n" + scrub("\n\n".join(parts))}])
     raw = "".join(getattr(b, "text", "") for b in msg.content)
     m = re.search(r"\{.*\}", raw, re.S)
