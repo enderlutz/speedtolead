@@ -841,7 +841,10 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
         # Listen for tone on every new real call (Alan, 2026-10-25), ~4¢ a
         # call. Old calls caught up with transcribe_only don't get this; a
         # failure here never stops the transcript or the analysis.
-        if not recording.is_voicemail and (recording.duration_seconds or 0) >= 60:
+        # Since 2026-10-31 shorter calls with words on them too: a quick
+        # hello-and-hang-up is the opening that lost them.
+        from services import call_tone as _ct
+        if _ct.should_listen(recording.duration_seconds, recording.is_voicemail, result.get("full_text") or ""):
             try:
                 from services import call_tone
                 if call_tone.configured():

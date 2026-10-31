@@ -174,6 +174,19 @@ async def _morning_text_loop():
         await asyncio.sleep(300)
 
 
+async def _call_tone_backlog_loop():
+    """Background task: starts the tone backlog at the time set in
+    SystemConfig call_tone_backlog_at (Alan, 2026-10-31: 11 PM tonight)."""
+    await asyncio.sleep(120)
+    while True:
+        try:
+            from api.call_tone import backlog_tick
+            await asyncio.to_thread(backlog_tick)
+        except Exception as e:
+            logger.error(f"Call tone backlog timer error: {e}")
+        await asyncio.sleep(240)
+
+
 async def _plaud_brief_loop():
     """Background task: after 9 PM Houston, Alan's nightly brief from his
     Plaud recordings (2026-10-31). Once a day; quiet days skip."""
@@ -756,6 +769,7 @@ async def lifespan(app: FastAPI):
     calendar_delete_loop = asyncio.create_task(_calendar_delete_loop())  # noqa: F841
     plaud_brief_loop = asyncio.create_task(_plaud_brief_loop())  # noqa: F841
     morning_text_loop = asyncio.create_task(_morning_text_loop())  # noqa: F841
+    tone_backlog_loop = asyncio.create_task(_call_tone_backlog_loop())  # noqa: F841
     fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     scoreboard_loop = asyncio.create_task(_scoreboard_loop())  # noqa: F841 — runs for the app's life

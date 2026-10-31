@@ -79,6 +79,21 @@ export default function CallTonePanel({ recordingId, isAdmin }: { recordingId: s
           </div>
           {h.customer_mood_why ? <p className="text-sm">{h.customer_mood_why}</p> : null}
 
+          {h.opening ? (
+            <div className={`rounded-lg border-l-4 p-2.5 ${h.ending?.ended_early ? "border-l-red-500 bg-red-50" : "border-l-amber-400 bg-amber-50"}`}>
+              <p className="text-sm font-semibold">
+                The opening{h.opening.opener_score != null ? <>: <b>{h.opening.opener_score}/10</b></> : null}
+                {h.opening.sounded_like ? <span className="font-normal"> · sounded like {h.opening.sounded_like}</span> : null}
+                {h.opening.energy ? <span className="font-normal"> · energy {h.opening.energy}</span> : null}
+              </p>
+              {h.opening.first_words ? <p className="text-sm">We said: "{h.opening.first_words}"</p> : null}
+              {h.opening.customer_reaction ? <p className="text-sm text-muted-foreground">{h.opening.customer_reaction}</p> : null}
+              {h.ending?.ended_early ? <p className="text-sm font-semibold text-red-700">Hung up early{h.ending.why ? `: ${h.ending.why}` : ""}</p>
+                : h.ending?.how ? <p className="text-sm text-muted-foreground">Ended: {h.ending.how}</p> : null}
+              {h.opening.tip ? <p className="text-sm">Tip: {h.opening.tip}</p> : null}
+            </div>
+          ) : null}
+
           {h.follow_up ? (
             <div className="rounded-lg border-l-4 border-l-emerald-500 bg-emerald-50 p-2.5">
               <p className="text-sm font-semibold">Next: {when(h.follow_up.when_days)} · {h.follow_up.how === "text" ? "Text" : h.follow_up.how === "either" ? "Call or text" : "Call"}</p>
@@ -116,7 +131,7 @@ export default function CallTonePanel({ recordingId, isAdmin }: { recordingId: s
             </div>
           ) : null}
         </div>
-      ) : h?.skip ? <p className="border-t pt-3 text-sm text-muted-foreground">Not a sales conversation: {h.why}</p> : null}
+      ) : h?.skip ? <p className="border-t pt-3 text-sm text-muted-foreground">{h.outcome ? `${h.outcome[0].toUpperCase()}${h.outcome.slice(1)}. ` : "Not a sales conversation: "}{h.why}</p> : null}
 
       {t.error && !h ? <p className="text-sm text-red-700">Last listen failed: {t.error}</p> : null}
       {isAdmin && t.can_listen ? (

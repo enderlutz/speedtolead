@@ -122,11 +122,53 @@ Return ONLY a JSON object with these keys:
   "team_tone": {"warmth": 1-10, "confidence": 1-10, "pace": "too fast" | "good" | "too slow", "listening": 1-10, "note": one short sentence on how our person sounded},
   "team_score": integer 1-10 for how well our person handled the call,
   "do_better": up to 3 short, specific tips for our person, plain words,
-  "follow_up": {"when_days": integer days from the call to reach out next (0 = today), "how": "call" | "text" | "either", "say": one sentence of what to open with next time, "why": one short sentence}
+  "follow_up": {"when_days": integer days from the call to reach out next (0 = today), "how": "call" | "text" | "either", "say": one sentence of what to open with next time, "why": one short sentence},
+  "opening": OPENING,
+  "ending": ENDING
 }
 NEVER write down card numbers, expiration dates, security codes, bank details or any long number read out on the call; if a moment is someone paying, write "reads out card details" instead of the quote.
 If the recording is a voicemail, silence, or not a sales conversation, return {"skip": true, "why": "..."}.
 Plain words only. No markdown, no extra text."""
+
+
+# The first 10-15 seconds once a live person answers (Alan, 2026-10-31: "the
+# customer just hangs up maybe because they don't like the tone of voice that
+# we start off with"). On every call, long or short, so openers compare.
+OPENING = """{"first_words": our first words to the live person, exactly as said (max 25 words), "opener_score": integer 1-10 for how well those first seconds would keep a stranger on the phone, "sounded_like": one of "a friendly local person", "a call center", "reading a script", "rushed", "unsure", "too pushy", "energy": "low" | "good" | "too much", "customer_reaction": one short sentence on how the customer took the opening, "tip": one short, specific tip for the opening}"""
+# How it ended. "hung_up_early" is the one Alan wants counted.
+ENDING = """{"how": one of "finished normally", "customer hung up early", "customer busy, call back later", "not interested", "wrong number", "call dropped", "we ended it", "ended_early": true if the customer ended it in the first 30 seconds of the conversation without agreeing to anything, else false, "why": one short sentence}"""
+LISTEN_PROMPT = LISTEN_PROMPT.replace("OPENING", OPENING).replace("ENDING", ENDING)
+
+SHORT_PROMPT = """You are listening to a SHORT recorded phone call (under a minute) for Sterling Fence Staining, a fence staining company in Houston. One voice is our person (a VA or the project manager, Alan); the other is the customer. Many short calls are voicemails, call screeners or no answer; some are a real person who picked up and hung up fast. Listen to HOW things are said: tone, energy, warmth, hesitation.
+
+Return ONLY a JSON object:
+{
+  "outcome": one of "voicemail", "call screener", "no answer", "live person",
+  "customer_spoke": true if a live customer (not a greeting or machine) said anything,
+  "customer_mood": one of "excited", "interested", "unsure", "flat", "annoyed", "rushed" (only when a live customer spoke),
+  "customer_mood_why": one short sentence in plain words,
+  "opening": OPENING (only when a live customer spoke),
+  "ending": ENDING (only when a live customer spoke),
+  "follow_up": {"when_days": integer, "how": "call" | "text" | "either", "say": one sentence to open with next time, "why": one short sentence} (only when a live customer spoke)
+}
+If it was a voicemail, call screener or no answer, return {"skip": true, "outcome": that outcome, "why": "..."}.
+NEVER write down card numbers or any long number read out on the call.
+Plain words only. No markdown, no extra text.""".replace("OPENING", OPENING).replace("ENDING", ENDING)
+
+# Shorter than a minute still gets a listen when it isn't a voicemail and
+# somebody said something (Alan, 2026-10-31). Under this is a ring or a beep.
+SHORT_MIN = 8
+LONG_MIN = 60
+
+
+def should_listen(duration: int | None, is_voicemail: bool, transcript: str) -> bool:
+    """Every real call: a minute or more, or a shorter one with words on it.
+    The listen itself sorts voicemails and screeners from a live hang-up
+    (the transcript's voice labels can't: see the 2026-10-31 notes)."""
+    d = int(duration or 0)
+    if is_voicemail or d < SHORT_MIN:
+        return False
+    return d >= LONG_MIN or bool((transcript or "").strip())
 
 
 def _key() -> str:
@@ -237,7 +279,7 @@ def _json_out(text: str) -> dict:
     return json.loads(m.group(0) if m else t)
 
 
-def listen(audio: bytes, transcript: str = "", model: str = "") -> dict:
+def listen(audio: bytes, transcript: str = "", model: str = "", short: bool = False) -> dict:
     """Gemini's read of how the call sounded. Raises on a missing key or an
     API error; the caller saves the error so it shows on the call."""
     key = _key()
@@ -248,7 +290,7 @@ def listen(audio: bytes, transcript: str = "", model: str = "") -> dict:
     with httpx.Client(timeout=httpx.Timeout(150, connect=20)) as client:
         part = (_upload(client, key, audio, mime) if len(audio) > _INLINE_MAX
                 else {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}})
-        prompt = LISTEN_PROMPT
+        prompt = SHORT_PROMPT if short else LISTEN_PROMPT
         if transcript:
             prompt += "\n\nThe transcript (speaker labels may be wrong; trust the audio):\n" + transcript[:12000]
         body = {"contents": [{"role": "user", "parts": [part, {"text": prompt}]}],

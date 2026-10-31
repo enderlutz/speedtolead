@@ -2392,6 +2392,7 @@ export const api = {
     request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}?include_archived=${includeArchived}`),
   // How a call sounded (Alan, 2026-10-25): talk numbers + Gemini's listen.
   getCallTone: (recordingId: string) => request<CallTone>(`/api/call-tone/${recordingId}`),
+  callOpeners: (days = 30) => request<{ days: number; people: OpenerPerson[] }>(`/api/call-tone-openers?days=${days}`),
   listenToCall: (recordingId: string) => request<CallTone>(`/api/call-tone/${recordingId}`, { method: "POST" }),
   getCall: (recordingId: string) => request<CallRecordingEntry>(`/api/calls/${recordingId}`),
   getAllCalls: (opts: { limit?: number; offset?: number; archived?: boolean; favoritesOnly?: boolean } = {}) => {
@@ -6515,6 +6516,21 @@ export interface CallToneListen {
   team_score?: number;
   do_better?: string[];
   follow_up?: { when_days?: number; how?: string; say?: string; why?: string };
+  /** Short calls (2026-10-31): voicemail | call screener | no answer | live person. */
+  outcome?: string;
+  /** The first seconds once a live person answers. */
+  opening?: { first_words?: string; opener_score?: number; sounded_like?: string; energy?: string; customer_reaction?: string; tip?: string };
+  ending?: { how?: string; ended_early?: boolean; why?: string };
+}
+
+export interface OpenerClip {
+  recording_id: string; lead_id: string; at: string; seconds: number;
+  first_words: string; score: number | null; sounded_like: string; tip: string;
+  ended_early: boolean; ending: string;
+}
+export interface OpenerPerson {
+  name: string; live: number; hung_up_early: number; early_rate: number;
+  avg_opener: number | null; worst: OpenerClip[];
 }
 
 export interface CallTone {

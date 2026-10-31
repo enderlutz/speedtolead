@@ -24,7 +24,9 @@ from services.call_transcriber import format_transcript_for_display
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-MIN_SECONDS = 60  # shorter than this is a voicemail or a hello
+# Shorter calls count too since 2026-10-31 (a hello and a hang-up is the
+# opening that lost them). Under SHORT_MIN is a ring or a beep.
+MIN_SECONDS = tone.SHORT_MIN
 
 
 def _now() -> str:
@@ -60,7 +62,7 @@ def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
     _, _, text = _transcript(db, rec.id)
     row = db.query(CallTone).filter(CallTone.recording_id == rec.id).first() or CallTone(recording_id=rec.id, lead_id=rec.lead_id)
     try:
-        heard = tone.listen(audio or rec.recording_data, text)
+        heard = tone.listen(audio or rec.recording_data, text, short=(rec.duration_seconds or 0) < tone.LONG_MIN)
         row.listen_json, row.error, row.model = json.dumps(heard), "", tone.current_model(db)
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
@@ -95,10 +97,18 @@ def _not_heard(db, limit: int) -> list[str]:
     """Real calls with audio not listened to yet (a failed try counts as not
     heard, so a re-run picks it up), newest first."""
     heard = db.query(CallTone.recording_id).filter(CallTone.listen_json != "")
-    return [r for (r,) in db.query(CallRecording.id)
-            .filter(CallRecording.has_recording_data.is_(True), CallRecording.is_voicemail.is_(False),
-                    CallRecording.duration_seconds >= MIN_SECONDS, CallRecording.id.notin_(heard))
-            .order_by(CallRecording.created_at.desc()).limit(limit).all()]
+    q = (db.query(CallRecording.id, CallRecording.duration_seconds, CallTranscript.full_text)
+         .outerjoin(CallTranscript, CallTranscript.recording_id == CallRecording.id)
+         .filter(CallRecording.has_recording_data.is_(True), CallRecording.is_voicemail.is_(False),
+                 CallRecording.duration_seconds >= MIN_SECONDS, CallRecording.id.notin_(heard))
+         .order_by(CallRecording.created_at.desc()))
+    out = []
+    for rid, dur, text in q.yield_per(500):
+        if tone.should_listen(dur, False, text or ""):
+            out.append(rid)
+            if len(out) >= limit:
+                break
+    return out
 
 
 @router.post("/call-tone/run")
@@ -109,11 +119,15 @@ def run(body: RunBody, user: dict = Depends(require_admin)):
     del user
     if not tone.configured():
         raise HTTPException(400, "GEMINI_API_KEY isn't set in Railway")
+    return start_run(body.limit)
+
+
+def start_run(limit: int) -> dict:
     if _running["on"]:
         return {"started": False, **_running}
     db = get_db()
     try:
-        ids = _not_heard(db, max(1, min(body.limit, 5000)))
+        ids = _not_heard(db, max(1, min(limit, 5000)))
     finally:
         db.close()
     _running.update(on=True, done=0, of=len(ids), failed=0)
@@ -247,5 +261,105 @@ def listen_now(recording_id: str, user: dict = Depends(require_admin)):
         if not rec or not rec.recording_data:
             raise HTTPException(404, "No recording for this call")
         return listen_to(db, rec)
+    finally:
+        db.close()
+
+
+# ── The backlog on a timer (Alan, 2026-10-31: "start it tonight at 11 p.m.
+# because by then I won't be coding") ────────────────────────────────────
+# SystemConfig call_tone_backlog_at holds when (ISO, UTC). The loop in
+# main.py ticks every few minutes; once the time passes the whole backlog
+# starts and the key clears, so it runs once.
+
+def backlog_tick(now: datetime | None = None) -> dict | None:
+    from database import SystemConfig
+    now = now or datetime.now(timezone.utc)
+    db = get_db()
+    try:
+        at = (SystemConfig.get(db, "call_tone_backlog_at", "") or "").strip()
+        if not at:
+            return None
+        try:
+            when = datetime.fromisoformat(at)
+        except ValueError:
+            SystemConfig.set(db, "call_tone_backlog_at", "")
+            return None
+        if now < when or not tone.configured():
+            return None
+        SystemConfig.set(db, "call_tone_backlog_at", "")
+    finally:
+        db.close()
+    out = start_run(5000)
+    logger.info("call tone backlog started on the timer: %s", out)
+    try:
+        from services.after_pay_hooks import alert_alan
+        alert_alan(f"🎧 Started listening to {out.get('of', 0)} past calls for tone. Runs overnight.")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+# ── Openers: who loses people in the first seconds (Alan, 2026-10-31) ──────
+
+def _name_for(db, recorded_by: str, segs_map: dict) -> str:
+    from database import User
+    ids = [recorded_by] if recorded_by else []
+    ids += [v for v in (segs_map or {}).values() if v and v not in ("Customer", "Team")]
+    for uid in ids:
+        u = db.query(User).filter(User.ghl_user_id == uid).first()
+        if u:
+            return (u.display_name or u.username or "").strip() or uid
+    return "Unknown"
+
+
+@router.get("/call-tone-openers")
+def openers(days: int = 30, user: dict = Depends(get_current_user)):
+    """Per caller: live answers, how many hung up early, the hang-up rate,
+    the average opener score, and the worst openers to play back."""
+    del user
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+    db = get_db()
+    try:
+        rows = (db.query(CallRecording.id, CallRecording.recorded_by, CallRecording.lead_id, CallRecording.created_at,
+                         CallRecording.duration_seconds, CallTone.listen_json, CallTranscript.speaker_map)
+                .join(CallTone, CallTone.recording_id == CallRecording.id)
+                .outerjoin(CallTranscript, CallTranscript.recording_id == CallRecording.id)
+                .filter(CallTone.listen_json != "", CallRecording.created_at >= since).all())
+        names: dict[str, str] = {}
+        people: dict[str, dict] = {}
+        for rid, rb, lead_id, created, dur, lj, spk in rows:
+            try:
+                h = json.loads(lj)
+            except ValueError:
+                continue
+            if h.get("skip") or not isinstance(h.get("opening"), dict):
+                continue
+            key = rb or ""
+            if key not in names:
+                try:
+                    names[key] = _name_for(db, rb or "", json.loads(spk or "{}"))
+                except ValueError:
+                    names[key] = "Unknown"
+            p = people.setdefault(names[key], {"name": names[key], "live": 0, "early": 0, "scores": [], "clips": []})
+            o, e = h["opening"], (h.get("ending") if isinstance(h.get("ending"), dict) else {})
+            p["live"] += 1
+            early = bool(e.get("ended_early"))
+            p["early"] += 1 if early else 0
+            if isinstance(o.get("opener_score"), (int, float)):
+                p["scores"].append(float(o["opener_score"]))
+            p["clips"].append({"recording_id": rid, "lead_id": lead_id or "", "at": created, "seconds": dur or 0,
+                               "first_words": o.get("first_words") or "", "score": o.get("opener_score"),
+                               "sounded_like": o.get("sounded_like") or "", "tip": o.get("tip") or "",
+                               "ended_early": early, "ending": e.get("how") or ""})
+        out = []
+        for p in people.values():
+            clips = sorted(p["clips"], key=lambda c: (not c["ended_early"], c["score"] if isinstance(c["score"], (int, float)) else 99))
+            out.append({"name": p["name"], "live": p["live"], "hung_up_early": p["early"],
+                        "early_rate": round(100 * p["early"] / p["live"]) if p["live"] else 0,
+                        "avg_opener": round(sum(p["scores"]) / len(p["scores"]), 1) if p["scores"] else None,
+                        "worst": clips[:5]})
+        out.sort(key=lambda r: -r["live"])
+        return {"days": days, "people": out}
     finally:
         db.close()
