@@ -544,11 +544,17 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
             if not any(x["date"] == r["date"] and x["task"] == r["task"] for x in d):
                 d.append({"date": r["date"], "task": r["task"]})
         # A go-back at one of our customers pins them too (Alan, 2026-10-27).
+        # Every open one shows on every week until it's done, day or no day
+        # (Alan, 2026-10-31: "they should all be on there showing every week
+        # with the big red X... so the crew can stop by on the way").
         if start and end:
             from api.pm_fixes import fixes_for
             for f in fixes_for(db, start[:10], end[:10]):
-                if f["lead_id"] and f["date"] and start[:10] <= f["date"] <= end[:10]:
-                    days.setdefault(f["lead_id"], []).append({"date": f["date"], "task": "fix", "note": f["description"], "done": bool(f["done_at"])})
+                if not f["lead_id"]:
+                    continue
+                in_week = bool(f["date"]) and start[:10] <= f["date"] <= end[:10]
+                if in_week or not f["done_at"]:
+                    days.setdefault(f["lead_id"], []).append({"date": f["date"] if in_week else "", "task": "fix", "note": f["description"], "done": bool(f["done_at"])})
         added = _added(db)
         hidden = set(_hidden(db).get(start[:10], []))
         ids = list(dict.fromkeys([*days, *added]))

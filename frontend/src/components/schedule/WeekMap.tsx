@@ -26,11 +26,13 @@ const dayName = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-
 
 /** A dot on the house and a name tag above it. */
 function pinIcon(p: PmMapPin): L.DivIcon {
-  const fix = p.days.some((d) => d.task === "fix" && !d.done) ? `<span style="font-size:15px;line-height:1;">🔧</span>` : "";
+  // An open job to fix: a big red X, every week until it's done (Alan, 2026-10-31).
+  const open = p.days.some((d) => d.task === "fix" && !d.done);
+  const fix = open ? `<span style="display:inline-flex;width:22px;height:22px;border-radius:50%;background:#dc2626;color:#fff;font-size:15px;font-weight:900;align-items:center;justify-content:center;">✕</span>` : "";
   const mark = fix + (p.status === "done"
     ? `<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:#15803d;color:#fff;font-size:12px;font-weight:900;align-items:center;justify-content:center;">✓</span>`
     : p.status === "cleaned" ? `<span style="font-size:15px;line-height:1;">🧽</span>` : "");
-  const dot = p.status === "done" ? "#15803d" : p.status === "cleaned" ? "#9a6a26" : "#1c1917";
+  const dot = open ? "#dc2626" : p.status === "done" ? "#15803d" : p.status === "cleaned" ? "#9a6a26" : "#1c1917";
   const html = `
     <div style="position:absolute;left:0;bottom:0;transform:translate(-50%,0);display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
       <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;background:#fffdf8;color:#1c1917;border:1.5px solid ${dot};border-radius:999px;padding:3px 9px;font:600 14px/1.2 Inter,system-ui,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.25);${p.status === "done" ? "opacity:.85;" : ""}">
@@ -96,7 +98,7 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
             Every job on these days is here by itself, and every job to fix at a customer's. Tap a pin to hide it this week.
           </p>
           <p className="text-sm text-muted-foreground">
-            Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained · 🔧 = a job to fix
+            Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained · <span className="font-bold text-red-600">✕</span> = a job to fix (shows every week until it's done)
           </p>
         </div>
         {!pins ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -115,7 +117,7 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
                   <p className="font-semibold">{p.name}</p>
                   {p.address ? <p className="text-muted-foreground">{p.address}</p> : null}
                   {p.days.length
-                    ? p.days.map((d) => <p key={d.date + d.task + (d.note || "")}>{dayName(d.date)} · {TASK[d.task] || d.task}{d.note ? `: ${d.note}` : ""}{d.done ? " ✓" : ""}</p>)
+                    ? p.days.map((d) => <p key={d.date + d.task + (d.note || "")}>{d.date ? dayName(d.date) : "Any day, stop by"} · {TASK[d.task] || d.task}{d.note ? `: ${d.note}` : ""}{d.done ? " ✓" : ""}</p>)
                     : <p className="text-muted-foreground">Not on the calendar yet</p>}
                   <div className="flex flex-wrap gap-3 pt-1">
                     <a className="font-semibold text-blue-700 underline" target="_blank" rel="noreferrer"

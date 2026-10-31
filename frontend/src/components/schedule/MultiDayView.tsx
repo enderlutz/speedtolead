@@ -69,7 +69,24 @@ function DropDay({ day, className, children }: { day: string; className: string;
   return <div ref={setNodeRef} className={cn(className, isOver && "bg-[#C9972F]/15 ring-2 ring-inset ring-[#C9972F]")}>{children}</div>;
 }
 
-export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onReorder, onAdd, stacked, showPay, fixesByDay, onMoveFix, onOpenFix, whoOf }: {
+/** The open jobs to fix that aren't on a day in these dates (no day yet, or
+ *  their day went by): a red row across the top of every week until they're
+ *  done (Alan, 2026-10-31: "showing every week with the big red X... so the
+ *  crew can stop by on the way and fix that real quick"). Drag one onto a day. */
+function ToFixRow({ fixes, chip }: { fixes: FixJob[]; chip: (f: FixJob) => ReactNode }) {
+  if (!fixes.length) return null;
+  return (
+    <div className="border-b-2 border-red-200 bg-red-50/70 p-2">
+      <p className="mb-1.5 flex items-center gap-1.5 px-1 text-[15px] font-bold text-red-700">
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-[14px] font-black text-white" aria-hidden>✕</span>
+        {fixes.length} {fixes.length === 1 ? "job" : "jobs"} to fix · stop by on the way
+      </p>
+      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{fixes.map(chip)}</div>
+    </div>
+  );
+}
+
+export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onReorder, onAdd, stacked, showPay, fixesByDay, onMoveFix, onOpenFix, whoOf, openFixes }: {
   dates: string[]; byDay: Map<string, PmDay[]>; today: string; Link: JobLinkComponent;
   onPickDay: (d: string) => void;
   /** Week shows this many chips a day, then "+N more" (tap → that day). */
@@ -91,6 +108,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   onMoveFix?: (f: FixJob, toDate: string) => void;
   /** Tap a job to fix. */
   onOpenFix?: (f: FixJob) => void;
+  /** Open jobs to fix not on any of these days: the red row on top. */
+  openFixes?: FixJob[];
   /** A worker's first name from their username, for the fix chip. */
   whoOf?: (username: string) => string;
 }) {
@@ -134,9 +153,15 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   );
   const fixChip = (f: FixJob) => (
     <DraggableFix key={`fix:${f.id}`} f={f} on={dnd && !!onMoveFix}>
-      <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} stacked={stacked && wide} onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
+      <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} stacked={stacked && wide} red={!f.done_at} onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
     </DraggableFix>
   );
+  const redChip = (f: FixJob) => (
+    <DraggableFix key={`fix:${f.id}`} f={f} on={dnd && !!onMoveFix}>
+      <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} red onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
+    </DraggableFix>
+  );
+  const topRow = <ToFixRow fixes={openFixes || []} chip={redChip} />;
   const moreBtn = "flex min-h-11 w-full items-center rounded-lg px-2 text-left text-[14px] font-bold text-[#8C6224] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60";
   const addBtn = (d: string) => canEdit && onAdd ? (
     <button type="button" onClick={() => onAdd(d)} aria-label={`Add a customer to ${d}`}
@@ -148,6 +173,7 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   const body = wide ? (
       /* Laptop: columns. */
       <div className={cn("overflow-hidden rounded-2xl", PAPER, RING)}>
+        {topRow}
         <div className="grid" style={{ gridTemplateColumns: `repeat(${dates.length}, minmax(0, 1fr))` }}>
           {dates.map((d, i) => (
             <div key={d} className={cn("border-b", LINE, i < last && cn("border-r", LINE), d === today && TODAY_WASH)}>
@@ -171,12 +197,13 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   ) : (
       /* Phone: the same days, top to bottom. */
       <div className={cn("rounded-2xl", PAPER, RING)}>
+        {openFixes?.length ? <div className="overflow-hidden rounded-t-2xl">{topRow}</div> : null}
         {dates.map((d, i) => {
           const groups = groupJobs(byDay.get(d) || []);
           const fixes = fixesByDay?.get(d) || [];
           return (
             <DropDay key={d} day={d} className={cn("grid grid-cols-[56px_1fr] gap-1.5 px-2 py-1.5 transition-colors", i > 0 && cn("border-t", LINE),
-                                         i === 0 && "rounded-t-2xl", i === last && "rounded-b-2xl", d === today && TODAY_WASH)}>
+                                         i === 0 && !openFixes?.length && "rounded-t-2xl", i === last && "rounded-b-2xl", d === today && TODAY_WASH)}>
               <DayStamp day={d} today={today} onClick={() => onPickDay(d)} />
               <div className="min-w-0 space-y-1.5 py-1">
                 {groups.length || fixes.length

@@ -382,6 +382,9 @@ function CalendarView() {
     for (const f of fixes) { if (!f.date) continue; if (!m.has(f.date)) m.set(f.date, []); m.get(f.date)!.push(f); }
     return m;
   }, [fixes]);
+  // Open ones not on a day this range shows: the red row on top of the week.
+  const openFixes = useCallback((dates: string[]) =>
+    fixes.filter((f) => !f.done_at && !(f.date && dates.includes(f.date))), [fixes]);
   const who = useCallback((u: string) => whoOf(crew, u), [crew]);
   // What the list and the cards do; each says what went wrong and answers
   // whether it worked, then the calendar reloads so every view agrees.
@@ -446,7 +449,8 @@ function CalendarView() {
               <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
                             onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={false}
                             canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                            fixesByDay={fixesByDay} onMoveFix={(f, to) => void moveFix(f, to)} onOpenFix={(f) => pickDay(f.date)} whoOf={who} />
+                            fixesByDay={fixesByDay} onMoveFix={(f, to) => void moveFix(f, to)} onOpenFix={(f) => { if (f.date) pickDay(f.date); }} whoOf={who}
+                            openFixes={openFixes(dayList(range.start, view === "week" ? 7 : 3))} />
               {/* The week's customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
               {view === "week" ? <WeekMap start={range.start} end={range.end} refreshKey={[days, fixes]} /> : null}
             </>

@@ -73,7 +73,13 @@ def test_a_customers_fix_pins_them_on_the_week_map_and_rides_on_today(db, monkey
     out = pm.week_map("2026-10-26", "2026-11-01", user=ALAN)
     pin = next(p for p in out["pins"] if p["lead_id"] == "Y")
     assert pin["days"] == [{"date": "2026-10-28", "task": "fix", "note": "Screw the decorative pieces back on", "done": False}]
+    # Open, it shows on every week until it's done (Alan, 2026-10-31: "showing
+    # every week with the big red X"), with no day on the weeks it isn't on.
+    nxt = pm.week_map("2026-11-02", "2026-11-08", user=ALAN)["pins"]
+    assert [p["days"] for p in nxt] == [[{"date": "", "task": "fix", "note": "Screw the decorative pieces back on", "done": False}]]
+    fx.update_fix(f["id"], fx.FixPatch(done=True), user=ALAN)
     assert pm.week_map("2026-11-02", "2026-11-08", user=ALAN)["pins"] == []
+    fx.update_fix(f["id"], fx.FixPatch(done=False), user=ALAN)
 
     monkeypatch.setattr(pm, "_today_ct", lambda: "2026-10-28")
     today = pm.today(user=ALAN)

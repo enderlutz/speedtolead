@@ -37,14 +37,16 @@ const shortDay = (d: string) => fmt(d, { weekday: "short", month: "short", day: 
  * days and Month views, the same size as a job chip. `stacked` is the Week's
  * two-line shape, `tiny` the month grid's (a plain span: the cell is the tap).
  */
-export function FixChip({ f, who, tiny, stacked, onClick }: { f: FixJob; who?: string; tiny?: boolean; stacked?: boolean; onClick?: () => void }) {
+export function FixChip({ f, who, tiny, stacked, onClick, red }: { f: FixJob; who?: string; tiny?: boolean; stacked?: boolean; onClick?: () => void; red?: boolean }) {
   const fin = !!f.done_at;
   const cls = cn("flex w-full gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight",
-    fin ? cn("border border-dashed border-[#E4DCCB]", IVORY, MUTED) : cn(DASH, WASH, INK),
+    fin ? cn("border border-dashed border-[#E4DCCB]", IVORY, MUTED) : red ? "border-2 border-red-300 bg-white text-[#1c1917]" : cn(DASH, WASH, INK),
     stacked ? "flex-col items-stretch px-2 py-1.5" : "items-center",
     tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2 py-1.5",
     onClick && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60");
-  const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : "🔧"}</span>;
+  const icon = red && !fin
+    ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-600 text-[12px] font-black text-white" aria-hidden>✕</span>
+    : <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : "🔧"}</span>;
   const title = `Fix · ${f.name} · ${f.description}${who ? ` · ${who}` : ""}`;
   const body = tiny ? <>{icon}<span className="min-w-0 flex-1 truncate">{f.name}</span></>
     : stacked ? (
