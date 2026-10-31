@@ -42,8 +42,24 @@ Rules: only what was said; names as spoken (they may be misspelled, say so if un
 
 
 def scrub(s: str) -> str:
-    s = re.sub(r"(?:\d[ -]?){12,19}", "[number]", s or "")
+    """Card, bank and SSN numbers out, however they were read aloud: one run,
+    or groups of three or four split by spaces, commas or periods."""
+    s = re.sub(r"(?:\d[\s,.\-]{0,3}){12,19}", "[number]", s or "")
+    s = re.sub(r"\b\d{3,4}\b(?:[\s,.\-]+\d{3,4}\b){2,}", "[number]", s)
     return re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[number]", s)
+
+
+def plaud_time(raw: str) -> str:
+    """Plaud's Create Time is Houston clock time marked as UTC ("…T13:09:29Z"
+    for a 1:09 PM recording). Read it as Houston time."""
+    raw = (raw or "").strip()
+    try:
+        d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw
+    if raw.endswith("Z") or raw.endswith("+00:00"):
+        d = d.replace(tzinfo=HOU)
+    return d.isoformat()
 
 
 def houston_day(iso: str) -> str:

@@ -18,7 +18,7 @@ from api.ideas import require_alan
 from config import get_settings
 from database import get_db
 from plaud_models import PlaudBrief, PlaudKey, PlaudNote
-from services.plaud_brief import scrub
+from services.plaud_brief import plaud_time, scrub
 
 router = APIRouter()
 
@@ -63,7 +63,7 @@ async def ingest(key: str, request: Request):
         if not transcript and not summary:
             raise HTTPException(status_code=400, detail="No transcript or summary in what was sent")
         title = _pick(body, "title", "name", "file_name")[:300]
-        when = _pick(body, "recorded_at", "start_time", "create_time", "created_at", "date", "created")
+        when = plaud_time(_pick(body, "recorded_at", "start_time", "create_time", "created_at", "date", "created"))
         pid = _pick(body, "id", "file_id", "recording_id") or hashlib.sha1((transcript + summary).encode()).hexdigest()
         n = db.query(PlaudNote).filter(PlaudNote.plaud_id == pid).first()
         if not n and when:

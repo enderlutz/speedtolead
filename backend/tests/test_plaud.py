@@ -36,7 +36,7 @@ def test_recording_comes_in_scrubbed_and_once(db):
     notes = pa.recordings(ALAN)["notes"]
     assert notes[0]["summary"] == "Scope change, redone"
     assert len(notes) == 1 and "[number]" in notes[0]["transcript"] and "4111" not in notes[0]["transcript"]
-    assert notes[0]["title"] == "Call with Chris" and notes[0]["at"] == "2026-10-31T20:00:00Z"
+    assert notes[0]["title"] == "Call with Chris" and notes[0]["at"].startswith("2026-10-31T20:00:00-05:00")
 
 
 def test_nightly_brief_once_with_tasks(db, monkeypatch):
@@ -55,6 +55,14 @@ def test_nightly_brief_once_with_tasks(db, monkeypatch):
     assert s.query(Idea).filter(Idea.source == "plaud").count() == 1
     assert s.query(PlaudBrief).count() == 1
     s.close()
+
+
+def test_scrub_grouped_card_and_plaud_time():
+    out = pb.scrub("card is 4111, 1111, 1111, 1111 exp 12 29 and 4111 1111 1111 1111")
+    assert "1111" not in out
+    assert pb.scrub("we did 15 pickets at $12") == "we did 15 pickets at $12"
+    assert pb.plaud_time("2026-10-28T13:09:29Z").startswith("2026-10-28T13:09:29-05:00")
+    assert pb.houston_day(pb.plaud_time("2026-10-29T23:12:18Z")) == "2026-10-29"
 
 
 def test_houston_day():
