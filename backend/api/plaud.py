@@ -19,6 +19,7 @@ from config import get_settings
 from database import get_db
 from plaud_models import PlaudBrief, PlaudKey, PlaudNote
 from services.plaud_brief import plaud_time, scrub
+from services import morning_text  # noqa: F401  (registers its table before create_all)
 
 router = APIRouter()
 
@@ -107,3 +108,14 @@ def brief_now(user: dict = Depends(require_alan)):
     from services.plaud_brief import run
     out = run()
     return {"ok": bool(out), "message": "Brief written and texted to you." if out else "No new recordings today, or tonight's brief is already done."}
+
+
+@router.get("/morning-text")
+def morning_preview(user: dict = Depends(require_alan)):
+    """What the 7:30 AM text would say right now."""
+    from services.morning_text import build
+    db = get_db()
+    try:
+        return {"text": build(db)}
+    finally:
+        db.close()

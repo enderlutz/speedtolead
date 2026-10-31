@@ -162,6 +162,18 @@ async def _calendar_delete_loop():
         await asyncio.sleep(600)
 
 
+async def _morning_text_loop():
+    """Background task: Alan's 7:30 AM text (2026-10-31). Once a day."""
+    await asyncio.sleep(200)
+    while True:
+        try:
+            from services.morning_text import run as morning_run
+            await asyncio.to_thread(morning_run)
+        except Exception as e:
+            logger.error(f"Morning text error: {e}")
+        await asyncio.sleep(300)
+
+
 async def _plaud_brief_loop():
     """Background task: after 9 PM Houston, Alan's nightly brief from his
     Plaud recordings (2026-10-31). Once a day; quiet days skip."""
@@ -743,6 +755,7 @@ async def lifespan(app: FastAPI):
     fast_sync_loop = asyncio.create_task(_fast_sync_loop())  # noqa: F841
     calendar_delete_loop = asyncio.create_task(_calendar_delete_loop())  # noqa: F841
     plaud_brief_loop = asyncio.create_task(_plaud_brief_loop())  # noqa: F841
+    morning_text_loop = asyncio.create_task(_morning_text_loop())  # noqa: F841
     fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     scoreboard_loop = asyncio.create_task(_scoreboard_loop())  # noqa: F841 — runs for the app's life
