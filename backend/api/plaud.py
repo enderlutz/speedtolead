@@ -62,13 +62,19 @@ async def ingest(key: str, request: Request):
         summary = scrub(_pick(body, "summary", "ai_summary", "notes"))
         if not transcript and not summary:
             raise HTTPException(status_code=400, detail="No transcript or summary in what was sent")
+        title = _pick(body, "title", "name", "file_name")[:300]
+        when = _pick(body, "recorded_at", "start_time", "create_time", "created_at", "date", "created")
         pid = _pick(body, "id", "file_id", "recording_id") or hashlib.sha1((transcript + summary).encode()).hexdigest()
         n = db.query(PlaudNote).filter(PlaudNote.plaud_id == pid).first()
+        if not n and when:
+            # A recording re-generated in Plaud comes again with a new summary:
+            # same recording time, so it updates the one already here.
+            n = db.query(PlaudNote).filter(PlaudNote.recorded_at == when).first()
         if not n:
             n = PlaudNote(id=str(uuid.uuid4()), plaud_id=pid, received_at=_now())
             db.add(n)
-        n.title = _pick(body, "title", "name", "file_name")[:300]
-        n.recorded_at = _pick(body, "recorded_at", "start_time", "create_time", "created_at", "date", "created") or n.received_at
+        n.title = title
+        n.recorded_at = when or n.recorded_at or n.received_at
         n.transcript, n.summary = transcript, summary
         db.commit()
         # The field names that came in (no values), shown in Zapier's test

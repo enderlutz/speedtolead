@@ -31,7 +31,10 @@ def test_recording_comes_in_scrubbed_and_once(db):
     c = _client()
     assert c.post(f"/api/plaud/in/{key}", json=body).status_code == 200
     assert c.post(f"/api/plaud/in/{key}", json=body).status_code == 200
+    again = {**body, "Summary": "Scope change, redone", "ID": ""}
+    assert c.post(f"/api/plaud/in/{key}", json=again).status_code == 200
     notes = pa.recordings(ALAN)["notes"]
+    assert notes[0]["summary"] == "Scope change, redone"
     assert len(notes) == 1 and "[number]" in notes[0]["transcript"] and "4111" not in notes[0]["transcript"]
     assert notes[0]["title"] == "Call with Chris" and notes[0]["at"] == "2026-10-31T20:00:00Z"
 
