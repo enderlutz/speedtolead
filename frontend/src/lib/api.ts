@@ -3992,6 +3992,11 @@ export const api = {
     request<PmShopping>(`/api/pm-hq/shopping?start=${start}&end=${end}`),
   pmHqShoppingHave: (b: { lead_id: string; key: string; label: string; have: boolean }) =>
     request<{ ok: boolean }>(`/api/pm-hq/shopping/have`, { method: "POST", body: JSON.stringify(b) }),
+  /** Alan's yes/no question to one person, shown big the next time they open the dashboard (2026-11-01). */
+  getStaffQuestion: () =>
+    request<{ question: { id: string; question: string } | null }>(`/api/staff-question`),
+  answerStaffQuestion: (b: { id: string; answer: "yes" | "no"; note: string }) =>
+    request<{ ok: boolean }>(`/api/staff-question/answer`, { method: "POST", body: JSON.stringify(b) }),
   /** Friday's "How did the week go?" (Alan, 2026-10-28): this person's card for the week. */
   getWeekCheckin: () =>
     request<{ week_ending: string; due: boolean; truck: boolean; truck_items: string[]; questions: { key: WeekCheckinKey; text: string }[]; mine: WeekCheckin | null }>(`/api/my-schedule/week-checkin`),

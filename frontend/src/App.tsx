@@ -8,6 +8,7 @@ import LangSwitch from "@/components/LangSwitch";
 import { isBrickAllowedPath } from "@/lib/brickNav";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import UpdateBanner from "@/components/UpdateBanner";
+import StaffQuestion from "@/components/StaffQuestion";
 const Login = lazy(() => import("@/pages/Login"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Leads = lazy(() => import("@/pages/Leads"));
@@ -261,6 +262,7 @@ function AppLayout() {
   return (
     <RequireAuth>
       <UpdateBanner />
+      <StaffQuestion />
       <div className="flex h-dvh bg-background overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
