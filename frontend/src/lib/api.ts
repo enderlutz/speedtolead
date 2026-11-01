@@ -4058,7 +4058,7 @@ export const api = {
   resetCompanyCamDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
-                          patch: { side?: string; note?: string; is_damage?: boolean; customer_hidden?: boolean }) =>
+                          patch: { side?: string; note?: string; is_damage?: boolean; customer_hidden?: boolean; customer_shown?: boolean }) =>
     request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/${photoId}`, {
       method: "PATCH", body: JSON.stringify(patch),
     }),
@@ -4155,6 +4155,8 @@ export interface CompanyCamPhoto {
   is_damage: boolean;
   /** Left off the customer's job-done page (unticked on the invoice). */
   customer_hidden?: boolean;
+  /** Ticked onto the job-done page from outside the after photos. */
+  customer_shown?: boolean;
   /** CDN url when Storage is configured, otherwise our own image endpoint. */
   url: string;
   from_storage: boolean;

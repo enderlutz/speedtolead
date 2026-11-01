@@ -2076,6 +2076,10 @@ class CompanyCamPhoto(Base):
     # Left off the customer's job-done page: the office unticks it on the
     # invoice (Alan, 2026-10-29).
     customer_hidden = Column(Boolean, default=False, nullable=False)
+    # Shown on the job-done page even though it isn't an after photo: the
+    # office ticks it in "More photos from this job" (Alan, 2026-11-01, when
+    # a phone failed and the stained fence was only in the before photos).
+    customer_shown = Column(Boolean, default=False, nullable=False)
 
     storage_url = Column(Text, default="")
     image_data = deferred(Column(LargeBinary, nullable=True))
@@ -5157,6 +5161,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_hidden BOOLEAN NOT NULL DEFAULT FALSE"))
             logger.info("Migration: added company_cam_photos.customer_hidden")
+        if "customer_shown" not in ccp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_shown BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Migration: added company_cam_photos.customer_shown")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

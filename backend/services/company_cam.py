@@ -1028,19 +1028,28 @@ def pw_progress(services: list[str], sections_with_photos: set[str]) -> tuple[in
 # The job-done page's photos (Alan, 2026-10-29): the after-staining photos,
 # else after cleaning, else a washing job's afters, minus any the office
 # unticked on the invoice. None uploaded → none shown, just the review button.
+# Any other photo the office ticked in "More photos from this job" goes first
+# (2026-11-01: a phone failed, and the stained fence was in the befores).
 CUSTOMER_PHOTO_CAP = 12
+
+
+def default_customer_set(rows: list) -> list:
+    """The after photos the page picks on its own, before any unticking."""
+    afters = [p for p in rows if p.section.endswith("_after")]
+    for key in ("stain_after", "clean_after"):
+        pick = [p for p in afters if p.section == key]
+        if pick:
+            return pick
+    return [p for p in afters if p.section.startswith("pw_")]
 
 
 def customer_photos(db, lead_id: str) -> list:
     from database import CompanyCamPhoto
     rows = (db.query(CompanyCamPhoto)
-            .filter(CompanyCamPhoto.lead_id == lead_id, CompanyCamPhoto.section.like("%_after"))
+            .filter(CompanyCamPhoto.lead_id == lead_id)
             .order_by(CompanyCamPhoto.section, CompanyCamPhoto.seq).all())
-    rows = [p for p in rows if p.storage_url or p.has_image_data]
-    for key in ("stain_after", "clean_after"):
-        pick = [p for p in rows if p.section == key]
-        if pick:
-            break
-    else:
-        pick = [p for p in rows if p.section.startswith("pw_")]
-    return [p for p in pick if not p.customer_hidden][:CUSTOMER_PHOTO_CAP]
+    rows = [p for p in rows if (p.storage_url or p.has_image_data) and not p.customer_hidden]
+    pick = default_customer_set(rows)
+    ids = {p.id for p in pick}
+    extra = [p for p in rows if p.customer_shown and p.id not in ids]
+    return (extra + pick)[:CUSTOMER_PHOTO_CAP]

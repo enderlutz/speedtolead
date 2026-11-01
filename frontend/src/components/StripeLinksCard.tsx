@@ -426,9 +426,18 @@ const qtyOf = (r: Row) => { const q = Math.round((Number(r.qty) || 0) * 100) / 1
 // put in their Google review (Alan, 2026-10-29). All on unless unticked; the
 // same pick the page uses: after staining, else after cleaning, else a
 // washing job's afters. None uploaded: the page shows just the review button.
+// "More photos from this job" (2026-11-01) lets the office tick any other
+// photo on too, before-staining first: a crew phone failed on a finished
+// job and the stained fence was only in the befores.
 const PHOTO_CAP = 12;
+const MORE_ORDER = ["stain_before", "clean_after", "clean_before", "fence_scope"];
+const SECTION_NAME: Record<string, string> = {
+  stain_before: "Before staining", clean_after: "After cleaning", clean_before: "Before cleaning", fence_scope: "Fence scope",
+};
 function SharePhotos({ leadId }: { leadId: string }) {
   const [photos, setPhotos] = useState<CompanyCamPhoto[] | null>(null);
+  const [more, setMore] = useState<CompanyCamPhoto[]>([]);
+  const [showMore, setShowMore] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [big, setBig] = useState<number | null>(null);
   useEffect(() => {
@@ -440,9 +449,14 @@ function SharePhotos({ leadId }: { leadId: string }) {
         const all = cc.photos || {};
         const key = ["stain_after", "clean_after"].find((k) => (all[k] || []).length);
         const list = key ? all[key] : Object.keys(all).filter((k) => k.startsWith("pw_") && k.endsWith("_after")).flatMap((k) => all[k]);
+        const inList = new Set(list.map((p) => p.id));
+        const rank = (k: string) => { const i = MORE_ORDER.indexOf(k); return i < 0 ? MORE_ORDER.length : i; };
+        const others = Object.keys(all).sort((a, b) => rank(a) - rank(b)).flatMap((k) => all[k]).filter((p) => !inList.has(p.id));
         if (!alive) return;
         setPhotos(list);
-        for (const ph of list) {
+        setMore(others);
+        if (others.some((p) => p.customer_shown)) setShowMore(true);
+        for (const ph of [...others.filter((p) => p.customer_shown), ...list, ...others.filter((p) => !p.customer_shown)]) {
           const u = ph.from_storage ? ph.url : await api.fetchCompanyCamPhotoUrl(leadId, ph.id);
           if (!alive) { if (u && !ph.from_storage) URL.revokeObjectURL(u); return; }
           if (u) { if (!ph.from_storage) made.push(u); setThumbs((t) => ({ ...t, [ph.id]: u })); }
@@ -463,17 +477,32 @@ function SharePhotos({ leadId }: { leadId: string }) {
       toast.error("Couldn't save that. Try again.");
     }
   };
+  const toggleMore = async (ph: CompanyCamPhoto) => {
+    const on = !ph.customer_shown;
+    const patch = on ? { customer_shown: true, customer_hidden: false } : { customer_shown: false };
+    setMore((ps) => ps.map((x) => (x.id === ph.id ? { ...x, ...patch } : x)));
+    try {
+      await api.updateCompanyCamPhoto(leadId, ph.id, patch);
+    } catch {
+      setMore((ps) => ps.map((x) => (x.id === ph.id ? { ...x, customer_shown: !on } : x)));
+      toast.error("Couldn't save that. Try again.");
+    }
+  };
   if (photos === null) return null;
-  const shown = photos.filter((p) => !p.customer_hidden).slice(0, PHOTO_CAP);
+  const picked = more.filter((p) => p.customer_shown && !p.customer_hidden);
+  const total = picked.length + photos.filter((p) => !p.customer_hidden).length;
+  const shown = [...picked, ...photos.filter((p) => !p.customer_hidden)].slice(0, PHOTO_CAP);
   return (
     <div className="border-t border-border px-3 py-2">
       <p className="text-sm font-semibold">Photos for their Google review</p>
-      {photos.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No after photos from the crew yet. Their page will show just the Google review button.</p>
+      {photos.length === 0 && picked.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No after photos from the crew yet. {more.length ? "Pick some from \"More photos from this job\" below, or their page" : "Their page"} will show just the Google review button.</p>
+      ) : photos.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No after photos from the crew. They'll see the {shown.length} you picked below.</p>
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            After paying, they see these and can save them to their phone. Tap a photo to see it big; tap the check to leave it out. {shown.length} shown{photos.filter((p) => !p.customer_hidden).length > PHOTO_CAP ? ` (the first ${PHOTO_CAP})` : ""}.
+            After paying, they see these and can save them to their phone. Tap a photo to see it big; tap the check to leave it out. {shown.length} shown{total > PHOTO_CAP ? ` (the first ${PHOTO_CAP})` : ""}.
           </p>
           {/* Tap a photo to see it big; the corner check keeps it or leaves it out
               (Alan, 2026-10-30: "the photo's just too far… I can't actually see it"). */}
@@ -492,6 +521,34 @@ function SharePhotos({ leadId }: { leadId: string }) {
           </div>
         </>
       )}
+      {more.length ? (
+        <div className="mt-2">
+          <button type="button" onClick={() => setShowMore((v) => !v)} className="text-xs font-bold text-primary hover:underline">
+            {showMore ? "Hide" : "More photos from this job"} ({more.length}){picked.length ? ` · ${picked.length} picked` : ""}
+          </button>
+          {showMore ? (
+            <>
+              <p className="mt-1 text-xs text-muted-foreground">Tap the circle to give them one of these too. Picked ones go first.</p>
+              <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
+                {more.map((ph) => (
+                  <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_shown ? "ring-emerald-500" : "ring-transparent")}>
+                    <a href={thumbs[ph.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title="See it big">
+                      {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", !ph.customer_shown && "opacity-60")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
+                    </a>
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
+                      {SECTION_NAME[ph.section] || ph.section.replace(/_/g, " ")}
+                    </span>
+                    <button type="button" onClick={() => void toggleMore(ph)} aria-pressed={!!ph.customer_shown} aria-label={ph.customer_shown ? "Take this one off" : "Give them this one too"}
+                      className={cn("absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold shadow", ph.customer_shown ? "bg-emerald-500 text-white" : "bg-white/95 text-muted-foreground")}>
+                      {ph.customer_shown ? "✓" : "+"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {big !== null && photos[big] ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={() => setBig(null)}>
           <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>

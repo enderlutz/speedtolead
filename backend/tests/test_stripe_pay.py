@@ -773,3 +773,8 @@ def test_the_job_done_page_shows_the_after_photos_the_office_kept(db, monkeypatc
     assert sp.after_info(open_link["token"])["photos"] == []
     with pytest.raises(HTTPException):
         sp.after_photo(open_link["token"], a1)
+    # 2026-11-01: a before photo the office ticked on goes first and opens.
+    db.query(CompanyCamPhoto).filter(CompanyCamPhoto.id == before).update({"customer_shown": True})
+    db.commit()
+    assert sp.after_info(done["token"])["photos"] == [f"/api/pay/{done['token']}/photo/{before}", f"/api/pay/{done['token']}/photo/{a1}"]
+    assert sp.after_photo(done["token"], before).body == b"jpg"
