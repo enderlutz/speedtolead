@@ -1420,7 +1420,7 @@ export default function SatelliteMeasureCard({
                 onPick={addPoint}
               />
               <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-lg bg-black/70 px-3 py-2 text-white backdrop-blur-sm">
-                <span className="text-[13px] font-semibold">Tap the fence line to add points</span>
+                <span className="text-[13px] font-semibold">Swipe to turn around the house. Tap the fence to add points</span>
                 <span className="flex items-center gap-2">
                   <span className="text-[15px] font-bold tabular-nums">{Math.round((jobTotal || 0) + viewTotal)} ft</span>
                   <button type="button" onClick={undoLastPoint} className={`${IS_TOUCH ? "h-10 px-3" : "h-8 px-2.5"} rounded-md bg-white/15 text-xs font-bold hover:bg-white/25`}>Undo</button>
