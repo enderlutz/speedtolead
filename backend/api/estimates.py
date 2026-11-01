@@ -12,7 +12,7 @@ from api.auth import get_current_user_optional, require_staff
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
-from api.settings import get_promotion_markup_percent, interactive_by_default
+from api.settings import get_promotion_markup_percent
 from services.notifications import notify_estimate_sent, notify_new_lead_red, notify_custom_proposal_sent
 from services.estimator import tier_of_line, tiers_from_breakdown
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
@@ -364,15 +364,12 @@ def _proposal_version_for(db, lead, requested: bool | None) -> str:
     """
     if (lead.division or "").lower() == "brick":
         return "pdf"   # A&T untouched (Alan, 2026-10-11)
-    if requested is not None:
-        return "interactive" if requested else "pdf"
-    latest = (db.query(Proposal.proposal_version).filter(Proposal.lead_id == lead.id)
-              .order_by(Proposal.created_at.desc()).first())
-    if latest is not None and (latest[0] or "") == "interactive":
-        return "interactive"
-    if interactive_by_default(db):
-        return "interactive"
-    return "pdf"
+    # 2026-11-01 (Alan): "the interactive page is default from now on". The
+    # send screen has no PDF/interactive chip any more; only a caller that
+    # asks for the PDF outright gets it.
+    if requested is False:
+        return "pdf"
+    return "interactive"
 
 
 class PreviewBody(BaseModel):

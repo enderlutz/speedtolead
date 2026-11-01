@@ -12,7 +12,6 @@ const APPROVAL_REQUEST_ON = false;
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
-const ACCENT_INTERACTIVE = ACCENT.amber;
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
@@ -601,43 +600,10 @@ export default function LeadDetail() {
   // Default to also emailing the estimate — VA can uncheck. Only actually
   // sends when the lead has an email (see the checked= guard on the box).
   const [alsoEmail, setAlsoEmail] = useState(true);
-  // The interactive page or the PDF. Starts from this lead's latest
-  // proposal (the switch on the Payment links panel), else the Settings
-  // default, so what the chip shows is what Send Now will do.
-  // Two things, kept apart on purpose. `interactiveNow` is what Send Now
-  // will do if nobody touches the chip: the backend's own rule, read here
-  // only to label the chip. `interactive` is a tap on the chip, and ONLY a
-  // tap is sent, as an outright choice. The first version sent the loaded
-  // value outright, so flipping the switch on the Payment links panel and
-  // pressing Send Now still sent the PDF (Alan, 2026-10-12).
-  const [interactive, setInteractive] = useState<boolean | null>(null);
-  const [interactiveNow, setInteractiveNow] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!lead?.id) return;
-    let alive = true;
-    setInteractive(null);
-    (async () => {
-      try {
-        const live = await api.getProposalLive(lead.id);
-        if (!alive) return;
-        if (live.proposal) { setInteractiveNow(!!live.proposal.interactive); return; }
-        const d = await api.getProposalInteractiveDefault();
-        if (alive) setInteractiveNow(!!d.on);
-      } catch { if (alive) setInteractiveNow(false); }
-    })();
-    return () => { alive = false; };
-  }, [lead?.id]);
-  // The switch on the Payment links panel announces its flips; the chip
-  // follows and any earlier tap on it is forgotten, so the switch wins.
-  useEffect(() => {
-    const onFlip = (e: Event) => {
-      const d = (e as CustomEvent<{ leadId: string; interactive: boolean }>).detail;
-      if (d?.leadId === lead?.id) { setInteractiveNow(!!d.interactive); setInteractive(null); }
-    };
-    window.addEventListener("proposal-live-changed", onFlip);
-    return () => window.removeEventListener("proposal-live-changed", onFlip);
-  }, [lead?.id]);
-  const sendInteractive = interactive ?? interactiveNow;
+  // Every Sterling send is the interactive page (Alan, 2026-11-01: "the
+  // interactive page is default from now on"); the Send as chip is gone and
+  // the backend picks it (A&T stays on the PDF there).
+  const sendInteractive: boolean | null = true;
   // The numbered scope drawing confirmed for an interactive send (Alan,
   // 2026-10-13). Not needed when two or more saved options carry their own.
   const [scopeDrawing, setScopeDrawing] = useState<string | null>(null);
@@ -651,6 +617,7 @@ export default function LeadDetail() {
   // as its own estimate, and the estimate is the sides, never a drawing, so
   // the send never waits on one. Flip to bring them back.
   const SHOW_OPTIONS_AND_DRAWING = false;
+  const SHOW_ESTIMATED_IN_PERSON = false;
   const needsDrawing = SHOW_OPTIONS_AND_DRAWING && sendInteractive === true && optionDrafts < 2;
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
@@ -1045,7 +1012,6 @@ export default function LeadDetail() {
         sendSms,
         alsoEmail: alsoEmail && !!lead?.contact_email,
         applyTag,
-        interactive: interactive ?? undefined,
       });
       const data = await api.getLead(id!);
       setLead(data);
@@ -2231,21 +2197,6 @@ export default function LeadDetail() {
                 </div>
               )}
 
-              <Field label="Send as">
-                <div className="flex flex-wrap gap-1.5">
-                  {/* The interactive page: three packages, Reserve $250,
-                      financing, a 30-day price. Off = the PDF. */}
-                  <ToggleChip
-                    on={sendInteractive === true}
-                    onClick={() => setInteractive(!(sendInteractive ?? false))}
-                    icon={Sparkles}
-                    accent={ACCENT_INTERACTIVE}
-                    title={sendInteractive ? "Sends the interactive proposal page (Reserve $250, financing, 30-day price)" : "Sends the PDF proposal"}
-                  >
-                    {sendInteractive === null ? "…" : sendInteractive ? "Interactive page" : "PDF"}
-                  </ToggleChip>
-                </div>
-              </Field>
               {SHOW_OPTIONS_AND_DRAWING ? <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} onDrafts={setOptionDrafts} /> : null}
               {needsDrawing ? (
                 <div id="send-drawing" className={cn("rounded-xl border p-2.5", scopeDrawing ? "border-border bg-muted/30" : "border-amber-300 bg-amber-50 dark:bg-amber-950/30")}>
@@ -2389,10 +2340,8 @@ export default function LeadDetail() {
                   {!approving && <span className="text-xs font-medium opacity-80">{withFollowups ? "with follow-up texts" : "no follow-ups"}</span>}
                 </Button>
               </div>
-              {/* Marks that this estimate was done on-site (in person) vs remote.
-                  Auto-detected from estimator activity (photos/videos, recordings,
-                  notes); a manual check/uncheck overrides and wins. */}
-              {(() => {
+              {/* "Estimated in Person" archived off the send 2026-11-01 (Alan). */}
+              {SHOW_ESTIMATED_IN_PERSON ? (() => {
                 const manuallySet = typeof (lead?.form_data as Record<string, unknown> | undefined)?.estimated_in_person === "boolean";
                 const autoDetected = Boolean(lead?.estimated_in_person_auto) && !manuallySet;
                 return (
@@ -2415,7 +2364,7 @@ export default function LeadDetail() {
                     {autoDetected && <span className="text-[10px] text-emerald-600">· auto-detected</span>}
                   </label>
                 );
-              })()}
+              })() : null}
               {/* "Request Alan's Approval" archived (Alan, 2026-10-14). */}
               {APPROVAL_REQUEST_ON && estimate.approval_status === "red" && (
                 <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full rounded-xl">

@@ -44,18 +44,14 @@ def _proposal(db, lead, est, version, at):
     return p
 
 
-def test_the_version_is_asked_for_carried_forward_or_the_default(db):
+def test_the_interactive_page_is_the_default_and_the_pdf_only_when_asked(db):
+    """Alan, 2026-11-01: "the interactive page is default from now on"."""
     lead, est = _lead(db)
-    assert est_api._proposal_version_for(db, lead, None) == "pdf"
+    assert est_api._proposal_version_for(db, lead, None) == "interactive"
     assert est_api._proposal_version_for(db, lead, True) == "interactive"
-    _proposal(db, lead, est, "pdf", "2026-10-11T00:00:00Z")
-    _proposal(db, lead, est, "interactive", "2026-10-11T12:00:00Z")      # the switch, flipped later
+    _proposal(db, lead, est, "pdf", "2026-10-12T00:00:00Z")              # an old PDF send
     assert est_api._proposal_version_for(db, lead, None) == "interactive"
     assert est_api._proposal_version_for(db, lead, False) == "pdf"   # asked for the PDF outright
-    _proposal(db, lead, est, "pdf", "2026-10-12T00:00:00Z")              # switched back to PDF
-    assert est_api._proposal_version_for(db, lead, None) == "pdf"
-    SystemConfig.set(db, settings_api.INTERACTIVE_DEFAULT_KEY, "on")
-    assert est_api._proposal_version_for(db, lead, None) == "interactive"
     brick, _ = _lead(db, division="brick")
     assert est_api._proposal_version_for(db, brick, None) == "pdf"   # A&T untouched
     assert est_api._proposal_version_for(db, brick, True) == "pdf"   # even when asked
