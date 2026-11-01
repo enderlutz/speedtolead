@@ -181,14 +181,23 @@ def build_option(db, lead: Lead, est: Estimate, *, drawing: str = "current", lab
     )
 
 
+# Archived 2026-11-01 (Alan): "Options in one proposal" and "Which drawing
+# goes with this estimate?" are off the send screen. A second price goes out
+# as its own estimate after the first, and the estimate is the sides of the
+# fence, no drawing. Flip back on to bring options in one proposal back.
+OPTIONS_IN_ONE_PROPOSAL = False
+
+
 def freeze_on_send(db, lead: Lead, est: Estimate, proposal_id: str, drawing: str | None, by: str = "") -> int:
-    """An interactive send freezes what the customer sees: the lead's saved
-    options if there are any, else this estimate with the picked drawing as
-    a single option. Returns how many options the proposal has."""
-    n = attach_draft_options(db, lead.id, proposal_id)
-    if n:
-        return n
-    db.add(build_option(db, lead, est, drawing=drawing or "current", proposal_id=proposal_id, by=by))
+    """An interactive send freezes what the customer sees: this estimate's
+    prices, sides and feet as a single option (no drawing unless one was
+    picked). With options turned on, the lead's saved options instead.
+    Returns how many options the proposal has."""
+    if OPTIONS_IN_ONE_PROPOSAL:
+        n = attach_draft_options(db, lead.id, proposal_id)
+        if n:
+            return n
+    db.add(build_option(db, lead, est, drawing=drawing or "none", proposal_id=proposal_id, by=by))
     return 1
 
 

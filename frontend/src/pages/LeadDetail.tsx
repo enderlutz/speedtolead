@@ -646,7 +646,12 @@ export default function LeadDetail() {
   useEffect(() => {
     if (sendInteractive) api.getNextProposalNumber().then((r) => setNextNumber(r.number)).catch(() => setNextNumber(""));
   }, [sendInteractive]);
-  const needsDrawing = sendInteractive === true && optionDrafts < 2;
+  // Archived 2026-11-01 (Alan): no "Options in one proposal" and no "Which
+  // drawing goes with this estimate?" on the send. A second price goes out
+  // as its own estimate, and the estimate is the sides, never a drawing, so
+  // the send never waits on one. Flip to bring them back.
+  const SHOW_OPTIONS_AND_DRAWING = false;
+  const needsDrawing = SHOW_OPTIONS_AND_DRAWING && sendInteractive === true && optionDrafts < 2;
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -2241,7 +2246,7 @@ export default function LeadDetail() {
                   </ToggleChip>
                 </div>
               </Field>
-              <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} onDrafts={setOptionDrafts} />
+              {SHOW_OPTIONS_AND_DRAWING ? <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} onDrafts={setOptionDrafts} /> : null}
               {needsDrawing ? (
                 <div id="send-drawing" className={cn("rounded-xl border p-2.5", scopeDrawing ? "border-border bg-muted/30" : "border-amber-300 bg-amber-50 dark:bg-amber-950/30")}>
                   <p className="mb-1.5 text-sm font-semibold">Which drawing goes with this estimate?</p>

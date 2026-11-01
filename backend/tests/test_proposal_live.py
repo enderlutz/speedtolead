@@ -296,6 +296,7 @@ def test_numbered_drawings_are_picked_per_option_and_sent_proposals_stay_frozen(
     db.commit()
     o2 = pl.save_option(lead.id, pl.OptionBody(label="Both sides", drawing="current"), STAFF)
     p = _proposal(db, lead, est)
+    monkeypatch.setattr(pl, "OPTIONS_IN_ONE_PROPOSAL", True)
     assert pl.freeze_on_send(db, lead, est, p.id, "current") == 2
     db.commit()
     assert bytes(pl.get_live_scope(p.token, option=o1["id"]).body) == b"DRAWING-1-mms"
@@ -318,6 +319,7 @@ def test_a_plain_interactive_send_freezes_the_confirmed_drawing_and_price(db, qu
     st = pl.get_live(p.token, _Req())
     assert st["tiers"]["signature"] == 1200.0 and len(st["options"]) == 1
     assert bytes(pl.get_live_scope(p.token, option=st["options"][0]["id"]).body) == b"THE-DRAWING"
+
     del fs
 
 
@@ -399,3 +401,16 @@ def test_photo_1_can_be_reopened_after_photo_2_used_a_new_photo_and_numbers_stay
     assert {v.version_no for v in db.query(FenceScopeVersion).filter_by(lead_id=lead.id).all()} == {1}
     # A new drawing after that becomes Photo 3, never a duplicate number.
     assert fs.new_fence_scope_drawing(lead.id, fs.NewDrawingBody(), STAFF)["editing_drawing_no"] == 3
+
+
+def test_with_options_archived_a_send_is_this_estimate_alone_with_no_drawing(db, quiet):
+    """Alan, 2026-11-01: no options in one proposal, no drawing with the estimate."""
+    lead = _lead(db)
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"A-DRAWING"
+    est = _estimate(db, lead)
+    pl.save_option(lead.id, pl.OptionBody(label="Old draft", drawing="current"), STAFF)
+    p = _proposal(db, lead, est)
+    assert pl.freeze_on_send(db, lead, est, p.id, None) == 1
+    db.commit()
+    st = pl.get_live(p.token, _Req())
+    assert len(st["options"]) == 1 and st["options"][0]["label"] == "" and not st["options"][0]["has_scope"]
