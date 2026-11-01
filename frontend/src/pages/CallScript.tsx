@@ -9,7 +9,7 @@ import Calls from "@/pages/Calls";
 import TrainingCourse from "@/pages/TrainingCourse";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  CHEAT_SHEET, OBJECTIONS, SCRIPT_RULES, SCRIPT_SOURCES, SCRIPT_STEPS, SCRIPT_VERSION,
+  ALWAYS_DO, CHEAT_SHEET, NEVER_DO, OBJECTIONS, SCRIPT_RULES, SCRIPT_SOURCES, SCRIPT_STEPS, SCRIPT_VERSION,
   type ScriptLine,
 } from "@/content/call-script";
 
@@ -33,7 +33,7 @@ export default function CallScript() {
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Call script</h1>
           <p className="text-sm text-muted-foreground">
             {view === "script"
-              ? `What to say on the first call, word for word. ${SCRIPT_VERSION}, from Alan's last five closed jobs.`
+              ? `What to say on the first call, word for word. ${SCRIPT_VERSION}, from Alan's closed jobs and a read of 183 calls.`
               : view === "coach" ? "The recordings, transcripts and the AI review of every call."
               : "The training modules: videos and steps for every part of the job."}
           </p>
@@ -131,6 +131,30 @@ function ScriptView() {
       </nav>
 
       <div className="space-y-6">
+        {/* Never / Always (2026-10-31): from 183 calls, what the ones that paid did. */}
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card className="border-red-300 bg-red-50/60 dark:border-red-800 dark:bg-red-950/30">
+            <CardContent className="p-4">
+              <div className="mb-2 text-sm font-semibold text-red-800 dark:text-red-300">Never</div>
+              <ul className="space-y-1.5 text-[15px] leading-snug">
+                {NEVER_DO.map((r) => (
+                  <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0 font-black text-red-600" aria-hidden>✕</span><span>{r}</span></li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+          <Card className="border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <CardContent className="p-4">
+              <div className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Always</div>
+              <ul className="space-y-1.5 text-[15px] leading-snug">
+                {ALWAYS_DO.map((r) => (
+                  <li key={r} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>{r}</span></li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+
         <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/30">
           <CardContent className="p-4">
             <div className="mb-2 text-sm font-semibold">The rules</div>

@@ -5,6 +5,12 @@
 // script tab. Word-for-word lines are in `say`; the branches are what the
 // customers on those calls actually said.
 //
+// v4 (2026-10-31): the close rewritten from a read of 183 calls (83 that
+// paid, 100 that didn't), with Alan's own words for the color, package and
+// wife lines. What held up both times: name a day, send the $250 while
+// they're on the phone, answer the objection, move color (and the package)
+// to cleaning day. Financing and reading every price went with the losses.
+//
 // Rule of thumb when editing: keep the words a real customer heard on a
 // call that closed. Don't invent lines.
 
@@ -25,16 +31,43 @@ export type Objection = { when: string; say: string; why?: string };
 
 export type CheatCard = { title: string; rows: string[] };
 
-export const SCRIPT_VERSION = "v3 · 2026-10-27";
+export const SCRIPT_VERSION = "v4 · 2026-10-31";
 
 export const SCRIPT_RULES: string[] = [
   "Call every new lead inside 5 minutes, 8 AM to 8 PM. Call before you send anything.",
   "Speak slowly the whole call. Use sir or ma'am and their last name.",
   "Dial first, measure while they talk. Everything you need is on the lead page.",
   "Never ask “which package do you want?” Ask natural or solid.",
-  "Never ask “is this something you want done soon?” Give one weekday and one weekend day.",
-  "The $250 locks the spot. The package and the color can still change on cleaning day.",
+  "The $250 locks the cleaning day. The package and the color get picked on cleaning day, with the samples on their clean fence.",
   "Prices include tax. Say it before they ask.",
+];
+
+// From the 183-call read (2026-10-31): what the calls that paid did and the
+// ones that didn't. Shown as the first card on the tab.
+export const NEVER_DO: string[] = [
+  "Never ask “Is this something you want done soon?” Give them two days instead.",
+  "Never say “Just let me know when you're ready.” That's how most lost calls ended.",
+  "Never say “I'll send you the link after the call.” Send it while they're on the phone.",
+  "Never read every price out loud (full price, 20% off, monthly, for each package). Say the one price for the package they like.",
+  "Never bring up financing unless they say money is tight. It came up three times as often on the calls we lost.",
+  "Never text color photos back and forth. Color gets picked on cleaning day.",
+  "Never pitch someone driving or at work. Get the sides, send the proposal, set the exact time to call back.",
+  "Never let “I need to talk to my wife” end the call. Get the day and send the booking invite.",
+  "Never tell them to shop around, and never leave a competitor's price unanswered.",
+  "Never ask a scheduling question without naming a day right after.",
+  "Never talk more than about two thirds of the call. When we talked 80%+, we closed 2 of 22.",
+];
+
+export const ALWAYS_DO: string[] = [
+  "Answer their worry straight (overspray, HOA, plants, how long it lasts), then move on.",
+  "Color still open: “You actually don't have to pick a color over the phone. Our cleaner holds the samples up against your clean fence.” (Color step)",
+  "Package and color both open: “You don't have to decide on the package or the color right now.” (Color step)",
+  "Give two days, one weekday and one Saturday: “I actually have next Wednesday the 4th and Saturday the 7th open. Which works better for you?”",
+  "Send the $250 while they're on the phone and stay on until it says paid.",
+  "“I'll pay it all” or “I'll use my card”: “Perfect. The $250 holds your day, I'm sending it right now.” Don't go back to colors.",
+  "“I need to talk to my wife”: “If your wife was on board, would you want to do it Wednesday or Saturday?” Then send the booking invite for that day.",
+  "A real reason to do it now: it's getting cold and we only stain on dry, warm days; the schedule is filling; a new fence is cheapest before it turns gray.",
+  "Ask, then stop and let them talk.",
 ];
 
 export const SCRIPT_STEPS: ScriptStep[] = [
@@ -125,7 +158,7 @@ export const SCRIPT_STEPS: ScriptStep[] = [
     lines: [
       { kind: "say", text: "So, sir, I'm sending you over the proposal here. It's going to come through text message, from this same number. Let me know when you receive the link." },
       { kind: "say", text: "Perfect. Alrighty, sir, let me know when you see the three packages." },
-      { kind: "if", when: "They're driving or can't look", say: "No problem at all. I'll just explain the packages to you now, so when you do review the estimate you understand it a little more.", then: "Give the three packages in one breath (next step), then: “When would be a good time to give you a call back when you're home, so I can walk you through everything?” Book the exact hour. “Either way, this is our business number. Me, Amy or Lily will answer.”" },
+      { kind: "if", when: "They're driving or can't look", say: "No problem at all. I just sent it over so you have it. When would be a good time to give you a call back when you're home, so I can walk you through everything?", then: "Don't read the packages or the prices to someone who can't see them; that went with the lost calls. Book the exact hour and call at that hour. “Either way, this is our business number. Me, Amy or Lily will answer.”" },
       { kind: "if", when: "“How much is it? I didn't see it”", say: "It should have come through from the number I'm calling you from. It's three packages, that's why I'd like you to look at it with me for just a second.", then: "If they still can't: say the Signature price, then the Legacy price, in that order." },
     ],
   },
@@ -155,19 +188,22 @@ export const SCRIPT_STEPS: ScriptStep[] = [
       { kind: "say", text: "So, sir, in regards to the packages, were you looking for something more natural, like the Signature? Or were you looking for more of a premium solid option, that has more pigment and sealer mixed into it?" },
       { kind: "if", when: "Newer fence", say: "Were you looking more toward just a clear coat, or more of a natural stain?" },
       { kind: "if", when: "“The middle one”", say: "Okay, perfect. The Signature." },
+      { kind: "if", when: "Not sure which package (or between two)", say: "No problem at all, ma'am. You actually don't have to decide on the package or the color right now. When we come out and clean your fence, our cleaner will show you the Signature colors and the Legacy colors right up against your fence, and recommend the option that's best for your specific fence.", then: "Name the two packages they're deciding between. Then go straight to the two days (Book it)." },
       { kind: "if", when: "“What about the one that covers the wood all the way?”", say: "That's the solid stain, the Legacy. That one's going to last longer, since it has more pigment and sealer mixed into it. That's just going to give you more longevity.", then: "Say the Legacy price." },
     ],
   },
   {
     id: "color",
     title: "Color",
-    goal: "A color on the phone if you can. If not, cleaning day, and that is fine.",
+    goal: "If they know it, great. If they don't, it gets picked on cleaning day. Never a back-and-forth of photos.",
     lines: [
       { kind: "say", text: "Okay, sir. So if you go down, you can see the colors for the Signature and the Legacy. Do you like any of the colors you see there?" },
+      { kind: "note", text: "Don't text color photos back and forth. On the lost calls it took over right when the customer was ready, and one said “it kinda overwhelms me.”" },
       { kind: "if", when: "“What's the most popular?”", say: "On the Signature it's the Cedar Naturaltone. Most people go with it. It's the most natural color, you'll still see the wood grain, and it gives it good protection. On the Legacy, October Brown and Darkest Night are the ones that go the most." },
       { kind: "if", when: "“Match it to my house”", say: "What color is your house? Let me look at your front door and the trim here. Honestly, that looks exactly like October Brown.", then: "Chocolate Chips is a really dark brown. Classic Mahogany is more of a maroon, the Aggie color. Redwood Naturaltone is the orange-y cedar look. Cedar Naturaltone is the natural cedar." },
       { kind: "if", when: "“October Brown or Potato Skin, which do you recommend?”", say: "For your house I'd go October Brown.", then: "Pick one. Say why in five words." },
-      { kind: "if", when: "Still can't choose, or “I have to talk to my wife about the colors”", say: "No problem at all, sir. Look, you do not have to make a final decision on the color right now. That's why the colors are there for you to look at. We believe that for you to make the right decision for your fence, you should see it in person. So what we do is we schedule you for the cleaning, and you don't have to decide the color today. When we come out, we paint the colors on a stick and show you the different options, so you can make the right decision. Our cleaner will recommend the best package for your fence as well.", then: "Only for people who really want to see it. The goal is still a color on the phone." },
+      { kind: "if", when: "They picked a package but are still deciding the color, or “I have to talk to my wife about the colors”", say: "Oh yeah, no problem at all, sir. You actually don't have to pick a color over the phone. The reason we have the samples online is so we can get an idea of what color you might want. When we come out and clean your fence, our cleaner will show you the samples up against the fence once it's clean. That way you can make the most informed decision on the best color for your fence. And our cleaner will help you choose the best color based on the condition of your fence.", then: "Go straight to the two days. Why it's true: the cleaner brings sample sticks we painted in every color and holds them on the clean fence, so they see the real color in their own light. On the closed calls we did this 67% of the time; on the lost ones, 18%." },
+      { kind: "if", when: "Not sure about the package OR the color", say: "No problem at all, ma'am. You actually don't have to make a decision on the package or the color right now. When we come out and clean your fence, our cleaner will show you the Signature finish colors and the Legacy finish colors, and help you choose the option that's best for your specific fence.", then: "If they pick a Legacy color after booking a Signature: the cleaner calls Alan and Alan gives the price. They've already seen it on the proposal." },
       { kind: "if", when: "“I like the Signature but I don't like any of the colors”", say: "Okay, perfect, no problem, sir. We actually have more options than that. Those are just our most popular ones. When we come out and clean the fence, we can show you. And I'm glad I got an idea of the colors you like, sir. You said you like the dark browns. Perfect, so I can bring you those." },
       { kind: "if", when: "“I want to keep the color I have”", say: "If you've had it that long, why change it? I would do the same thing. We offer that color with our packages, so you'll see it in the proposal. Do you know what stain it was?", then: "Orange-y cedar is usually Redwood Naturaltone. Oil-based on request: “We use oil-based as well, so we can always color-match it.”" },
       { kind: "if", when: "“I want Cabot” or their own brand", say: "We can do that. We typically use Valspar, but we've used Cabot. What's the exact name of the color? And have you seen it on a fence, or just on the can? I just like to make sure, because sometimes we apply a requested color and then they don't like it.", then: "Get the opacity too: “Is it semi-transparent or semi-solid?” Semi-solid is the Legacy line. Put the exact product on the job." },
@@ -176,12 +212,16 @@ export const SCRIPT_STEPS: ScriptStep[] = [
   {
     id: "book",
     title: "Book it",
-    goal: "Two dates, their pick, the invite, the two ways to pay.",
+    goal: "Two real days, their pick, the invite, the $250 while they're on the phone.",
     lines: [
-      { kind: "say", text: "Awesome, sir. So right now we actually have next Tuesday and Saturday available. Do you typically like to get things like this done on weekdays or weekends?" },
+      { kind: "say", text: "Awesome, sir. I actually have next [Wednesday the 4th] and [Saturday the 7th] open. Which works better for you?" },
+      { kind: "note", text: "One weekday and one Saturday covers both kinds of people. Never “is this something you want done soon?” and never a scheduling question without a day right after it." },
+      { kind: "if", when: "Neither day works", say: "No problem. Are weekdays or weekends better for you?", then: "Name a day right away: “Then how about [day]?”" },
       { kind: "if", when: "“Weekends, if possible”", say: "Okay. Are you home at all on the weekdays by chance?", then: "Clean on the weekday they're home, stain on the weekend: “So we can do Friday for the cleaning, and then stain it Saturday or Sunday. We'll confirm the exact staining day with you once the cleaning is done.”" },
       { kind: "if", when: "“We have a party on the 30th”", say: "Okay, so we'd want it done before that. Let me see. We could clean it Monday and come back and stain it Wednesday." },
-      { kind: "say", text: "Okay, perfect, sir. So what I can do then is I'll get you scheduled here. I'm going to send you a booking invite. You can either choose to pay the $250 deposit up front and the remainder when the job is done. Or you can pay with Klarna, which lets you pay in four payments at 0% interest. On that one you just have to get approved up front, sir." },
+      { kind: "say", text: "Okay, perfect, sir. So what I can do then is I'll get you scheduled here. I'm going to send you a booking invite. The $250 deposit locks in your cleaning day, and the remainder is when the job is done and you're happy with everything." },
+      { kind: "if", when: "They say money is tight, or ask about payments", say: "We also have Klarna, which lets you pay in four payments at 0% interest. On that one you just have to get approved up front, sir.", then: "Only when they bring it up. Financing came up three times as often on the calls we lost." },
+      { kind: "if", when: "“I'll just pay it all” or “I'll use my card”", say: "Perfect. The $250 holds your day, and I'm sending it right now.", then: "Send it and walk them through it (next step). Don't go back to colors or “when do you want it done.”" },
       { kind: "say", text: "The $250 just locks in your spot. You can change the package or the color whenever you'd like, even when we come out and show you the samples. Does that make sense?" },
       { kind: "if", when: "“Do I have to be home?”", say: "Nobody has to be home, but we love it when you are, especially for the cleaning, so you can see the samples. And if you aren't home for any reason, I can always have our crew member FaceTime you. We walk the whole property with you on video. We don't leave unless you're fully happy with everything." },
       { kind: "if", when: "“Start inside first, I have dogs” or any request", say: "Okay, perfect. I'll put a note on the calendar on our end so the team sees it.", then: "Put it on the job now, while they watch you do it." },
@@ -222,8 +262,8 @@ export const SCRIPT_STEPS: ScriptStep[] = [
 export const OBJECTIONS: Objection[] = [
   {
     when: "“I need to talk to my wife” (at the booking)",
-    say: "No problem at all, sir. What I can still do is get you on that booking invite for next Saturday. I know you have to talk to your wife. This is just so you can see all the information on one screen. We attach the proposal to it, we attach the $250 to it, everything's going to be there, sir. That way there are no questions when we come out and stain your fence. … And I know you said you wanted to talk to your wife. Are there any questions, doubts or concerns your wife might have? That way I can answer them for you right now. … Also, sir, at the very bottom of the proposal there's a Text it button. You can text the proposal to your wife so she can start looking at it too. Let me know when you scroll down and see it.",
-    why: "It's always something: a party, the money, the color. Answer it. Maybe you close it, usually you won't, and that's fine. The invite is in their hands either way.",
+    say: "No problem at all, sir. If this was something that worked, if your wife was on board, would you want to do it next Wednesday or Saturday? … Perfect. I'm sending you the booking invite for [that day]. It's not final until she says yes. This is just so you can see all the information on one screen. We attach the proposal to it, we attach the $250 to it, everything's going to be there, sir. That way there are no questions when we come out and stain your fence. … And I know you said you wanted to talk to your wife. Are there any questions, doubts or concerns your wife might have? That way I can answer them for you right now. … Also, sir, at the very bottom of the proposal there's a Text it button. You can text the proposal to your wife so she can start looking at it too. Let me know when you scroll down and see it.",
+    why: "Get the day first, then send the invite for that day. In the call study, everyone who got a penciled-in day and the invite paid later; on the lost calls we handled the wife 1 time in 5.",
   },
   {
     when: "“Let me check with my wife and call you back”",
@@ -244,6 +284,11 @@ export const OBJECTIONS: Objection[] = [
     when: "“Give me your final price so I don't have to shop around”",
     say: "Let me check what I have on hand in your color and I'll call you right back with the best I can do.",
     why: "Alan's lever, Alan only: stain already on the shelf in their color is worth about $200 a five-gallon off, and can bring a Legacy down to the Signature price if they lock in a date next week. Olga and Lily: send it to Alan, don't invent a discount.",
+  },
+  {
+    when: "“I'm getting other quotes” or they give you a competitor's price",
+    say: "Totally fair. What did they quote you, and was that two coats and the cleaning included, tax included? … Ours is everything: the soft wash, two coats, back-brushing, loose boards screwed in, and tax.",
+    why: "Answer the number; never tell them to shop around. Alan only can match or move price (see the final-price line).",
   },
   {
     when: "“Is the 20% off included?”",
@@ -290,7 +335,7 @@ export const CHEAT_SHEET: CheatCard[] = [
     title: "Money",
     rows: [
       "$250 deposit locks the spot. Remainder when the job is done and they're happy.",
-      "Klarna: four payments, 0% interest, approved up front. Military: $50 off any package.",
+      "Klarna: four payments, 0% interest, approved up front. Only when they bring up money. Military: $50 off any package.",
       "Minimum job $600. Prices include tax.",
       "Pay page: Apple Pay, Google Pay, card, bank transfer. Through Stripe.",
     ],
@@ -332,4 +377,5 @@ export const SCRIPT_SOURCES: string[] = [
   "A keep-my-color customer: plants on the fence, had to check with his wife, called back and booked",
   "A booking-invite walk-through on a three-week-old fence",
   "Alan and Olga run-through, 2026-10-27",
+  "The close (v4): a read of 183 calls, 83 that paid and 100 that didn't, plus Alan's own lines for color, package and the wife (2026-10-31)",
 ]
