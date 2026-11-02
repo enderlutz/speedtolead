@@ -439,7 +439,12 @@ function SharePhotos({ leadId }: { leadId: string }) {
   const [more, setMore] = useState<CompanyCamPhoto[]>([]);
   const [showMore, setShowMore] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const [big, setBig] = useState<number | null>(null);
+  // The big viewer, for either row: the after photos ("main") or "More
+  // photos from this job" ("more"), with Back/Next, swipe and arrow keys, and
+  // the pick button right there (Alan, 2026-11-01: the extra ones opened in
+  // a new tab, one photo, no way to pick it).
+  const [big, setBigAt] = useState<{ set: "main" | "more"; i: number } | null>(null);
+  const setBig = (i: number | null, set: "main" | "more" = big?.set || "main") => setBigAt(i === null ? null : { set, i });
   useEffect(() => {
     let alive = true;
     const made: string[] = [];
@@ -509,7 +514,7 @@ function SharePhotos({ leadId }: { leadId: string }) {
           <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
             {photos.map((ph, i) => (
               <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_hidden ? "ring-transparent" : "ring-emerald-500")}>
-                <button type="button" onClick={() => setBig(i)} className="block h-full w-full" title="See it big">
+                <button type="button" onClick={() => setBig(i, "main")} className="block h-full w-full" title="See it big">
                   {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", ph.customer_hidden && "opacity-35")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
                 </button>
                 <button type="button" onClick={() => void toggle(ph)} aria-pressed={!ph.customer_hidden} aria-label={ph.customer_hidden ? "Show this one to the customer" : "Leave this one out"}
@@ -530,11 +535,11 @@ function SharePhotos({ leadId }: { leadId: string }) {
             <>
               <p className="mt-1 text-xs text-muted-foreground">Tap the circle to give them one of these too. Picked ones go first.</p>
               <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
-                {more.map((ph) => (
+                {more.map((ph, i) => (
                   <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_shown ? "ring-emerald-500" : "ring-transparent")}>
-                    <a href={thumbs[ph.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title="See it big">
+                    <button type="button" onClick={() => setBig(i, "more")} className="block h-full w-full" title="See it big">
                       {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", !ph.customer_shown && "opacity-60")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
-                    </a>
+                    </button>
                     <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
                       {SECTION_NAME[ph.section] || ph.section.replace(/_/g, " ")}
                     </span>
@@ -549,25 +554,50 @@ function SharePhotos({ leadId }: { leadId: string }) {
           ) : null}
         </div>
       ) : null}
-      {big !== null && photos[big] ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={() => setBig(null)}>
-          <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
-            <span className="text-sm tabular-nums">{big + 1} of {photos.length}</span>
-            <button type="button" onClick={() => setBig(null)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10" aria-label="Close"><X className="h-6 w-6" /></button>
-          </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center px-2" onClick={(e) => e.stopPropagation()}>
-            {thumbs[photos[big].id] ? <img src={thumbs[photos[big].id]} alt="" className="max-h-full max-w-full rounded object-contain" /> : <Loader2 className="h-8 w-8 animate-spin text-white" />}
-          </div>
-          <div className="flex items-center justify-between gap-2 px-4 py-4" onClick={(e) => e.stopPropagation()}>
-            <button type="button" disabled={big === 0} onClick={() => setBig(big - 1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Back</button>
-            <button type="button" onClick={() => void toggle(photos[big])}
-              className={cn("h-11 flex-1 rounded-lg px-4 text-sm font-bold", photos[big].customer_hidden ? "bg-white text-black" : "bg-emerald-500 text-white")}>
-              {photos[big].customer_hidden ? "Left out · tap to show it" : "✓ They'll see this one · tap to leave out"}
-            </button>
-            <button type="button" disabled={big === photos.length - 1} onClick={() => setBig(big + 1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Next</button>
-          </div>
-        </div>
-      ) : null}
+      {big !== null ? <BigPhotos list={big.set === "main" ? photos : more} at={big.i} thumbs={thumbs} onAt={(i) => setBig(i)}
+        picked={(ph) => (big.set === "main" ? !ph.customer_hidden : !!ph.customer_shown)}
+        onToggle={(ph) => void (big.set === "main" ? toggle(ph) : toggleMore(ph))} /> : null}
+    </div>
+  );
+}
+
+function BigPhotos({ list, at, thumbs, onAt, picked, onToggle }: {
+  list: CompanyCamPhoto[]; at: number; thumbs: Record<string, string>; onAt: (i: number | null) => void;
+  picked: (ph: CompanyCamPhoto) => boolean; onToggle: (ph: CompanyCamPhoto) => void;
+}) {
+  const ph = list[at];
+  const go = (d: number) => { const n = at + d; if (n >= 0 && n < list.length) onAt(n); };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") go(-1);
+      else if (e.key === "ArrowRight") go(1);
+      else if (e.key === "Escape") onAt(null);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
+  const [x0, setX0] = useState<number | null>(null);
+  if (!ph) return null;
+  const on = picked(ph);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={() => onAt(null)}>
+      <div className="flex items-center justify-between px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
+        <span className="text-sm tabular-nums">{at + 1} of {list.length}</span>
+        <button type="button" onClick={() => onAt(null)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10" aria-label="Close"><X className="h-6 w-6" /></button>
+      </div>
+      <div className="flex min-h-0 flex-1 touch-pan-y items-center justify-center px-2" onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => setX0(e.touches[0].clientX)}
+        onTouchEnd={(e) => { if (x0 !== null) { const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1); } setX0(null); }}>
+        {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className="max-h-full max-w-full select-none rounded object-contain" draggable={false} /> : <Loader2 className="h-8 w-8 animate-spin text-white" />}
+      </div>
+      <div className="flex items-center justify-between gap-2 px-4 py-4" onClick={(e) => e.stopPropagation()}>
+        <button type="button" disabled={at === 0} onClick={() => go(-1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Back</button>
+        <button type="button" onClick={() => onToggle(ph)}
+          className={cn("h-11 flex-1 rounded-lg px-4 text-sm font-bold", on ? "bg-emerald-500 text-white" : "bg-white text-black")}>
+          {on ? "✓ They'll see this one · tap to leave out" : "Not picked · tap to give them this one"}
+        </button>
+        <button type="button" disabled={at === list.length - 1} onClick={() => go(1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Next</button>
+      </div>
     </div>
   );
 }
