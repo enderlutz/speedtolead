@@ -459,7 +459,13 @@ function TrustPay({ trust, firstName, longDate, total, dep, paying, onPay, holdU
     <div className="overflow-hidden rounded-3xl bg-white shadow-md ring-1 ring-[#15130F]/10">
       {/* A real person, the one they just talked to. */}
       <div className="flex items-center gap-3.5 bg-[#15130F] px-4 py-4 text-white">
-        <img src={trust.photo} alt={trust.name} className="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-[#C9972F]" draggable={false} />
+        {trust.photo ? (
+          <img src={trust.photo} alt={trust.name} className="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-[#C9972F]" draggable={false} />
+        ) : (
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#15130F] font-heading text-[28px] font-bold text-[#E3BE63] ring-2 ring-[#C9972F]" aria-hidden>
+            {(trust.name || "S").trim().charAt(0).toUpperCase()}
+          </span>
+        )}
         <div className="min-w-0">
           <p className="text-[19px] font-bold leading-tight">Hi {firstName}, it&rsquo;s {first}!</p>
           <p className="mt-0.5 text-[15px] leading-snug text-white/85">I&rsquo;m saving <b className="text-[#E3BE63]">{longDate}</b> for your fence.</p>

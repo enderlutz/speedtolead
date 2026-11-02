@@ -91,8 +91,10 @@ export default function BookingPage() {
   // The face, the money as a sum, card protection and a real review
   // (Alan, 2026-10-25: the $250 has to feel safe to pay).
   const quote = reviews?.reviews.filter((x) => x.rating === 5 && x.text && x.text.length <= 170).sort((x, y) => y.text.length - x.text.length)[0];
-  const trust: BookingTrust | undefined = b.sender && photoOk ? {
-    ...b.sender,
+  // The updated layout always shows; until a sender's photo is in (Amy's,
+  // 2026-11-02) their initial stands in for it.
+  const trust: BookingTrust | undefined = b.sender ? {
+    ...b.sender, photo: photoOk ? b.sender.photo : "",
     reviews: reviews && reviews.total > 0 ? {
       rating: reviews.rating, total: reviews.total, url: reviews.url,
       quote: quote ? { author: quote.author.split(" ")[0], text: quote.text } : undefined,
