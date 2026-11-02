@@ -1261,6 +1261,27 @@ def get_photo_image(lead_id: str, photo_id: str, user: dict = Depends(get_curren
         db.close()
 
 
+@router.get("/public/job-photo/{name}")
+def public_job_photo(name: str):
+    """One finished-fence photo by its id, for a "here's one near you" text
+    (Alan, 2026-11-02). Only after photos; nothing else about the customer
+    rides along, and the id can't be guessed. Ends in .jpg so phones show it."""
+    from fastapi.responses import RedirectResponse
+    photo_id = name[:-4] if name.lower().endswith(".jpg") else name
+    db = get_db()
+    try:
+        p = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.id == photo_id).first()
+        if not p or not (p.section or "").endswith("_after"):
+            raise HTTPException(404, "No such photo")
+        if p.storage_url:
+            return RedirectResponse(p.storage_url)
+        if not p.image_data:
+            raise HTTPException(404, "No such photo")
+        return Response(content=p.image_data, media_type=p.mime or "image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+    finally:
+        db.close()
+
+
 @router.delete("/company-cam/{lead_id}/photos/{photo_id}", dependencies=[Depends(crew_guard)])
 def delete_photo(lead_id: str, photo_id: str, user: dict = Depends(get_current_user)):
     db = get_db()

@@ -1115,3 +1115,19 @@ def test_every_pay_change_is_written_down(db, monkeypatch):
         cc.pay_history(lead.id, user={"sub": "chris", "name": "Chris Moran", "role": "worker"})
     with pytest.raises(HTTPException):
         pm.pay_history(username="chris", user={"sub": "chris", "name": "Chris Moran", "role": "worker"})
+
+
+def test_a_public_job_photo_is_an_after_photo_only(db, monkeypatch):
+    import uuid as _u
+    from database import CompanyCamPhoto
+    from api import company_cam as cc
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    after = CompanyCamPhoto(id=str(_u.uuid4()), lead_id="L", section="stain_after", seq=1, image_data=b"jpg", has_image_data=True)
+    before = CompanyCamPhoto(id=str(_u.uuid4()), lead_id="L", section="stain_before", seq=1, image_data=b"jpg", has_image_data=True)
+    db.add_all([after, before])
+    db.commit()
+    a_id, b_id = after.id, before.id
+    assert cc.public_job_photo(a_id + ".jpg").body == b"jpg"
+    for bad in (b_id, "nope"):
+        with pytest.raises(HTTPException):
+            cc.public_job_photo(bad)
