@@ -168,9 +168,9 @@ export const SCRIPT_STEPS: ScriptStep[] = [
     goal: "Essential, Signature, Legacy, with how long each lasts. Then one line that is about them.",
     lines: [
       { kind: "say", text: "Awesome, sir. So our three packages are the Essential, the Signature and the Legacy." },
-      { kind: "say", text: "The Essential is more of a clear coat on the fence after it's cleaned. That's going to give you about two years of longevity. It's typically for the newer fences." },
-      { kind: "say", text: "The Signature is the second one. That's our most popular option. It's more of a semi-transparent stain, so it's more natural, and you can still see the wood grain, sir. You'll usually get three to four years out of it, sometimes five." },
-      { kind: "say", text: "Then the Legacy is our longest-lasting finish. It's a solid stain, so it has more pigment and sealer mixed into it, and it covers up the imperfections in the wood. Those last four to seven years, sometimes longer." },
+      { kind: "say", text: "The Essential is more of a clear coat on the fence after it's cleaned. That's going to give you about two to three years of longevity. It's typically for the newer fences." },
+      { kind: "say", text: "The Signature is the second one. That's our most popular option. It's more of a semi-transparent stain, so it's more natural, and you can still see the wood grain, sir. You'll usually get four to five years out of it." },
+      { kind: "say", text: "Then the Legacy is our longest-lasting finish. It's a solid stain, so it has more pigment and sealer mixed into it, and it covers up the imperfections in the wood. Those last five to eight years." },
       { kind: "say", text: "They all include two coats of stain, so it looks even and lasts as long as possible. And the pricing includes tax, so there's nothing extra." },
       { kind: "do", text: "Now one line that is about them, from the why and the age. Make them feel it." },
       { kind: "if", when: "Older fence", say: "I know you mentioned you have an older fence, so depending on the condition of it, we would probably recommend the Legacy." },
@@ -316,9 +316,9 @@ export const CHEAT_SHEET: CheatCard[] = [
   {
     title: "The packages",
     rows: [
-      "Essential: clear coat, about 2 years, newer fences.",
-      "Signature: semi-transparent, see the wood grain, 3 to 4 years, sometimes 5. Most popular.",
-      "Legacy: solid, more pigment and sealer, hides imperfections, 4 to 7 years. Older or previously stained fences.",
+      "Essential: clear coat, 2 to 3 years, newer fences.",
+      "Signature: semi-transparent, see the wood grain, 4 to 5 years. Most popular.",
+      "Legacy: solid, more pigment and sealer, hides imperfections, 5 to 8 years. Older or previously stained fences.",
       "All three: two coats, back-brushed if needed, loose boards screwed in free, 1-year workmanship warranty, a touch-up can left behind. Tax included.",
     ],
   },

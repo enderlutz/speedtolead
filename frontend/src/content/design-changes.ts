@@ -10,6 +10,9 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-01", title: "Packages say less; repairs are a price list",
+    what: "Over the packages: \"Choose a package\" (no \"Higher ones last longer\"), then \"Includes:\" with three small chips: Cleaning · 2 coats of stain · Loose boards screwed in. Essential's first line is \"Refresh for newer fences\". Each lasts longer on the card: Essential 2–3 yrs, Signature 4–5 yrs, Legacy 5–8 yrs (asterisk kept). \"Anything need replacing?\" with its counters and running total is now \"Only if needed · Replacement prices\": picket (pine $12 / cedar $14), rot board $50, cap $85, rail $75, post (6 ft $225 / 7 ft $255 / 8 ft $350), \"Each, tax included. We bring the wood.\" Nothing to tap or add up. On every proposal, sent ones too.",
+    open: { label: "See it", to: "/new-proposal/mockup" } },
   { date: "2026-10-31", title: "The review ask comes from Alan, not the company",
     what: "On the paid-in-full screen, the Google review box now opens with Alan's photo and \"(name), it's Alan. A review from you is the biggest thing you could do for my crew.\" with \"Alan Bonner · Project Manager, Sterling Fence Staining\" under it, the same face as the booking invite. On iPhones, the steps under the button start with \"If Google asks you to sign in, that's normal. Use the account you use for Gmail.\" (Safari is usually signed out; Android phones skip it)." },
   { date: "2026-10-31", title: "Paid in full: photos save in one tap, Google steps spelled out",

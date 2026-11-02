@@ -275,12 +275,12 @@ const CUSTOMER = {
 // Essential's first line cut to "Refresh for newer fences", and the longer
 // lifespans below. Shown on the staff mockup first; true = on the
 // customer's page too.
-const PACKAGE_COPY_V2_LIVE = false;
+const PACKAGE_COPY_V2_LIVE = true;   // live 2026-11-01
 // Repairs as a plain price list, nothing to count or add up (Alan,
 // 2026-11-01: "it should just be transparent pricing… we do the math over
 // the phone"), so nobody is surprised when the cleaner marks bad boards.
 // Mockup first; true = on the customer's page too.
-const REPAIRS_PRICE_LIST_LIVE = false;
+const REPAIRS_PRICE_LIST_LIVE = true;   // live 2026-11-01
 const LASTS_V2: Record<PkgKey, string> = { essential: "2–3 yrs", signature: "4–5 yrs", legacy: "5–8 yrs" };
 const INCLUDES_V2 = ["Cleaning", "2 coats of stain", "Loose boards screwed in"];
 
