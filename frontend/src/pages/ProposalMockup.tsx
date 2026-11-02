@@ -1252,7 +1252,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* Repairs */}
         {repairPriceList ? (
           <section className="bg-white px-4 py-6">
-            <SectionTitle kicker="Only if needed" title="Replacement prices" sub="So there are no surprises if our cleaner finds a bad board." />
+            <SectionTitle kicker="Only if needed" title="Replacement prices" />
             <ul className="overflow-hidden rounded-2xl bg-[#F8F3E7] ring-1 ring-[#15130F]/10">
               {[
                 { key: "picket", label: "Picket", what: "The upright boards", prices: PICKETS.map((x) => `${x.label} ${formatCurrency(x.price).replace(/\.00$/, "")}`) },
