@@ -538,6 +538,24 @@ def extend_price(lead_id: str, body: ExtendBody, user: dict = Depends(require_st
 
 # "none": no fence staining, just other services (Alan, 2026-10-21, Teila).
 BOOKING_TIERS = ("essential", "signature", "legacy", "none")
+# "Show colors in person" on the booking invite (Alan, 2026-11-02): the
+# cleaner brings the samples and recommends the best one for the fence.
+COLOR_IN_PERSON = "Shown in person"
+
+
+def booking_pair(tier: str, tier_or: str) -> tuple[str, str]:
+    """(the higher package, the other one) when two are still open, else
+    (tier, ""). The higher one prices the deposit, balance and Klarna."""
+    if tier in TIERS and tier_or in TIERS and tier_or != tier:
+        lo, hi = sorted((tier, tier_or), key=TIERS.index)
+        return hi, lo
+    return tier, ""
+
+
+def package_label(tier: str, tier_or: str = "") -> str:
+    """ "Essential Seal or Signature Finish", cheaper first; one name when one."""
+    hi, lo = booking_pair(tier, tier_or)
+    return f"{NAMES[lo]} or {NAMES[hi]}" if lo else NAMES.get(tier, tier)
 
 
 class BookingDraftBody(BaseModel):
@@ -566,6 +584,8 @@ class BookingDraftBody(BaseModel):
     # Which estimate's prices the booking uses, when more than one went out
     # (Alan, 2026-10-17: Charlotte got $2,160 then $1,734). Blank = the default.
     estimate_id: str = ""
+    # The second package when they pick on the day (2026-11-02).
+    tier_or: str = ""
 
 
 def clean_services(raw) -> list[dict]:
@@ -618,6 +638,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         except ValueError:
             raise HTTPException(status_code=400, detail="Pick a date")
     tier = body.tier if body.tier in BOOKING_TIERS else ""
+    tier, tier_or = booking_pair(tier, body.tier_or or "")
     notes = (body.notes or "").strip()
     if len(notes) > 1000:
         raise HTTPException(status_code=400, detail="Keep the note under 1,000 characters")
@@ -655,7 +676,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         except Exception:
             fd = {}
         fd["booking_draft"] = {
-            "date": date, "tier": tier, "color": (body.color or "").strip()[:80], "notes": notes,
+            "date": date, "tier": tier, "tier_or": tier_or, "color": (body.color or "").strip()[:80], "notes": notes,
             "klarna": bool(body.klarna),
             "discount_type": dtype, "discount_value": dval,
             "discount_label": (body.discount_label or "").strip()[:60] if dtype else "",

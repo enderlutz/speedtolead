@@ -558,6 +558,8 @@ export interface BookingRepair { name: string; qty: number; unit_price: number }
 export interface BookingDraft {
   date?: string;
   tier?: "" | "essential" | "signature" | "legacy" | "none";
+  /** The other package when they pick on the day; `tier` is the higher one. */
+  tier_or?: "" | "essential" | "signature" | "legacy";
   color?: string;
   notes?: string;
   /** Offer Klarna for the whole job beside the $250. */
@@ -588,6 +590,8 @@ export interface BookingService { name: string; price: number; description?: str
 
 export interface BookingSent {
   token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
+  /** The other package when they pick on the day, and the job at it. */
+  tier_or?: string; total_or?: number;
   status: "held" | "confirmed" | "cancelled"; sent_at: string | null; sent_by: string; sent_count: number;
   first_viewed_at: string | null; last_viewed_at: string | null; view_count: number; hold_until: string;
   /** On Alan's Google Calendar (never with the customer as a guest). */
@@ -2335,7 +2339,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
   /** The booking invite drafted on the lead (date, package, colour, notes). */
   getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
-  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label" | "services" | "estimate_id">) =>
+  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "tier_or" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label" | "services" | "estimate_id">) =>
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),

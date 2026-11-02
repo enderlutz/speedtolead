@@ -11,6 +11,8 @@ import { API_BASE as BASE } from "@/lib/apiBase";
 type Booking = {
   status: "held" | "confirmed" | "cancelled";
   first_name: string; address: string; date: string; tier: string; package: string;
+  /** The other package when they pick on the day, and the job at it. */
+  package_or?: string; total_or?: number;
   color: string; notes: string; sides: string[]; feet: number; total: number; deposit: number;
   paid: number; paid_kind: string; hold_until: string; proposal_url: string;
   klarna?: boolean;
@@ -107,7 +109,8 @@ export default function BookingPage() {
       initial={b.status}
       firstName={b.first_name}
       address={b.address}
-      pkgName={b.package}
+      pkgName={b.package_or ? `${b.package_or} or ${b.package}` : b.package}
+      pkgOr={b.package_or && b.total_or ? { name: b.package_or, total: b.total_or } : undefined}
       color={b.color}
       sides={b.sides}
       feet={b.feet}

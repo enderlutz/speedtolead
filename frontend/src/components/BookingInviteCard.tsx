@@ -11,7 +11,7 @@ import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
 import { sidesInWords } from "@/lib/fenceSides";
 import { cn, formatCurrency } from "@/lib/utils";
-import { BookingInvite } from "@/components/proposal/BookingInvite";
+import { BookingInvite, COLOR_IN_PERSON } from "@/components/proposal/BookingInvite";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
 import { PICKETS, PARTS, POSTS, repairLines, repairsTotal } from "@/lib/repairs";
 
@@ -20,8 +20,13 @@ type Tier = "essential" | "signature" | "legacy";
 type Pick = Tier | "none";
 const NONE_NAME = "No fence staining";
 const tierName = (k: string) => (k === "none" ? NONE_NAME : TIERS.find((t) => t.key === k)?.name || "");
+/** Still deciding between two packages (Alan, 2026-11-02): they pick on the
+ *  day with the samples in front of them. The higher one prices the $250,
+ *  the balance and Klarna; the server keeps the same rule. */
+const PAIRS: { hi: Tier; lo: Tier }[] = [{ lo: "essential", hi: "signature" }, { lo: "signature", hi: "legacy" }];
+const pkgLabel = (tier: string, or?: string) => (or ? `${tierName(or)} or ${tierName(tier)}` : tierName(tier));
 type Draft = {
-  date: string; tier: Pick; color: string; notes: string; klarna: boolean;
+  date: string; tier: Pick; tierOr: "" | Tier; color: string; notes: string; klarna: boolean;
   /** A discount: dollars or a percent off the package, and why. */
   dtype: "amount" | "percent"; dval: string; dlabel: string;
   /** Repairs agreed on the phone: the proposal's counters, same prices. */
@@ -69,7 +74,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", tierOr: "", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -130,7 +135,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       const d = s.draft;
       if (d?.updated_at || s.booking) setOpen(true);
       if (d?.updated_at) setDraft((x) => ({
-        date: d.date || x.date, tier: (d.tier || x.tier) as Pick, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
+        date: d.date || x.date, tier: (d.tier || x.tier) as Pick, tierOr: (d.tier_or || "") as "" | Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
@@ -157,6 +162,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
   const noFence = draft.tier === "none";
   const price = noFence ? 0 : tiers?.[draft.tier] || 0;
+  const tierOr = noFence ? "" : draft.tierOr;
   const off = noFence ? 0 : discountOff(price, draft);
   const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType);
   const repairs = repairsTotal(lines);
@@ -171,6 +177,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     .filter((x) => x.name && x.price > 0);
   const servicesSum = serviceLines.reduce((t, x) => t + x.price, 0);
   const total = Math.round((price - off + repairs - roff + servicesSum) * 100) / 100;
+  // The job at the other package, the same discount rule applied to it.
+  const priceOr = tierOr ? tiers?.[tierOr] || 0 : 0;
+  const totalOr = priceOr ? Math.round((priceOr - discountOff(priceOr, draft) + repairs - roff + servicesSum) * 100) / 100 : 0;
   const setService = (i: number, patch: Partial<{ name: string; price: string; description: string }>) =>
     setDraft((d) => ({ ...d, services: d.services.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const [repairsOpen, setRepairsOpen] = useState(false);
@@ -178,7 +187,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
   const saved = st?.draft?.updated_at ? st.draft : null;
   const pickedId = chosenSet && chosenSet.id !== defaultSet?.id ? chosenSet.id : "";
-  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.estimate_id || "") !== pickedId || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
+  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.tier_or || "") !== tierOr || (saved.estimate_id || "") !== pickedId || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
     || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
     || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
     || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "")
@@ -190,12 +199,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const sent = st?.booking || null;
   // The card says something different from what they have: a different day,
   // package, price or note. Lights up "Update without texting".
-  const draftDiffersFromSent = !!sent && (sent.date !== draft.date || sent.tier !== draft.tier
+  const draftDiffersFromSent = !!sent && (sent.date !== draft.date || sent.tier !== draft.tier || (sent.tier_or || "") !== tierOr
     || Math.abs((sent.total || 0) - total) > 0.005 || (sent.notes || "") !== draft.notes || (sent.color || "") !== draft.color || sent.klarna !== draft.klarna);
 
   const save = async () => {
     const d = await api.saveBookingDraft(lead.id, {
-      date: draft.date, tier: draft.tier, color: draft.color, notes: draft.notes, klarna: draft.klarna,
+      date: draft.date, tier: draft.tier, tier_or: tierOr, color: draft.color, notes: draft.notes, klarna: draft.klarna,
       discount_type: Number(draft.dval) ? draft.dtype : "", discount_value: Number(draft.dval) || 0,
       discount_label: Number(draft.dval) ? draft.dlabel : "",
       repairs: lines.map(({ name, qty, unit_price }) => ({ name, qty, unit_price })),
@@ -287,7 +296,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide", sent.status === "confirmed" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white")}>
               {sent.status === "confirmed" ? "Confirmed · deposit paid" : "Held · waiting on the $250"}
             </span>
-            <span className="font-semibold">{longDay(sent.date)} · {tierName(sent.tier)} {formatCurrency(sent.total)}</span>
+            <span className="font-semibold">{longDay(sent.date)} · {pkgLabel(sent.tier, sent.tier_or)} {sent.tier_or && sent.total_or ? `${formatCurrency(sent.total_or)} or ` : ""}{formatCurrency(sent.total)}</span>
           </div>
           <p className="mt-1.5 text-muted-foreground">
             Sent {when(sent.sent_at)}{sent.sent_by ? ` by ${sent.sent_by}` : ""}{sent.sent_count > 1 ? ` (${sent.sent_count} times)` : ""} ·{" "}
@@ -361,9 +370,19 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         </div>
         {noFence ? null : <label className="block text-sm">
           <span className="font-semibold">Color</span>
-          <input list="booking-colors" value={draft.color} placeholder="Pick or type a color" onChange={(e) => setDraft({ ...draft, color: e.target.value })}
-            className="mt-1 h-11 w-full rounded-lg border border-input bg-background px-3 text-base" />
-          <datalist id="booking-colors">{COLORS.map((c) => <option key={c} value={c} />)}</datalist>
+          {draft.color === COLOR_IN_PERSON ? null : <>
+            <input list="booking-colors" value={draft.color} placeholder="Pick or type a color" onChange={(e) => setDraft({ ...draft, color: e.target.value })}
+              className="mt-1 h-11 w-full rounded-lg border border-input bg-background px-3 text-base" />
+            <datalist id="booking-colors">{COLORS.map((c) => <option key={c} value={c} />)}</datalist>
+          </>}
+          {/* Still choosing (Alan, 2026-11-02): the cleaner brings the
+              samples and recommends the best one for their fence. */}
+          <button type="button" onClick={() => setDraft({ ...draft, color: draft.color === COLOR_IN_PERSON ? "" : COLOR_IN_PERSON })}
+            className={cn("mt-2 flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm",
+              draft.color === COLOR_IN_PERSON ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
+            <input type="checkbox" readOnly checked={draft.color === COLOR_IN_PERSON} tabIndex={-1} className="h-4 w-4 accent-[#15130F]" />
+            <span>Show colors in person <span className="font-normal text-muted-foreground">· our cleaner brings the samples and recommends one</span></span>
+          </button>
         </label>}
       </div>
       <div>
@@ -391,20 +410,38 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <p className="text-sm font-semibold">Package</p>
         <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {TIERS.map((t) => (
-            <button key={t.key} type="button" onClick={() => setDraft({ ...draft, tier: t.key })}
-              className={cn("rounded-lg border px-2 py-2 text-left text-sm", draft.tier === t.key ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-input hover:bg-muted")}>
+            <button key={t.key} type="button" onClick={() => setDraft({ ...draft, tier: t.key, tierOr: "" })}
+              className={cn("rounded-lg border px-2 py-2 text-left text-sm", draft.tier === t.key && !tierOr ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-input hover:bg-muted")}>
               <span className="block">{t.name}</span>
               <span className="block tabular-nums text-muted-foreground">{tiers?.[t.key] ? formatCurrency(tiers[t.key]) : "No price yet"}</span>
             </button>
           ))}
           {/* Not doing the fence, only other services (Teila, 2026-10-21):
               the invite drops the package, colour, sides and proposal. */}
-          <button type="button" onClick={() => setDraft({ ...draft, tier: "none" })}
+          <button type="button" onClick={() => setDraft({ ...draft, tier: "none", tierOr: "" })}
             className={cn("rounded-lg border px-2 py-2 text-left text-sm", noFence ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
             <span className="block">{NONE_NAME}</span>
             <span className="block text-muted-foreground">Other services only</span>
           </button>
         </div>
+        {/* Still deciding between two (Alan, 2026-11-02): they pick on the
+            day once they see the samples. The $250 and Klarna go by the higher. */}
+        {noFence ? null : <>
+          <p className="mt-2.5 text-sm font-semibold">Still choosing? <span className="font-normal text-muted-foreground">They pick on the day, after seeing the samples</span></p>
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {PAIRS.map((pr) => {
+              const on = draft.tier === pr.hi && tierOr === pr.lo;
+              return (
+                <button key={pr.hi} type="button" onClick={() => setDraft({ ...draft, tier: pr.hi, tierOr: on ? "" : pr.lo })}
+                  className={cn("min-h-11 rounded-lg border px-3 py-2 text-left text-sm", on ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
+                  <span className="block">{tierName(pr.lo)} or {tierName(pr.hi)}</span>
+                  <span className="block tabular-nums text-muted-foreground">{tiers?.[pr.lo] && tiers?.[pr.hi] ? `${formatCurrency(tiers[pr.lo])} or ${formatCurrency(tiers[pr.hi])}` : "No price yet"}</span>
+                </button>
+              );
+            })}
+          </div>
+          {tierOr ? <p className="mt-1.5 text-sm text-muted-foreground">The $250 is the same either way. Their balance after the job follows the package they pick.</p> : null}
+        </>}
         {noFence ? <p className="mt-1.5 text-sm text-muted-foreground">Their invite shows only the services below. No package, color, sides or proposal.</p> : null}
       </div>
       {/* A discount on the package (Alan, 2026-10-15). They see it on the
@@ -614,7 +651,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <BookingInvite
           firstName={first}
           address={lead.address || ""}
-          pkgName={noFence ? "" : tierName(draft.tier)}
+          pkgName={noFence ? "" : pkgLabel(draft.tier, tierOr)}
+          pkgOr={tierOr ? { name: tierName(tierOr), total: totalOr } : undefined}
           servicesOnly={noFence}
           color={draft.color}
           sides={sides}
@@ -641,7 +679,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <BookingInvite
           firstName={first}
           address={lead.address || ""}
-          pkgName={sent.tier === "none" ? "" : tierName(sent.tier)}
+          pkgName={sent.tier === "none" ? "" : pkgLabel(sent.tier, sent.tier_or)}
+          pkgOr={sent.tier_or && sent.total_or ? { name: tierName(sent.tier_or), total: sent.total_or } : undefined}
           servicesOnly={sent.tier === "none"}
           color={sent.color}
           sides={sides}

@@ -23,6 +23,8 @@ const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 const EMAIL = "sterlingfencestaining@gmail.com";
 const DEPOSIT = 250;
+/** "Show colors in person" on the booking invite (Alan, 2026-11-02), the server's words. */
+export const COLOR_IN_PERSON = "Shown in person";
 
 export type BookingState = "held" | "confirmed";
 
@@ -54,8 +56,11 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust }: {
+export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
+  /** Still choosing between two packages (Alan, 2026-11-02): the cheaper
+   *  one and the job at it. `pkgName` reads "A or B", `total` is the higher. */
+  pkgOr?: { name: string; total: number };
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
   /** The day we're aiming for. */
@@ -119,6 +124,8 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   const paid = confirmed ? (paidAmount || dep) : 0;
   const paidInFull = confirmed && total > 0 && paid >= total;
   const balance = Math.max(0, total - (confirmed ? paid : dep));
+  // Two packages open: the balance at each, cheaper first.
+  const balanceOr = pkgOr ? Math.max(0, pkgOr.total - (confirmed ? paid : dep)) : 0;
   const stepNow = confirmed ? 3 : 2; // index of the step they're on
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
   const longDate = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -235,7 +242,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               </div>
             </div>
           ) : trust ? (
-            <TrustPay trust={trust} firstName={firstName} longDate={longDate} total={total} dep={dep} paying={paying} onPay={pay}
+            <TrustPay trust={trust} firstName={firstName} longDate={longDate} total={total} totalOr={pkgOr?.total} dep={dep} paying={paying} onPay={pay}
               holdUntil={holdUntil} />
           ) : (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white shadow-md">
@@ -329,7 +336,13 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
             <dl className="mt-2 space-y-2 text-[15px]">
               {servicesOnly ? null : <>
                 <Row k="Package" v={pkgName} />
-                {color ? <Row k="Color" v={color} /> : null}
+                {pkgOr ? <p className="text-[14px] leading-snug text-[#15130F]/70">You pick on the day, once you see the samples on your clean fence.</p> : null}
+                {color === COLOR_IN_PERSON
+                  ? <div>
+                      <Row k="Color" v="Picked in person" />
+                      <p className="text-[14px] leading-snug text-[#15130F]/70">We bring the samples, and our cleaner helps you pick the best one for your fence.</p>
+                    </div>
+                  : color ? <Row k="Color" v={color} /> : null}
                 {sides.length ? <Row k="Sides" v={sides.join(", ")} /> : null}
                 <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
               </>}
@@ -337,7 +350,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 {/* The discount spelled out, so the math reads top to bottom. */}
                 {!servicesOnly && (discount || repairs?.length || services?.length) ? (
                   <>
-                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0) - serviceSum)} />
+                    <Row k={pkgOr ? "Package" : pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0) - serviceSum)} />
                     {discount ? <div className="flex justify-between gap-3 font-semibold text-emerald-700">
                       <dt>Your discount{discountLabel ? ` · ${discountLabel}` : ""}</dt>
                       <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount || 0)}</dd>
@@ -363,9 +376,12 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                     {sv.description ? <p className="text-[14px] leading-snug text-[#15130F]/70">{sv.description}</p> : null}
                   </div>
                 ))}
-                <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />
+                {pkgOr ? <>
+                  <Row k={`Job total, ${pkgOr.name}`} v={formatCurrency(pkgOr.total)} />
+                  <Row k={`Job total, ${pkgName.split(" or ").pop()}`} v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />
+                </> : <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />}
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(dep)} />
-                <Row k="Due after the job" v={formatCurrency(balance)} bold />
+                <Row k="Due after the job" v={pkgOr ? `${formatCurrency(balanceOr)} or ${formatCurrency(balance)}` : formatCurrency(balance)} bold />
               </div>
             </dl>
             {servicesOnly || (page && !proposalHref) ? null : <a href={proposalHref || "#"} target={proposalHref ? "_blank" : undefined} rel="noreferrer"
@@ -448,8 +464,8 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
  *  sum, one tap to pay, and what protects them. The no-refund rule is said
  *  before they pay, in small calm words under the button (it has to be seen
  *  before payment for a card dispute to go our way). */
-function TrustPay({ trust, firstName, longDate, total, dep, paying, onPay, holdUntil }: {
-  trust: BookingTrust; firstName: string; longDate: string; total: number; dep: number;
+function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onPay, holdUntil }: {
+  trust: BookingTrust; firstName: string; longDate: string; total: number; totalOr?: number; dep: number;
   paying: boolean; onPay: () => void; holdUntil: Date;
 }) {
   const first = trust.name.split(" ")[0];
@@ -481,9 +497,9 @@ function TrustPay({ trust, firstName, longDate, total, dep, paying, onPay, holdU
 
         {/* The money, as a little sum they can check. */}
         <dl className="rounded-2xl bg-[#F8F3E7] p-3.5 text-[16px]">
-          <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="tabular-nums">{formatCurrency(total)}</dd></div>
+          <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(totalOr)} or ${formatCurrency(total)}` : formatCurrency(total)}</dd></div>
           <div className="mt-1.5 flex justify-between gap-3 font-bold"><dt>Today</dt><dd className="tabular-nums">{formatCurrency(dep)}</dd></div>
-          <div className="mt-1.5 flex justify-between gap-3 border-t border-[#15130F]/10 pt-1.5 text-[#15130F]/80"><dt>After the job is done</dt><dd className="tabular-nums">{formatCurrency(Math.max(0, total - dep))}</dd></div>
+          <div className="mt-1.5 flex justify-between gap-3 border-t border-[#15130F]/10 pt-1.5 text-[#15130F]/80"><dt>After the job is done</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(Math.max(0, totalOr - dep))} or ` : ""}{formatCurrency(Math.max(0, total - dep))}</dd></div>
         </dl>
 
         <button type="button" onClick={onPay}

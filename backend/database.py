@@ -4587,6 +4587,11 @@ class Booking(Base):
     # Other services booked with the fence, [{name, price}] (Alan, 2026-10-16).
     services_json = Column(Text, nullable=True)
     services_cents = Column(Integer, nullable=True)
+    # Two packages still open, picked on the day (Alan, 2026-11-02: "choosing
+    # between essential and signature… signature and legacy"). tier is the
+    # higher one, tier_or the other; total_or_cents is the job at tier_or.
+    tier_or = Column(Text, default="")
+    total_or_cents = Column(Integer, nullable=True)
 
 
 class ReferralCode(Base):
@@ -4845,6 +4850,11 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE documents ADD COLUMN blurb TEXT DEFAULT ''"))
     if inspector.has_table("bookings"):
         bk = {c["name"] for c in inspector.get_columns("bookings")}
+        for col, ddl in (("tier_or", "TEXT DEFAULT ''"), ("total_or_cents", "INTEGER")):
+            if col not in bk:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col} {ddl}"))
+                logger.info(f"Migration: added bookings.{col}")
         if "google_event_id" not in bk:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN google_event_id TEXT"))

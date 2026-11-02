@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import defer
 
 from api.auth import require_staff
-from api.proposal_live import NAMES, TIERS, _booking_draft, _lead_url, _paid_link, _open_link
+from api.proposal_live import COLOR_IN_PERSON, NAMES, TIERS, _booking_draft, _lead_url, _paid_link, _open_link, booking_pair, package_label
 from api.proposal_preview import preview_payload
 from api.proposals import _is_bot_view, _is_internal_user
 from api.stripe_pay import DEPOSIT_CENTS
@@ -191,8 +191,9 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         return None
     paid = _confirmed(db, lead)
     return {
-        "token": b.token, "url": booking_url(b.token), "date": b.date, "tier": b.tier,
+        "token": b.token, "url": booking_url(b.token), "date": b.date, "tier": b.tier, "tier_or": b.tier_or or "",
         "color": b.color or "", "notes": b.notes or "", "total": (b.total_cents or 0) / 100,
+        "total_or": (b.total_or_cents or 0) / 100 if b.tier_or else 0,
         "status": "confirmed" if paid else b.status, "sent_at": b.sent_at, "sent_by": b.sent_by or "",
         "sent_count": b.sent_count or 0, "first_viewed_at": b.first_viewed_at,
         "last_viewed_at": b.last_viewed_at, "view_count": b.view_count or 0,
@@ -274,7 +275,8 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         state, "",
         *([f"No fence staining · other services only · {hooks.money(total)}"] if no_fence else []),
     ] + ([] if no_fence else [
-        f"Package: {NAMES.get(b.tier, b.tier) or 'to confirm'} · {hooks.money(total)}"
+        (f"Package: {package_label(b.tier, b.tier_or)}, they pick on the day · {hooks.money((b.total_or_cents or 0) / 100)} or {hooks.money(total)}"
+         if b.tier_or else f"Package: {NAMES.get(b.tier, b.tier) or 'to confirm'} · {hooks.money(total)}")
         + (f" (was {hooks.money((b.price_cents or 0) / 100)}, {hooks.money(b.discount_cents / 100)} off"
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
     ]) + [
@@ -288,7 +290,7 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
     ]
     if not no_fence:
         lines += [
-            f"Color: {b.color or 'to pick on the day'}",
+            f"Color: {'shown in person, the cleaner recommends one' if (b.color or '').strip() == COLOR_IN_PERSON else b.color or 'to pick on the day'}",
             f"Fence: {fd.get('linear_feet') or '?'} ft",
             f"Sides: {', '.join(sides) or 'see the lead'}",
             "Included: cleaning, prep, two coats, cleanup",
@@ -330,13 +332,18 @@ def _customer_text(db, lead: Lead, b: Booking, paid: PayLink) -> tuple[str, str]
     from services import invite_from_call as icf
     f = icf.saved(lead, b.date)
     choices = (f.get("package") or {}).get("choices") or []
+    if len(choices) < 2 and b.tier_or:
+        choices = sorted((b.tier, b.tier_or), key=TIERS.index)
+    in_person = (b.color or "").strip() == COLOR_IN_PERSON
     doing = []
     if not no_fence:
         if len(choices) > 1:
-            doing.append(f"• Package: {f['package']['text'] or ' or '.join(NAMES.get(c, c) for c in choices) + ', you pick on the day'} — cleaning, prep, two coats, cleanup")
+            doing.append(f"• Package: {(f.get('package') or {}).get('text') or ' or '.join(NAMES.get(c, c) for c in choices) + ', you pick on the day'} — cleaning, prep, two coats, cleanup")
+            if in_person:
+                doing.append("• Color: we bring the samples, and our cleaner helps you pick the best one for your fence")
         else:
             pkg = NAMES.get(b.tier, b.tier) or "Fence staining"
-            doing.append(f"• {pkg} package" + (f" in {b.color}" if (b.color or "").strip() and not re.fullmatch(r"(?i)tbd", b.color.strip()) else "" if f.get("color") else ", colour to be picked with you") + " — cleaning, prep, two coats, cleanup")
+            doing.append(f"• {pkg} package" + (", color picked in person with our cleaner" if in_person else f" in {b.color}" if (b.color or "").strip() and not re.fullmatch(r"(?i)tbd", b.color.strip()) else "" if f.get("color") else ", colour to be picked with you") + " — cleaning, prep, two coats, cleanup")
         if f.get("color"):
             doing.append(f"• Color: {f['color']['text']}")
         if sides:
@@ -544,7 +551,7 @@ def review_rows(db) -> list[dict]:
             "email": lead.contact_email or "", "status": link.status, "sent_at": link.sent_at or link.created_at or "",
             "paid_at": link.paid_at or "", "sent_by": link.created_by or "",
             "held": None if b is None else {
-                "date": b.date, "day": _long(b.date), "tier": NAMES.get(b.tier, b.tier) if b.tier else "",
+                "date": b.date, "day": _long(b.date), "tier": package_label(b.tier, b.tier_or or "") if b.tier else "",
                 "color": b.color or "", "total": (b.total_cents or 0) / 100, "sent_at": b.sent_at or "",
                 "shared": bool(b.sent_at) and link.status == "paid",
             },
@@ -709,6 +716,14 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         b.services_cents = services_cents or None
         # What they pay: the deposit, the balance and Klarna all go by this.
         b.total_cents = price_cents - off + repairs_cents - roff + services_cents
+        # Two packages still open (2026-11-02): the job at the other one too.
+        hi, lo = booking_pair(b.tier, d.get("tier_or") or "")
+        if not no_fence and lo and tiers.get(lo):
+            lo_price = int(round(float(tiers[lo]) * 100))
+            lo_off = discount_cents(lo_price, d.get("discount_type") or "", float(d.get("discount_value") or 0))
+            b.tier_or, b.total_or_cents = lo, lo_price - lo_off + repairs_cents - roff + services_cents
+        else:
+            b.tier_or, b.total_or_cents = "", None
         url = booking_url(b.token)
 
         if not body.notify:
@@ -832,6 +847,9 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "status": "cancelled" if b.status == "cancelled" else ("confirmed" if paid else "held"),
             "first_name": _first(lead), "address": lead.address or "",
             "date": b.date, "tier": b.tier, "package": "" if services_only(b) else NAMES.get(b.tier, b.tier),
+            # The other package when they pick on the day, and the job at it.
+            "package_or": NAMES.get(b.tier_or or "", "") if not services_only(b) else "",
+            "total_or": (b.total_or_cents or 0) / 100 if b.tier_or else 0,
             "services_only": services_only(b),
             "color": b.color or "", "notes": b.notes or "", "sides": sides,
             "feet": float(fd.get("linear_feet") or 0) or 0,
@@ -875,7 +893,7 @@ def booking_pay(token: str, request: Request):
         link.amount_cents = deposit_cents(b)
         link.job_tier = b.tier
         link.job_total_cents = b.total_cents
-        link.description = f"{_job_title(b).capitalize() if services_only(b) else NAMES.get(b.tier, b.tier)}, reserved on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, reserved on the booking invite for {_long(b.date)}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_pay_opened", b.date)
@@ -910,7 +928,7 @@ def booking_finance(token: str, request: Request):
         link.job_total_cents = b.total_cents
         link.door = "finance"
         link.no_financing = None
-        link.description = f"{_job_title(b).capitalize() if services_only(b) else NAMES.get(b.tier, b.tier)}, financed on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, financed on the booking invite for {_long(b.date)}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_klarna_opened", b.date)
