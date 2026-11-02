@@ -2092,6 +2092,32 @@ class CompanyCamPhoto(Base):
     # see when they arrived at the job"). Differs from uploaded_at on a
     # photo picked from the gallery or sent later on a weak signal.
     taken_at = Column(Text, default="")
+    # The login (username) that took it, for each worker's own check-in and
+    # check-out (2026-11-02). uploaded_by is a display name and can change.
+    uploaded_sub = Column(Text, default="")
+
+
+class JobVisit(Base):
+    """One worker's leave from one job on one day (Alan, 2026-11-02: "every
+    worker that gets to the job… both submit before pictures… both submit
+    after pictures… each worker is separate"). Arrival is that worker's first
+    before photo of the day; this row is the check-out: when, why (finished,
+    rained out, the customer changed the job, left early, other) and what got
+    done (e.g. 11 pickets)."""
+    __tablename__ = "job_visits"
+    __table_args__ = (Index("idx_job_visits_lead", "lead_id"),)
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    username = Column(Text, nullable=False)
+    name = Column(Text, default="")
+    work_date = Column(Text, nullable=False)      # YYYY-MM-DD, Houston
+    task = Column(Text, default="")
+    left_at = Column(Text, default="")
+    reason = Column(Text, default="")             # finished | rain | scope | early | other
+    note = Column(Text, default="")
+    done_json = Column(Text, default="{}")
+    created_at = Column(Text, default="")
 
 
 class ContentItem(Base):
@@ -5165,6 +5191,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_shown BOOLEAN NOT NULL DEFAULT FALSE"))
             logger.info("Migration: added company_cam_photos.customer_shown")
+        if "uploaded_sub" not in ccp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN uploaded_sub TEXT DEFAULT ''"))
+            logger.info("Migration: added company_cam_photos.uploaded_sub")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

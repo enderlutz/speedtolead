@@ -171,10 +171,16 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
         # When staining is booked, so a finished clean can say so.
         staining = sorted({(e["date"], names.get(e["username"].lower(), e["username"]))
                            for e in entries if e["task"] == "staining" and e["date"] and not e["helper"]})
+        stopped: dict | None | bool = False   # worked out once per job, only when it shows
         for e in entries:
             day = e["date"]
             if not day or (start and day < start) or (end and day > end):
                 continue
+            if stopped is False:
+                # Rained out or the customer changed the job on the last
+                # check-out (2026-11-02): "Needs another day".
+                from api.job_visits import needs_another_day
+                stopped = None if j.completed_at else needs_another_day(db, j.lead_id)
             out.append({
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "date": day, "username": e["username"], "person": names.get(e["username"].lower(), e["username"]),
@@ -189,6 +195,7 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
                 "pw_services": _pw_labels(j),
                 "staining_days": [{"date": d, "person": p} for d, p in staining],
                 "completed_at": j.completed_at or "", "updated_at": j.updated_at or "",
+                "needs_day": stopped or None,
             })
     out.sort(key=lambda r: (r["date"], r["order"] or 999, r["name"].lower(), r["task"], r["person"].lower()))
     return out

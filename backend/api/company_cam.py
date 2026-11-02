@@ -1066,6 +1066,7 @@ def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: d
         note_at=_now() if (note or "").strip() else "",
         storage_url=url, image_data=None if url else data, has_image_data=not url,
         mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user), taken_at=taken_at or "",
+        uploaded_sub="" if uploaded_by else str((user or {}).get("sub") or ""),
     )
     db.add(photo)
     return photo

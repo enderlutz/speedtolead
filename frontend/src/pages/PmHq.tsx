@@ -702,6 +702,15 @@ function JobStatus({ x, canEdit, crew, onChange }: {
   if (x.completed_at) {
     return <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-2.5 py-1.5 text-sm font-semibold text-emerald-900"><CheckCircle2 className="h-4 w-4" />Job done</p>;
   }
+  if (x.needs_day) {
+    const n = x.needs_day;
+    const did = Object.entries(n.done || {}).map(([k, v]) => `${v} ${k}`).join(", ");
+    return (
+      <p className="mt-2 rounded-lg bg-rose-100 px-2.5 py-1.5 text-sm font-semibold text-rose-900">
+        🌧 Needs another day · {n.label} {fmtDay(n.date)} ({n.by}){did ? ` · done: ${did}` : ""}{n.note ? ` · "${n.note}"` : ""}
+      </p>
+    );
+  }
   if (x.task === "cleaning" && p.cleaning_done) {
     const book = async (username: string) => {
       setSaving(true);

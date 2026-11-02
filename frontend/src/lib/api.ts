@@ -4062,6 +4062,10 @@ export const api = {
   markCompanyCamDone: (leadId: string, how?: PwFinishHow) =>
     request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`,
       how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
+  /** Each worker's check-in and check-out on a job (2026-11-02). */
+  getJobVisits: (leadId: string) => request<JobVisitsPayload>(`/api/company-cam/${leadId}/visits`),
+  leaveJob: (leadId: string, b: { reason: string; note?: string; done?: Record<string, number>; task?: string }) =>
+    request<{ ok: boolean; job_done: boolean }>(`/api/company-cam/${leadId}/visits/leave`, { method: "POST", body: JSON.stringify(b) }),
   resetCompanyCamDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
@@ -6570,10 +6574,23 @@ export interface PmMapPin {
   hidden?: boolean;
 }
 
+export interface JobVisit {
+  username: string; name: string; date: string; task: string;
+  arrived_at: string; last_photo_at: string; before: number; after: number;
+  left_at: string; reason: string; reason_label: string; note: string; done: Record<string, number>;
+}
+export interface JobVisitsPayload {
+  need: number; today: string; task: string; family: string; before_section: string; after_section: string;
+  me: JobVisit | null; visits: JobVisit[]; reasons: Record<string, string>;
+  needs_another_day: { date: string; reason: string; label: string; by: string; note: string; done: Record<string, number> } | null;
+}
+
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
   task: CrewDayTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
   staining_days?: { date: string; person: string }[];
+  /** The last check-out was a rain-out or a changed job (2026-11-02). */
+  needs_day?: { date: string; reason: string; label: string; by: string; note: string; done: Record<string, number> } | null;
   /** Washing services on the job, as labels ("House wash"). */
   pw_services?: string[];
   /** This person's pay on the job: "flat" | "hourly" | "" (not set). Office only. */

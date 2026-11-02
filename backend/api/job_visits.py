@@ -1,0 +1,230 @@
+"""Each worker checks in and out of each job, every day (Alan, 2026-11-02).
+
+"Everybody that gets to the job, even if they're going together, they need
+to both submit before pictures, and they need to both submit after
+pictures… it's gonna give us timestamps." The check-in is the photos: a
+worker's first before photo of the day is when they got there, five before
+photos and they're in. The check-out is five after photos plus why they're
+leaving (finished, rained out, the customer changed the job, leaving early,
+other) and what got done (pickets replaced). Photos are taken live in the
+app, camera only, so the times are real.
+
+The job is done when the last worker on a staining or repair day leaves
+with "Finished": that replaces the one "I'm finished" button, so a cleaner
+finishing day one no longer marks the whole job done. Rained out or a
+changed job texts Alan and shows "Needs another day" on Project Manager."""
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from api.auth import get_current_user
+from api.company_cam import _crew_entries, _lead_or_404, crew_guard
+from database import CompanyCamJob, CompanyCamPhoto, JobVisit, Lead, User, get_db
+
+router = APIRouter()
+
+NEED = 5
+REASONS = {
+    "finished": "Finished",
+    "rain": "Rained out",
+    "scope": "The customer changed the job",
+    "early": "Left early, partner stayed",
+    "other": "Other",
+}
+STOPPED = ("rain", "scope")
+# The photo sections a task's before and after go in.
+FAMILY = {"cleaning": "clean", "staining": "stain", "repairs": "stain", "pressure_washing": "pw"}
+
+
+def _houston_day(iso: str) -> str:
+    try:
+        d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return ""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    from zoneinfo import ZoneInfo
+    return d.astimezone(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d")
+
+
+def today() -> str:
+    return _houston_day(datetime.now(timezone.utc).isoformat())
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def task_for(job: CompanyCamJob | None, username: str, day: str) -> str:
+    """This worker's task on this job that day, from the crew list."""
+    u = (username or "").lower()
+    mine = [c for c in _crew_entries(job) if c["username"].lower() == u]
+    for c in mine:
+        if c["date"] == day and c["task"]:
+            return c["task"]
+    for c in mine:
+        if not c["date"] and c["task"]:
+            return c["task"]
+    return ""
+
+
+def family_of(section: str) -> str:
+    if section.startswith("pw_"):
+        return "pw"
+    return section.split("_", 1)[0]
+
+
+def _names(db) -> tuple[dict, dict]:
+    """username → display name, and display name → username (older photos
+    carry only the name)."""
+    by_user, by_name = {}, {}
+    for u in db.query(User).all():
+        name = (u.display_name or u.username or "").strip()
+        by_user[u.username.lower()] = name
+        if name:
+            by_name.setdefault(name.lower(), u.username)
+    return by_user, by_name
+
+
+def visits(db, lead_id: str) -> list[dict]:
+    """Every worker's day on this job, newest first: when they got there (first
+    before photo), their before/after counts, and their check-out if any."""
+    by_user, by_name = _names(db)
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+    days: dict[tuple[str, str], dict] = {}
+
+    def slot(username: str, day: str) -> dict:
+        k = (username.lower(), day)
+        if k not in days:
+            days[k] = {"username": username, "name": by_user.get(username.lower(), username), "date": day,
+                       "task": task_for(job, username, day), "arrived_at": "", "last_photo_at": "",
+                       "before": 0, "after": 0, "left_at": "", "reason": "", "reason_label": "", "note": "", "done": {}}
+        return days[k]
+
+    for p in db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all():
+        if p.section == "fence_scope" or (p.uploaded_by or "").startswith("auto:"):
+            continue
+        who = p.uploaded_sub or by_name.get((p.uploaded_by or "").strip().lower(), "")
+        at = p.taken_at or p.uploaded_at or ""
+        if not who or not at:
+            continue
+        v = slot(who, _houston_day(at))
+        if p.section.endswith("_before"):
+            v["before"] += 1
+            if not v["arrived_at"] or at < v["arrived_at"]:
+                v["arrived_at"] = at
+        elif p.section.endswith("_after"):
+            v["after"] += 1
+        if at > v["last_photo_at"]:
+            v["last_photo_at"] = at
+    for r in db.query(JobVisit).filter(JobVisit.lead_id == lead_id).all():
+        v = slot(r.username, r.work_date)
+        try:
+            done = json.loads(r.done_json or "{}")
+        except ValueError:
+            done = {}
+        v.update(left_at=r.left_at or "", reason=r.reason or "", reason_label=REASONS.get(r.reason or "", r.reason or ""),
+                 note=r.note or "", done=done if isinstance(done, dict) else {}, task=v["task"] or r.task or "")
+    return sorted(days.values(), key=lambda v: (v["date"], v["arrived_at"]), reverse=True)
+
+
+def needs_another_day(db, lead_id: str) -> dict | None:
+    """The job's last check-out was a rain-out or a changed job, the job isn't
+    done, and nobody has been back since."""
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+    if job is None or job.completed_at:
+        return None
+    vs = visits(db, lead_id)
+    if not vs:
+        return None
+    last_day = vs[0]["date"]
+    stopped = [v for v in vs if v["date"] == last_day and v["reason"] in STOPPED]
+    if not stopped:
+        return None
+    v = stopped[0]
+    return {"date": v["date"], "reason": v["reason"], "label": v["reason_label"], "by": v["name"], "note": v["note"], "done": v["done"]}
+
+
+@router.get("/company-cam/{lead_id}/visits", dependencies=[Depends(crew_guard)])
+def get_visits(lead_id: str, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        _lead_or_404(db, lead_id)
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+        sub, day = str(user.get("sub") or ""), today()
+        vs = visits(db, lead_id)
+        mine = next((v for v in vs if v["username"].lower() == sub.lower() and v["date"] == day), None)
+        task = task_for(job, sub, day)
+        fam = FAMILY.get(task, "")
+        return {"need": NEED, "today": day, "task": task, "family": fam,
+                "before_section": f"{fam}_before" if fam in ("clean", "stain") else "",
+                "after_section": f"{fam}_after" if fam in ("clean", "stain") else "",
+                "me": mine, "visits": vs, "reasons": REASONS, "needs_another_day": needs_another_day(db, lead_id)}
+    finally:
+        db.close()
+
+
+class LeaveBody(BaseModel):
+    reason: str
+    note: str = ""
+    done: dict = {}
+    task: str = ""   # when the crew list has no task for them today, they say
+
+
+@router.post("/company-cam/{lead_id}/visits/leave", dependencies=[Depends(crew_guard)])
+def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user)):
+    from services.activity_log import log_event
+    if body.reason not in REASONS:
+        raise HTTPException(400, "Why are you leaving? Finished, rained out, the customer changed the job, leaving early, or other")
+    if body.reason == "other" and not body.note.strip():
+        raise HTTPException(400, "Write a few words on why you're leaving")
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+        sub, day = str(user.get("sub") or ""), today()
+        task = task_for(job, sub, day) or (body.task if body.task in FAMILY else "")
+        mine = next((v for v in visits(db, lead_id) if v["username"].lower() == sub.lower() and v["date"] == day), None)
+        before, after = (mine or {}).get("before", 0), (mine or {}).get("after", 0)
+        if before < NEED or after < NEED:
+            raise HTTPException(400, f"Take {NEED} before photos and {NEED} after photos first (you have {before} and {after}).")
+        done = {k: max(0, int(v)) for k, v in (body.done or {}).items() if isinstance(v, (int, float)) and int(v) > 0}
+        row = (db.query(JobVisit).filter(JobVisit.lead_id == lead_id, JobVisit.username == sub, JobVisit.work_date == day).first())
+        if row is None:
+            row = JobVisit(id=str(uuid.uuid4()), lead_id=lead_id, username=sub, work_date=day, created_at=_now())
+            db.add(row)
+        row.name = str(user.get("name") or sub)
+        row.task, row.reason, row.note = task, body.reason, body.note.strip()[:1000]
+        row.done_json = json.dumps(done)
+        row.left_at = _now()
+        db.commit()
+        who, name = row.name, (lead.contact_name or "the customer").strip()
+        log_event(lead_id, "crew_left", f"{who} left: {REASONS[body.reason]}" + (f" ({row.note})" if row.note else ""),
+                  {"actor": who, "reason": body.reason, "done": done})
+        did = ", ".join(f"{n} {k}" for k, n in done.items())
+        if body.reason in STOPPED:
+            try:
+                from services.after_pay_hooks import alert_alan
+                alert_alan(f"🌧 {who} left {name}'s: {REASONS[body.reason]}." + (f" Done today: {did}." if did else "")
+                           + (f" \"{row.note}\"" if row.note else "") + " Needs another day.")
+            except Exception:  # noqa: BLE001
+                pass
+        job_done = False
+        # The job is done when the last worker on a staining or repair day
+        # leaves with Finished; a cleaning day finishing is just that day.
+        if body.reason == "finished" and task in ("staining", "repairs") and job is not None and not job.completed_at:
+            others = [v for v in visits(db, lead_id) if v["date"] == day and v["username"].lower() != sub.lower()
+                      and v["before"] and not v["left_at"]]
+            if not others:
+                from api.company_cam import mark_job_done
+                db.close()
+                mark_job_done(lead_id, None, user)
+                job_done = True
+        return {"ok": True, "job_done": job_done}
+    finally:
+        db.close()

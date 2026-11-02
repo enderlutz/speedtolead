@@ -34,6 +34,7 @@ import {
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
 import PhotoViewer from "@/components/PhotoViewer";
+import { CheckInCard, FromTheCleaner, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,7 +194,7 @@ function BlurText({
 
 /** Take a photo / From the gallery. The camera is the big one: snap each
  *  side as you finish it (Alan, 2026-10-17). */
-function PhotoDoors({ busy, big, camera, gallery }: { busy: boolean; big?: boolean; camera: () => void; gallery: () => void }) {
+function PhotoDoors({ busy, big, camera, gallery }: { busy: boolean; big?: boolean; camera: () => void; gallery?: () => void }) {
   if (busy) {
     return (
       <div className={cn("flex w-full items-center justify-center gap-2 rounded-xl border bg-muted/30 text-sm font-semibold text-muted-foreground", big ? "h-24" : "h-12")}>
@@ -202,17 +203,19 @@ function PhotoDoors({ busy, big, camera, gallery }: { busy: boolean; big?: boole
     );
   }
   return (
-    <div className="grid grid-cols-[3fr_2fr] gap-2">
+    <div className={cn("grid gap-2", gallery ? "grid-cols-[3fr_2fr]" : "grid-cols-1")}>
       <button type="button" onClick={camera}
               className={cn("flex items-center justify-center gap-2 rounded-xl bg-primary px-3 font-bold text-primary-foreground shadow-sm transition active:scale-[0.98]",
                 big ? "h-24 flex-col text-base" : "h-12 text-base")}>
         <Camera className={big ? "h-7 w-7" : "h-5 w-5"} /> {tr("Take photo")}
       </button>
-      <button type="button" onClick={gallery}
-              className={cn("flex items-center justify-center gap-2 rounded-xl border-2 border-input bg-background px-3 font-semibold transition active:scale-[0.98]",
-                big ? "h-24 flex-col text-sm" : "h-12 text-sm")}>
-        <ImagePlus className={big ? "h-6 w-6" : "h-5 w-5"} /> {tr("From gallery")}
-      </button>
+      {gallery ? (
+        <button type="button" onClick={gallery}
+                className={cn("flex items-center justify-center gap-2 rounded-xl border-2 border-input bg-background px-3 font-semibold transition active:scale-[0.98]",
+                  big ? "h-24 flex-col text-sm" : "h-12 text-sm")}>
+          <ImagePlus className={big ? "h-6 w-6" : "h-5 w-5"} /> {tr("From gallery")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -750,6 +753,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   // Photos waiting on the phone to send (Alan and Chris, 2026-10-22): shown
   // at once as "sending"; when one gets through, the job reloads quietly.
   const [queued, setQueued] = useState<PendingPhoto[]>([]);
+  // Each worker's own check-in and check-out (2026-11-02).
+  const { data: visits, reload: reloadVisits } = useJobVisits(leadId, true);
+  const [pickedTask, setPickedTask] = useState("");
   useEffect(() => {
     let live = true;
     const refresh = () => { void queuedPhotos(leadId).then((q) => { if (live) setQueued(q); }); };
@@ -757,6 +763,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     const off = onQueue((ev) => {
       refresh();
       if (ev.kind === "sent" && ev.leadId === leadId) {
+        reloadVisits();
         void api.getCompanyCam(leadId).then((d) => { if (live) setData(d); }).catch(() => {});
       }
     });
@@ -1075,14 +1082,14 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                   ))}
                 </div>
                 <PhotoDoors busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
-                            gallery={() => inputs.current[sec.key]?.click()} />
+                            gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
               </>
             ) : (
               // Big, because on a phone this is the one thing the crew is
               // here to do.
               <div className="space-y-1">
                 <PhotoDoors big busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
-                            gallery={() => inputs.current[sec.key]?.click()} />
+                            gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
                 <p className="text-center text-sm text-muted-foreground">{tr(sec.who)}</p>
               </div>
             )}
@@ -1504,6 +1511,14 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         </p>
       </div>
 
+      {!manager && !pwMode && visits ? (
+        <>
+          <CheckInCard v={visits} task={visits.task || pickedTask} setTask={setPickedTask} upload={upload} uploading={uploading}
+                       pending={(sec) => queued.filter((q) => q.section === sec).length} />
+          <FromTheCleaner job={job} task={visits.task || pickedTask} onPhotos={() => jump("clean_after")} />
+        </>
+      ) : null}
+      {manager ? <WhoWasHere v={visits} /> : null}
       {/* The briefing (Alan, 2026-10-20): everything the crew needs before
           they start, at the top, nothing to dig for. Pulled from the job
           plus what the office types: what to pick up and where, what to
@@ -1999,7 +2014,13 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {!manager && !pwMode ? (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gold/40 bg-ivory/95 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur">
           <div className="mx-auto max-w-3xl">
-            {job.completed_at ? (
+            {visits && visits.family !== "pw" ? (
+              // Check-out replaces "I'm finished" (2026-11-02): each worker
+              // leaves on their own; the last one finishing closes the job.
+              <LeaveBar leadId={leadId} v={visits} job={job} task={visits.task || pickedTask} upload={upload} uploading={uploading}
+                        pending={(sec) => queued.filter((q) => q.section === sec).length}
+                        onLeft={() => { reloadVisits(); void load(); }} />
+            ) : job.completed_at ? (
               <p className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 text-lg font-bold text-white">
                 <CheckCircle2 className="h-6 w-6" /> {tr("Job done")} · {new Date(job.completed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
               </p>
