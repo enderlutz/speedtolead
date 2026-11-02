@@ -269,6 +269,16 @@ const CUSTOMER = {
   feet: 280,
 };
 
+// The packages' words, simpler (Alan, 2026-11-01: customers "having trouble
+// finding the packages because there's too much going on"): "Choose a
+// package", no "Higher ones last longer", "Includes" as three small chips,
+// Essential's first line cut to "Refresh for newer fences", and the longer
+// lifespans below. Shown on the staff mockup first; true = on the
+// customer's page too.
+const PACKAGE_COPY_V2_LIVE = false;
+const LASTS_V2: Record<PkgKey, string> = { essential: "2–3 yrs", signature: "4–5 yrs", legacy: "5–8 yrs" };
+const INCLUDES_V2 = ["Cleaning", "2 coats of stain", "Loose boards screwed in"];
+
 const PACKAGES: {
   key: PkgKey; name: string; short: string; tag: string; lasts: string; photos: string[]; captions?: string[];
   best: string; lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
@@ -634,11 +644,16 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // is real, Alan, 2026-10-11).
   const expired = !!live?.expired;
   const discount = !expired;
-  const packages = useMemo(() => PACKAGES.map((p) => {
+  const copyV2 = PACKAGE_COPY_V2_LIVE || !dressed;
+  const packages = useMemo(() => PACKAGES.map((base) => {
+    const p = copyV2 ? {
+      ...base, lasts: LASTS_V2[base.key],
+      lines: base.key === "essential" ? base.lines.map((l, i) => (i === 0 ? { ...l, text: "Refresh for newer fences" } : l)) : base.lines,
+    } : base;
     if (!live?.tiers) return p;
     const regular = live.regular?.[p.key] ?? Math.round((live.tiers[p.key] / 0.8) * 100) / 100;
     return live.expired ? { ...p, price: regular, regular } : { ...p, price: live.tiers[p.key], regular };
-  }), [live]);
+  }), [live, copyV2]);
   const reserved = live?.reserved ?? null;
 
   // The staff mockup has a Phone/Full toggle. The customer's page follows
@@ -981,16 +996,34 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         <section id="mock-packages" className={cn("scroll-mt-14 px-1 py-6 sm:px-4", wood ? "bg-[#2A1A10]" : "bg-white")}
           style={wood ? { backgroundImage: "linear-gradient(rgba(20,12,6,0.45), rgba(20,12,6,0.55)), url(/proposal-mockup/wood-packages.jpg)", backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
           <div className="px-1">
-            <SectionTitle title="Choose 1 of these 3" sub="Higher ones last longer." dark={wood} />
-            {/* The things people ask about before they pick, in one line each
-                (Alan, 2026-10-28: "the main three things people want to know
-                that it's included"), plus tax. */}
-            <p className={cn("-mt-1 text-[15px] font-bold", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>With every one of these, at no extra charge:</p>
-            <ul className={cn("mb-4 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>
-              {["The cleaning", "Two coats of stain", "Screwing in any loose boards"].map((t) => (
-                <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: wood ? "#E3BE63" : "#2F5137" }} />{t}</li>
-              ))}
-            </ul>
+            {copyV2 ? (
+              <>
+                <SectionTitle title="Choose a package" dark={wood} />
+                {/* "Includes" and three small chips on one line (2026-11-01). */}
+                <div className="-mt-1 mb-4 flex flex-wrap items-center gap-1.5">
+                  <span className={cn("mr-0.5 text-[15px] font-bold", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>Includes:</span>
+                  {INCLUDES_V2.map((t) => (
+                    <span key={t} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[14px] font-semibold leading-none ring-1",
+                      wood ? "bg-[#F8F3E7]/10 text-[#F8F3E7] ring-[#E3BE63]/50" : "bg-[#2F5137]/5 text-[#15130F] ring-[#2F5137]/30")}>
+                      <Check className="h-3.5 w-3.5 shrink-0" style={{ color: wood ? "#E3BE63" : "#2F5137" }} />{t}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <SectionTitle title="Choose 1 of these 3" sub="Higher ones last longer." dark={wood} />
+                {/* The things people ask about before they pick, in one line each
+                    (Alan, 2026-10-28: "the main three things people want to know
+                    that it's included"), plus tax. */}
+                <p className={cn("-mt-1 text-[15px] font-bold", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>With every one of these, at no extra charge:</p>
+                <ul className={cn("mb-4 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[15px] font-semibold leading-snug", wood ? "text-[#F8F3E7]" : "text-[#15130F]")}>
+                  {["The cleaning", "Two coats of stain", "Screwing in any loose boards"].map((t) => (
+                    <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: wood ? "#E3BE63" : "#2F5137" }} />{t}</li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
 
           {phone ? (
