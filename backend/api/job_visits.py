@@ -7,7 +7,10 @@ worker's first before photo of the day is when they got there, five before
 photos and they're in. The check-out is five after photos plus why they're
 leaving (finished, rained out, the customer changed the job, leaving early,
 other) and what got done (pickets replaced). Photos are taken live in the
-app, camera only, so the times are real.
+app, so the times are real. One they forgot can be added from their photos
+with the time typed, and a check-out done later with the time they left;
+typed times show as typed (Alan, 2026-11-02: "if they forget make it so
+they can put their own time stamps").
 
 The job is done when the last worker on a staining or repair day leaves
 with "Finished": that replaces the one "I'm finished" button, so a cleaner
@@ -23,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import get_current_user
-from api.company_cam import _crew_entries, _lead_or_404, crew_guard
+from api.company_cam import TYPED_DAYS, _crew_entries, _lead_or_404, crew_guard
 from database import CompanyCamJob, CompanyCamPhoto, JobVisit, Lead, User, get_db
 
 router = APIRouter()
@@ -102,8 +105,8 @@ def visits(db, lead_id: str) -> list[dict]:
         k = (username.lower(), day)
         if k not in days:
             days[k] = {"username": username, "name": by_user.get(username.lower(), username), "date": day,
-                       "task": task_for(job, username, day), "arrived_at": "", "last_photo_at": "",
-                       "before": 0, "after": 0, "left_at": "", "reason": "", "reason_label": "", "note": "", "done": {}}
+                       "task": task_for(job, username, day), "arrived_at": "", "arrived_typed": False, "last_photo_at": "",
+                       "before": 0, "after": 0, "typed": 0, "left_at": "", "left_typed": False, "reason": "", "reason_label": "", "note": "", "done": {}}
         return days[k]
 
     for p in db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all():
@@ -114,10 +117,11 @@ def visits(db, lead_id: str) -> list[dict]:
         if not who or not at:
             continue
         v = slot(who, _houston_day(at))
+        v["typed"] += 1 if p.time_typed else 0
         if p.section.endswith("_before"):
             v["before"] += 1
             if not v["arrived_at"] or at < v["arrived_at"]:
-                v["arrived_at"] = at
+                v["arrived_at"], v["arrived_typed"] = at, bool(p.time_typed)
         elif p.section.endswith("_after"):
             v["after"] += 1
         if at > v["last_photo_at"]:
@@ -128,7 +132,7 @@ def visits(db, lead_id: str) -> list[dict]:
             done = json.loads(r.done_json or "{}")
         except ValueError:
             done = {}
-        v.update(left_at=r.left_at or "", reason=r.reason or "", reason_label=REASONS.get(r.reason or "", r.reason or ""),
+        v.update(left_at=r.left_at or "", left_typed=bool(r.left_typed), reason=r.reason or "", reason_label=REASONS.get(r.reason or "", r.reason or ""),
                  note=r.note or "", done=done if isinstance(done, dict) else {}, task=v["task"] or r.task or "")
     return sorted(days.values(), key=lambda v: (v["date"], v["arrived_at"]), reverse=True)
 
@@ -159,12 +163,15 @@ def get_visits(lead_id: str, user: dict = Depends(get_current_user)):
         sub, day = str(user.get("sub") or ""), today()
         vs = visits(db, lead_id)
         mine = next((v for v in vs if v["username"].lower() == sub.lower() and v["date"] == day), None)
+        # Their earlier days this week, for checking out one they forgot.
+        week = (datetime.fromisoformat(day) - timedelta(days=TYPED_DAYS - 1)).strftime("%Y-%m-%d")
+        earlier = [v for v in vs if v["username"].lower() == sub.lower() and week <= v["date"] < day]
         task = task_for(job, sub, day)
         fam = FAMILY.get(task, "")
         return {"need": NEED, "today": day, "task": task, "family": fam,
                 "before_section": f"{fam}_before" if fam in ("clean", "stain") else "",
                 "after_section": f"{fam}_after" if fam in ("clean", "stain") else "",
-                "me": mine, "visits": vs, "reasons": REASONS, "needs_another_day": needs_another_day(db, lead_id)}
+                "me": mine, "earlier": earlier, "visits": vs, "reasons": REASONS, "needs_another_day": needs_another_day(db, lead_id)}
     finally:
         db.close()
 
@@ -174,6 +181,8 @@ class LeaveBody(BaseModel):
     note: str = ""
     done: dict = {}
     task: str = ""   # when the crew list has no task for them today, they say
+    # Checking out later: the time they left, typed (ISO with offset). Blank = now.
+    left_at: str = ""
 
 
 @router.post("/company-cam/{lead_id}/visits/leave", dependencies=[Depends(crew_guard)])
@@ -187,7 +196,12 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
     try:
         lead = _lead_or_404(db, lead_id)
         job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
-        sub, day = str(user.get("sub") or ""), today()
+        sub = str(user.get("sub") or "")
+        left_at, typed = _now(), False
+        if body.left_at.strip():
+            from api.company_cam import _taken_at_typed
+            left_at, typed = _taken_at_typed(body.left_at), True
+        day = _houston_day(left_at)
         task = task_for(job, sub, day) or (body.task if body.task in FAMILY else "")
         mine = next((v for v in visits(db, lead_id) if v["username"].lower() == sub.lower() and v["date"] == day), None)
         before, after = (mine or {}).get("before", 0), (mine or {}).get("after", 0)
@@ -201,11 +215,12 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
         row.name = str(user.get("name") or sub)
         row.task, row.reason, row.note = task, body.reason, body.note.strip()[:1000]
         row.done_json = json.dumps(done)
-        row.left_at = _now()
+        row.left_at, row.left_typed = left_at, typed
         db.commit()
         who, name = row.name, (lead.contact_name or "the customer").strip()
-        log_event(lead_id, "crew_left", f"{who} left: {REASONS[body.reason]}" + (f" ({row.note})" if row.note else ""),
-                  {"actor": who, "reason": body.reason, "done": done})
+        log_event(lead_id, "crew_left", f"{who} left: {REASONS[body.reason]}" + (f" ({row.note})" if row.note else "")
+                  + (f", time typed for {day}" if typed else ""),
+                  {"actor": who, "reason": body.reason, "done": done, "typed": typed})
         did = ", ".join(f"{n} {k}" for k, n in done.items())
         if body.reason in STOPPED:
             try:

@@ -2095,6 +2095,9 @@ class CompanyCamPhoto(Base):
     # The login (username) that took it, for each worker's own check-in and
     # check-out (2026-11-02). uploaded_by is a display name and can change.
     uploaded_sub = Column(Text, default="")
+    # The worker typed the time: picked from their photos later, the camera
+    # time missing or wrong (Alan, 2026-11-02). Shown as "typed".
+    time_typed = Column(Boolean, default=False, nullable=False)
 
 
 class JobVisit(Base):
@@ -2118,6 +2121,8 @@ class JobVisit(Base):
     note = Column(Text, default="")
     done_json = Column(Text, default="{}")
     created_at = Column(Text, default="")
+    # They checked out later and typed when they left (Alan, 2026-11-02).
+    left_typed = Column(Boolean, default=False, nullable=False)
 
 
 class HoursLog(Base):
@@ -5224,6 +5229,17 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN uploaded_sub TEXT DEFAULT ''"))
             logger.info("Migration: added company_cam_photos.uploaded_sub")
+        if "time_typed" not in ccp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN time_typed BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Migration: added company_cam_photos.time_typed")
+
+    if inspector.has_table("job_visits"):
+        jv_cols = {c["name"] for c in inspector.get_columns("job_visits")}
+        if "left_typed" not in jv_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE job_visits ADD COLUMN left_typed BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Migration: added job_visits.left_typed")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

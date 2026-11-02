@@ -805,7 +805,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     }
   };
 
-  const upload = async (section: string, files: FileList | null) => {
+  /** `typedAt`: photos they forgot, added from their gallery with the time
+   *  they typed (Alan, 2026-11-02); every photo in the batch gets it. */
+  const upload = async (section: string, files: FileList | File[] | null, typedAt?: string) => {
     if (!files?.length) return;
     setUploading(section);
     // Saved on the phone first, then sent in the background until it gets
@@ -814,9 +816,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     let saved = 0;
     try {
       for (const f of Array.from(files)) {
-        const takenAt = await photoTakenAt(f); // before shrinking drops the EXIF
+        const takenAt = typedAt || await photoTakenAt(f); // before shrinking drops the EXIF
         const small = await shrinkPhoto(f);
-        await enqueue({ leadId, section, takenAt, file: small, name: f.name || undefined });
+        await enqueue({ leadId, section, takenAt, timeTyped: !!typedAt, file: small, name: f.name || undefined });
         saved += 1;
       }
       if (saved) toast.success(isSpanish() ? `${saved} foto${saved === 1 ? "" : "s"} guardada${saved === 1 ? "" : "s"}. Se envían solas.` : `${saved} photo${saved === 1 ? "" : "s"} saved. ${saved === 1 ? "It sends" : "They send"} by itself.`);
@@ -1514,7 +1516,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {!manager && !pwMode && visits ? (
         <>
           <CheckInCard v={visits} task={visits.task || pickedTask} setTask={setPickedTask} upload={upload} uploading={uploading}
-                       pending={(sec) => queued.filter((q) => q.section === sec).length} />
+                       pending={(sec, day) => queued.filter((q) => q.section === sec && localDay(q.takenAt) === (day || visits.today)).length} />
           <FromTheCleaner job={job} task={visits.task || pickedTask} onPhotos={() => jump("clean_after")} />
         </>
       ) : null}
@@ -2018,7 +2020,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               // Check-out replaces "I'm finished" (2026-11-02): each worker
               // leaves on their own; the last one finishing closes the job.
               <LeaveBar leadId={leadId} v={visits} job={job} task={visits.task || pickedTask} upload={upload} uploading={uploading}
-                        pending={(sec) => queued.filter((q) => q.section === sec).length}
+                        pending={(sec, day) => queued.filter((q) => q.section === sec && localDay(q.takenAt) === (day || visits.today)).length}
                         onLeft={() => { reloadVisits(); void load(); }} />
             ) : job.completed_at ? (
               <p className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 text-lg font-bold text-white">
@@ -2370,6 +2372,12 @@ function LibraryPicker({ leadId, section, onClose, onAdded }: {
 /** The time on every photo (Alan, 2026-10-20: "so I can see when they
  *  arrived at the job"). When it went up much later than it was taken (a
  *  gallery pick, a weak signal), both times show, the upload in amber. */
+/** YYYY-MM-DD on the phone's clock; a photo with no time counts as today. */
+function localDay(iso: string) {
+  const d = iso ? new Date(iso) : new Date();
+  return (Number.isNaN(d.getTime()) ? new Date() : d).toLocaleDateString("en-CA");
+}
+
 function PhotoStamp({ photo }: { photo: CompanyCamPhoto }) {
   const taken = photo.taken_at || photo.uploaded_at;
   const text = stampText(taken);
@@ -2379,6 +2387,7 @@ function PhotoStamp({ photo }: { photo: CompanyCamPhoto }) {
   return (
     <span className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-end gap-x-2 bg-black/65 px-2 py-1 text-sm font-bold tabular-nums text-white">
       <span>🕒 {text}</span>
+      {photo.time_typed ? <span className="font-semibold text-amber-300">{tr("typed")}</span> : null}
       {late ? <span className="font-semibold text-amber-300">{tr("sent")} {stampText(photo.uploaded_at)}</span> : null}
     </span>
   );

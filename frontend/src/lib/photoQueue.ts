@@ -10,7 +10,7 @@
 import { api } from "@/lib/api";
 
 export type QueuedPhoto = {
-  id: string; leadId: string; section: string; takenAt: string;
+  id: string; leadId: string; section: string; takenAt: string; timeTyped?: boolean;
   name: string; type: string; blob: Blob; createdAt: number; tries: number; lastError: string;
 };
 export type PendingPhoto = Omit<QueuedPhoto, "blob"> & { url: string };
@@ -79,10 +79,10 @@ export async function pending(leadId?: string): Promise<PendingPhoto[]> {
   });
 }
 
-export async function enqueue(p: { leadId: string; section: string; takenAt: string; file: Blob; name?: string }): Promise<void> {
+export async function enqueue(p: { leadId: string; section: string; takenAt: string; timeTyped?: boolean; file: Blob; name?: string }): Promise<void> {
   const id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await put({
-    id, leadId: p.leadId, section: p.section, takenAt: p.takenAt, name: p.name || `photo-${id}.jpg`,
+    id, leadId: p.leadId, section: p.section, takenAt: p.takenAt, timeTyped: !!p.timeTyped, name: p.name || `photo-${id}.jpg`,
     type: p.file.type || "image/jpeg", blob: p.file, createdAt: Date.now(), tries: 0, lastError: "",
   });
   emit({ kind: "changed" });
@@ -110,7 +110,7 @@ export function kick() {
         const stop = setTimeout(() => ctl.abort(), TIMEOUT_MS);
         try {
           const file = new File([p.blob], p.name, { type: p.type });
-          await api.uploadCompanyCamPhoto(p.leadId, file, { section: p.section, takenAt: p.takenAt, signal: ctl.signal });
+          await api.uploadCompanyCamPhoto(p.leadId, file, { section: p.section, takenAt: p.takenAt, timeTyped: p.timeTyped, signal: ctl.signal });
           await drop(p.id);
           const u = urls.get(p.id);
           if (u) { URL.revokeObjectURL(u); urls.delete(p.id); }

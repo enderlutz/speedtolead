@@ -350,6 +350,8 @@ def _photo_dict(p: CompanyCamPhoto) -> dict:
         "uploaded_by": p.uploaded_by or "",
         # Every photo shows a time (Alan, 2026-10-20); older ones only have the upload's.
         "taken_at": p.taken_at or p.uploaded_at or "",
+        # The worker typed that time, adding photos they forgot (2026-11-02).
+        "time_typed": bool(p.time_typed),
     }
 
 
@@ -366,6 +368,21 @@ def _taken_at(raw: str, now: datetime) -> str:
     if d > now + timedelta(minutes=5) or d < now - timedelta(days=365):
         return ""
     return d.isoformat()
+
+
+# How far back a worker can type a time on photos they forgot (2026-11-02).
+TYPED_DAYS = 7
+
+
+def _taken_at_typed(raw: str) -> str:
+    """A time the worker typed: not in the future, at most a week back."""
+    now = datetime.now(timezone.utc)
+    t = _taken_at(raw, now)
+    if not t:
+        raise HTTPException(400, "Put the day and time you took these")
+    if datetime.fromisoformat(t) < now - timedelta(days=TYPED_DAYS):
+        raise HTTPException(400, f"That's more than {TYPED_DAYS} days ago. Ask Alan to add them.")
+    return t
 
 
 def _json_list(raw: str | None) -> list:
@@ -1039,7 +1056,7 @@ def mark_color_shown(lead_id: str, user: dict = Depends(get_current_user)):
 
 def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: dict | None, *,
                  side: str = "", note: str = "", is_damage: bool = False, uploaded_by: str | None = None,
-                 taken_at: str = "") -> CompanyCamPhoto:
+                 taken_at: str = "", time_typed: bool = False) -> CompanyCamPhoto:
     """Adds a photo to a section, next in line. Storage first; a BLOB when it
     isn't configured, which is how local dev runs. Never lose the photo over
     a missing env var. The caller commits."""
@@ -1067,6 +1084,7 @@ def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: d
         storage_url=url, image_data=None if url else data, has_image_data=not url,
         mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user), taken_at=taken_at or "",
         uploaded_sub="" if uploaded_by else str((user or {}).get("sub") or ""),
+        time_typed=bool(time_typed and taken_at),
     )
     db.add(photo)
     return photo
@@ -1182,6 +1200,7 @@ async def upload_photo(
     note: str = Form(""),
     is_damage: bool = Form(False),
     taken_at: str = Form(""),
+    time_typed: bool = Form(False),
     user: dict = Depends(get_current_user),
 ):
     if not valid_section(section):
@@ -1192,12 +1211,14 @@ async def upload_photo(
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(400, f"Photo is over {MAX_PHOTO_BYTES // (1024*1024)}MB")
 
+    typed = time_typed is True   # a Form default when called directly
     db = get_db()
     try:
         _lead_or_404(db, lead_id)
         photo = _store_photo(db, lead_id, section, data, file.content_type or "image/jpeg", user,
                              side=side, note=note, is_damage=is_damage,
-                             taken_at=_taken_at(taken_at, datetime.now(timezone.utc)))
+                             taken_at=_taken_at_typed(taken_at) if typed else _taken_at(taken_at, datetime.now(timezone.utc)),
+                             time_typed=typed)
         db.commit()
         return _photo_dict(photo)
     finally:

@@ -1,6 +1,21 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "I forgot · add from my photos": "Se me olvidó · agregar de mis fotos",
+  "When did you take these?": "¿Cuándo las tomaste?",
+  "Change it if it's wrong.": "Cámbialo si está mal.",
+  "That time hasn't happened yet.": "Esa hora todavía no pasa.",
+  "Add the photos": "Agregar las fotos",
+  "photo": "foto",
+  "photos": "fotos",
+  "Time": "Hora",
+  "typed": "escrita a mano",
+  "When did you leave?": "¿Cuándo te fuiste?",
+  "Now": "Ahora",
+  "Earlier (I forgot)": "Antes (se me olvidó)",
+  "What time did you leave?": "¿A qué hora te fuiste?",
+  "Forgot to check out": "No marcaste salida",
+  "Before photos that day": "Fotos de antes ese día",
   "Hours": "Horas",
   "Log your hours": "Anota tus horas",
   "Yesterday": "Ayer",

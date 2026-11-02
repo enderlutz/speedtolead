@@ -3917,10 +3917,11 @@ export const api = {
   uploadCompanyCamPhoto: async (
     leadId: string,
     file: File,
-    opts: { section: string; side?: string; note?: string; isDamage?: boolean; takenAt?: string; signal?: AbortSignal },
+    opts: { section: string; side?: string; note?: string; isDamage?: boolean; takenAt?: string; timeTyped?: boolean; signal?: AbortSignal },
   ) => {
     const fd = new FormData();
     fd.append("taken_at", opts.takenAt || "");
+    if (opts.timeTyped) fd.append("time_typed", "true");
     fd.append("file", file);
     fd.append("section", opts.section);
     fd.append("side", opts.side || "");
@@ -4076,7 +4077,8 @@ export const api = {
   myFixDone: (fixId: string) => request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST" }),
   /** Each worker's check-in and check-out on a job (2026-11-02). */
   getJobVisits: (leadId: string) => request<JobVisitsPayload>(`/api/company-cam/${leadId}/visits`),
-  leaveJob: (leadId: string, b: { reason: string; note?: string; done?: Record<string, number>; task?: string }) =>
+  /** `left_at`: checking out later, the time they left, typed (2026-11-02). */
+  leaveJob: (leadId: string, b: { reason: string; note?: string; done?: Record<string, number>; task?: string; left_at?: string }) =>
     request<{ ok: boolean; job_done: boolean }>(`/api/company-cam/${leadId}/visits/leave`, { method: "POST", body: JSON.stringify(b) }),
   resetCompanyCamDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
@@ -4187,6 +4189,8 @@ export interface CompanyCamPhoto {
   uploaded_by: string;
   /** When the camera took it (falls back to uploaded_at on older photos). */
   taken_at?: string;
+  /** The worker typed the time (photos they forgot, added later). */
+  time_typed?: boolean;
 }
 
 /** Where the customer is on colour, per area of the fence. A single colour
@@ -6593,10 +6597,14 @@ export interface JobVisit {
   username: string; name: string; date: string; task: string;
   arrived_at: string; last_photo_at: string; before: number; after: number;
   left_at: string; reason: string; reason_label: string; note: string; done: Record<string, number>;
+  /** Times the worker typed in, adding photos or a check-out they forgot (2026-11-02). */
+  arrived_typed?: boolean; left_typed?: boolean; typed?: number;
 }
 export interface JobVisitsPayload {
   need: number; today: string; task: string; family: string; before_section: string; after_section: string;
   me: JobVisit | null; visits: JobVisit[]; reasons: Record<string, string>;
+  /** My earlier days this week, for checking out one I forgot. */
+  earlier?: JobVisit[];
   needs_another_day: { date: string; reason: string; label: string; by: string; note: string; done: Record<string, number> } | null;
 }
 
