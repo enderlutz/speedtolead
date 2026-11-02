@@ -141,7 +141,7 @@ PLACE_QUERY = "Sterling Fence Staining Houston"
 
 
 def _maps_key() -> str:
-    return (get_settings().google_maps_api_key or "").strip()
+    return (getattr(get_settings(), "google_maps_api_key", "") or "").strip()
 
 
 def counts_configured() -> bool:
