@@ -276,6 +276,11 @@ const CUSTOMER = {
 // lifespans below. Shown on the staff mockup first; true = on the
 // customer's page too.
 const PACKAGE_COPY_V2_LIVE = false;
+// Repairs as a plain price list, nothing to count or add up (Alan,
+// 2026-11-01: "it should just be transparent pricing… we do the math over
+// the phone"), so nobody is surprised when the cleaner marks bad boards.
+// Mockup first; true = on the customer's page too.
+const REPAIRS_PRICE_LIST_LIVE = false;
 const LASTS_V2: Record<PkgKey, string> = { essential: "2–3 yrs", signature: "4–5 yrs", legacy: "5–8 yrs" };
 const INCLUDES_V2 = ["Cleaning", "2 coats of stain", "Loose boards screwed in"];
 
@@ -645,6 +650,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   const expired = !!live?.expired;
   const discount = !expired;
   const copyV2 = PACKAGE_COPY_V2_LIVE || !dressed;
+  const repairPriceList = REPAIRS_PRICE_LIST_LIVE || !dressed;
   const packages = useMemo(() => PACKAGES.map((base) => {
     const p = copyV2 ? {
       ...base, lasts: LASTS_V2[base.key],
@@ -1244,24 +1250,49 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         </section>
 
         {/* Repairs */}
-        <section className="bg-white px-4 py-6">
-          <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
-          <div className="space-y-2.5">
-            <Counter label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
-              <Chips options={PICKETS} value={picketType} onChange={setPicketType} />
-            </Counter>
-            {PARTS.map((part) => (
-              <Counter key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
-            ))}
-            <Counter label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
-              <Chips options={POSTS} value={postType} onChange={setPostType} />
-            </Counter>
-          </div>
-          <div className="mt-3 flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
-            <span className="flex items-center gap-2 text-[15px] font-semibold"><Hammer className="h-4 w-4" style={{ color: "#E3BE63" }} /> Repairs</span>
-            <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
-          </div>
-        </section>
+        {repairPriceList ? (
+          <section className="bg-white px-4 py-6">
+            <SectionTitle kicker="Only if needed" title="Replacement prices" sub="So there are no surprises if our cleaner finds a bad board." />
+            <ul className="overflow-hidden rounded-2xl bg-[#F8F3E7] ring-1 ring-[#15130F]/10">
+              {[
+                { key: "picket", label: "Picket", what: "The upright boards", prices: PICKETS.map((x) => `${x.label} ${formatCurrency(x.price).replace(/\.00$/, "")}`) },
+                ...PARTS.map((x) => ({ key: x.key, label: x.label, what: x.what, prices: [formatCurrency(x.price).replace(/\.00$/, "")] })),
+                { key: "post", label: "Post", what: "The thick posts set in the ground", prices: POSTS.map((x) => `${x.label.replace(" fence", "")} ${formatCurrency(x.price).replace(/\.00$/, "")}`) },
+              ].map((r, i) => (
+                <li key={r.key} className={cn("flex items-center gap-3 px-3 py-2.5", i > 0 && "border-t border-[#15130F]/10")}>
+                  <span className="flex h-14 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-0.5 ring-1 ring-[#15130F]/10 [&_svg]:h-full [&_svg]:w-full"><FencePart part={r.key as FencePartKey} /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[16px] font-bold leading-tight">{r.label}</span>
+                    <span className="block text-[14px] leading-snug text-[#15130F]/70">{r.what}</span>
+                  </span>
+                  <span className="shrink-0 text-right text-[15px] font-bold leading-snug tabular-nums">
+                    {r.prices.map((x) => <span key={x} className="block">{x}</span>)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[14px] text-[#15130F]/70">Each, tax included. We bring the wood.</p>
+          </section>
+        ) : (
+          <section className="bg-white px-4 py-6">
+            <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
+            <div className="space-y-2.5">
+              <Counter label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+                <Chips options={PICKETS} value={picketType} onChange={setPicketType} />
+              </Counter>
+              {PARTS.map((part) => (
+                <Counter key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+              ))}
+              <Counter label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
+                <Chips options={POSTS} value={postType} onChange={setPostType} />
+              </Counter>
+            </div>
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
+              <span className="flex items-center gap-2 text-[15px] font-semibold"><Hammer className="h-4 w-4" style={{ color: "#E3BE63" }} /> Repairs</span>
+              <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
+            </div>
+          </section>
+        )}
 
         {/* Two chapters of the story, made to look different on purpose
             (Alan, 2026-10-12: "they look too similar… you're taking them
