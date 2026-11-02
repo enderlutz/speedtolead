@@ -100,8 +100,14 @@ def _long(iso: str) -> str:
     return f"{d.strftime('%A, %B')} {d.day}"
 
 
+# Form fills where the name box got an answer instead of a name (2026-11-02:
+# an invite opened "Hi No, it's Amy!").
+_NOT_A_NAME = {"no", "yes", "n/a", "na", "none", "test", "unknown", "customer", "x", "-", "."}
+
+
 def _first(lead: Lead) -> str:
-    return ((lead.contact_name or "").split() or ["there"])[0].title()
+    first = ((lead.contact_name or "").split() or ["there"])[0]
+    return "there" if first.strip().lower() in _NOT_A_NAME else first.title()
 
 
 def discount_cents(price_cents: int, kind: str, value: float) -> int:
