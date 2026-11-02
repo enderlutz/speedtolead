@@ -2120,6 +2120,25 @@ class JobVisit(Base):
     created_at = Column(Text, default="")
 
 
+class HoursLog(Base):
+    """The hours a worker types in at the end of the day (Alan, 2026-11-02:
+    "they log their hours at the end of the day… what time they started and
+    what time they finished"). One row per person per day, Houston times."""
+    __tablename__ = "hours_log"
+    __table_args__ = (UniqueConstraint("username", "work_date", name="uq_hours_log_user_day"),)
+
+    id = Column(Text, primary_key=True)
+    username = Column(Text, nullable=False)
+    name = Column(Text, default="")
+    work_date = Column(Text, nullable=False)    # YYYY-MM-DD
+    start = Column(Text, default="")            # "HH:MM", 24-hour
+    end = Column(Text, default="")
+    minutes = Column(Integer, default=0)
+    note = Column(Text, default="")
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 class ContentItem(Base):
     """A photo or video for social media (Alan, 2026-10-17). The file goes
     straight from the phone to Storage, untouched, so the quality stays

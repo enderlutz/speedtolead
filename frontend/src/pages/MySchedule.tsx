@@ -14,6 +14,7 @@ import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "@/components/schedule/look
 import type { MyJobTask, JobPhotoMeta, WeekCheckinKey } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 import { cn, errMessage } from "@/lib/utils";
+import MyHours from "@/components/MyHours";
 import { tr, isSpanish } from "@/lib/i18n";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
@@ -29,7 +30,7 @@ import { tr, isSpanish } from "@/lib/i18n";
 
 // Today, the next 3 days, the week (Mon–Sun) and Past (Alan, 2026-10-21:
 // "my goal is to schedule out a whole week for him").
-type Tab = "today" | "3day" | "week" | "past";
+type Tab = "today" | "3day" | "week" | "past" | "hours";
 
 function ctISO(offsetDays = 0): string {
   // Date arithmetic in Central Time so "today"/"tomorrow" boundaries match
@@ -1243,6 +1244,8 @@ export default function MySchedule() {
   }, [tab, anchor]);
 
   const load = useCallback(async (which: Tab) => {
+    // The hours tab loads its own (2026-11-02).
+    if (which === "hours") { setLoading(false); setRefreshing(false); return; }
     setLoading(true);
     // TEMPORARY: the employeefragne test account sees sample jobs (frontend
     // only, never hits the API/DB). Remove with the fakeSchedule import.
@@ -1347,6 +1350,7 @@ export default function MySchedule() {
         {tabBtn("3day", tr("3 days"))}
         {tabBtn("week", tr("Week"))}
         {tabBtn("past", tr("Past"))}
+        {tabBtn("hours", tr("Hours"))}
       </div>
 
       {/* ‹ Today › over the 3-day and week views, the Sterling black bar. */}
@@ -1359,7 +1363,9 @@ export default function MySchedule() {
         </div>
       ) : null}
 
-      {loading ? (
+      {tab === "hours" ? (
+        <MyHours />
+      ) : loading ? (
         <div className="text-center text-muted-foreground py-12">{tr("Loading…")}</div>
       ) : tab === "today" ? (
         <>

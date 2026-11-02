@@ -4062,6 +4062,12 @@ export const api = {
   markCompanyCamDone: (leadId: string, how?: PwFinishHow) =>
     request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`,
       how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
+  /** The hours a worker logs at the end of the day (2026-11-02). */
+  getMyHours: () => request<{ today: string; back_days: number; entries: HoursEntry[] }>("/api/my-hours"),
+  saveMyHours: (day: string, b: { start: string; end: string; note: string }) =>
+    request<HoursEntry>(`/api/my-hours/${day}`, { method: "PUT", body: JSON.stringify(b) }),
+  getCrewHours: (start = "", end = "") =>
+    request<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[] }>(`/api/crew-hours?start=${start}&end=${end}`),
   /** The worker it's on marks a job to fix done (2026-11-02). */
   myFixDone: (fixId: string) => request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST" }),
   /** Each worker's check-in and check-out on a job (2026-11-02). */
@@ -6576,6 +6582,9 @@ export interface PmMapPin {
   hidden?: boolean;
 }
 
+export interface HoursEntry {
+  date: string; username: string; name: string; start: string; end: string; minutes: number; hours: number; note: string; updated_at: string;
+}
 export interface JobVisit {
   username: string; name: string; date: string; task: string;
   arrived_at: string; last_photo_at: string; before: number; after: number;

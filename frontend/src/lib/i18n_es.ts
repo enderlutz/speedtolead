@@ -1,6 +1,18 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Hours": "Horas",
+  "Log your hours": "Anota tus horas",
+  "Yesterday": "Ayer",
+  "I started": "Empecé",
+  "I finished": "Terminé a las",
+  "A note (optional)": "Una nota (opcional)",
+  "Save my hours": "Guardar mis horas",
+  "Save the change": "Guardar el cambio",
+  "Your hours": "Tus horas",
+  "Hours saved": "Horas guardadas",
+  "Put the time you started and the time you finished": "Pon la hora en que empezaste y la hora en que terminaste",
+  "The finish time has to be after the start time": "La hora de terminar tiene que ser después de la de empezar",
   "Fix": "Arreglo",
   "Any day, stop by": "Cualquier día, pasa",
   "Done, I fixed it": "Listo, lo arreglé",

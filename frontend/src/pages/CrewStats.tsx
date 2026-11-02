@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type CrewStats as CrewStatsData } from "@/lib/api";
+import { api, type CrewStats as CrewStatsData, type HoursEntry } from "@/lib/api";
 import { toast } from "sonner";
 import { BarChart3, Loader2, Clock } from "lucide-react";
 
@@ -32,6 +32,8 @@ export default function CrewStats() {
           <label className="text-xs text-muted-foreground">To<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="block mt-0.5 text-sm rounded-md border bg-background px-2 py-1.5" /></label>
         </div>
       </div>
+
+      <LoggedHours start={start} end={end} />
 
       {loading && !data ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
@@ -102,3 +104,43 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 function Empty() { return <p className="text-xs text-muted-foreground">No data in this range.</p>; }
+
+
+/** What each worker typed in at the end of the day (2026-11-02): start,
+ *  finish and the hours, per day, with a total per person. Last 7 days
+ *  unless a range is picked above. */
+function LoggedHours({ start, end }: { start: string; end: string }) {
+  const [d, setD] = useState<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[] } | null>(null);
+  useEffect(() => { api.getCrewHours(start, end).then(setD).catch(() => toast.error("Couldn't load the logged hours")); }, [start, end]);
+  const clock = (hm: string) => { const [h, m] = hm.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+  const day = (iso: string) => { const [y, m, dd] = iso.split("-").map(Number); return new Date(y, m - 1, dd).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
+  return (
+    <Card title={`Hours they logged${d ? ` · ${day(d.start)} – ${day(d.end)}` : ""}`}>
+      {!d ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : !d.entries.length ? <Empty /> : (
+        <>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {d.totals.map((t) => (
+              <span key={t.name} className="rounded-lg bg-muted px-2.5 py-1 text-sm"><b>{t.name}</b> · {t.hours.toFixed(1)}h</span>
+            ))}
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b text-left text-xs uppercase text-muted-foreground">
+              <th className="py-1.5">Day</th><th>Worker</th><th>Started</th><th>Finished</th><th className="text-right">Hours</th>
+            </tr></thead>
+            <tbody>
+              {d.entries.map((e) => (
+                <tr key={`${e.username}-${e.date}`} className="border-b last:border-0">
+                  <td className="py-1.5">{day(e.date)}</td>
+                  <td>{e.name}{e.note ? <span className="block text-xs text-muted-foreground">{e.note}</span> : null}</td>
+                  <td className="tabular-nums">{clock(e.start)}</td><td className="tabular-nums">{clock(e.end)}</td>
+                  <td className="text-right font-semibold tabular-nums">{e.hours.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Card>
+  );
+}
+
