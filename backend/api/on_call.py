@@ -562,3 +562,64 @@ def scorecard(start: str = Query(...), end: str = Query(...), user: dict = Depen
         return {"rows": rows}
     finally:
         db.close()
+
+
+# ── Buckets (Alan, 2026-11-01) ──────────────────────────────────────────
+# Every priced lead in Call today / Warm / Cold / Done / Customers; the
+# rules live in services/lead_buckets.py.
+
+class DoneIn(BaseModel):
+    reason: str
+
+
+class HintIn(BaseModel):
+    text_at: str = ""
+
+
+@router.get("/on-call/buckets")
+def lead_buckets(user: dict = Depends(require_staff)):
+    del user
+    from services.lead_buckets import DONE_REASONS, buckets
+    db = get_db()
+    try:
+        return {**buckets(db), "reasons": DONE_REASONS}
+    finally:
+        db.close()
+
+
+def _bucket_lead(db, lead_id: str) -> Lead:
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return lead
+
+
+@router.post("/on-call/buckets/{lead_id}/done")
+def bucket_done(lead_id: str, body: DoneIn, user: dict = Depends(require_staff)):
+    from services.lead_buckets import mark_done
+    db = get_db()
+    try:
+        try:
+            mark_done(db, _bucket_lead(db, lead_id), body.reason, user.get("name") or user.get("sub") or "")
+        except ValueError:
+            raise HTTPException(400, "Pick a reason")
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/buckets/{lead_id}/not-done")
+def bucket_not_done(lead_id: str, body: HintIn, user: dict = Depends(require_staff)):
+    """Back out of Done, or wave off a Done suggestion until they text again."""
+    del user
+    from services.lead_buckets import dismiss_hint, undo_done
+    db = get_db()
+    try:
+        lead = _bucket_lead(db, lead_id)
+        if body.text_at:
+            dismiss_hint(db, lead, body.text_at)
+        else:
+            undo_done(db, lead)
+        return {"ok": True}
+    finally:
+        db.close()

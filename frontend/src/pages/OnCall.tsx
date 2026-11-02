@@ -14,8 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
+import LeadBuckets from "@/components/LeadBuckets";
 
-type Tab = "now" | "schedule" | "score" | "report" | "team";
+type Tab = "now" | "buckets" | "schedule" | "score" | "report" | "team";
 
 const ymd = (d: Date) => d.toLocaleDateString("en-CA");
 function monday(d: Date) {
@@ -58,12 +59,14 @@ export default function OnCall() {
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {btn("now", "Now")}
+        {btn("buckets", "Buckets")}
         {btn("schedule", "Schedule")}
         {isAdmin ? btn("score", "Scorecard") : null}
         {isAdmin ? btn("report", "Report") : null}
         {isAdmin ? btn("team", "Team") : null}
       </div>
       {tab === "now" ? <NowPanel /> : null}
+      {tab === "buckets" ? <LeadBuckets /> : null}
       {tab === "schedule" ? <SchedulePanel isAdmin={isAdmin} /> : null}
       {tab === "score" && isAdmin ? <ScorePanel /> : null}
       {tab === "report" && isAdmin ? <ReportPanel /> : null}

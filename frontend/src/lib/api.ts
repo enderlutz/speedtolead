@@ -2848,6 +2848,13 @@ export const api = {
   onCallCancelBreak: (id: string) => request<{ ok: boolean }>(`/api/on-call/breaks/${id}/cancel`, { method: "POST" }),
   onCallNotALead: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/not-a-lead`, { method: "POST" }),
   onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
+  /** Every priced lead in a bucket (Alan, 2026-11-01). */
+  onCallBuckets: () => request<{ a: BucketRow[]; b: BucketRow[]; c: BucketRow[]; d: BucketRow[]; customers: BucketRow[]; reasons: Record<string, string> }>("/api/on-call/buckets"),
+  bucketDone: (leadId: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/on-call/buckets/${leadId}/done`, { method: "POST", body: JSON.stringify({ reason }) }),
+  /** Back out of Done, or (with text_at) wave off a Done suggestion. */
+  bucketNotDone: (leadId: string, textAt = "") =>
+    request<{ ok: boolean }>(`/api/on-call/buckets/${leadId}/not-done`, { method: "POST", body: JSON.stringify({ text_at: textAt }) }),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
   onCallSchedule: (start: string, end: string) =>
@@ -6606,6 +6613,16 @@ export interface OnCallBreak {
   id: string; username: string; date: string; start_min: number; end_min: number;
   status: "open" | "taken" | "cancelled"; taken_by: string; name?: string; taken_by_name?: string;
 }
+export interface BucketRow {
+  lead_id: string; name: string; phone: string; address: string; price: number;
+  sent_at: string; viewed_at: string; views: number; last_talk: string;
+  last_text: string; last_text_at: string; why: string;
+  /** A Done suggestion read off their last text: said_no, hired_someone… */
+  hint: string;
+  done: { reason: string; label?: string; by?: string; at?: string } | null;
+  review?: string;
+}
+
 export interface OnCallTodoRow {
   lead_id: string; name: string; phone: string; address: string; created_at: string;
   came_in: string; refill: boolean;
