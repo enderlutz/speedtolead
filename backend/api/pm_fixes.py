@@ -168,7 +168,13 @@ def update_fix(fix_id: str, body: FixPatch, user: dict = Depends(require_admin))
                 raise HTTPException(400, "Say what needs doing")
             f.description = d
         if body.date is not None:
-            f.date = _day(body.date)
+            new_day = _day(body.date)
+            # Moved to another day = it still needs doing (Alan, 2026-11-02:
+            # a fix ticked done by mistake, then moved to tomorrow, never
+            # showed on Chris's schedule). Done stays only when said so.
+            if new_day != (f.date or "") and f.done_at and body.done is None:
+                f.done_at, f.done_by = "", ""
+            f.date = new_day
         if body.username is not None:
             f.username = body.username.strip()[:80]
         if body.done is not None:

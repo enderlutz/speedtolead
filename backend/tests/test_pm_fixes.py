@@ -58,6 +58,10 @@ def test_a_fix_waits_on_the_list_then_goes_on_a_day_then_done(db, monkeypatch):
     assert not any(x["id"] == f["id"] for x in pm.calendar("2026-11-02", "2026-11-08", user=ALAN)["fixes"])
     back = fx.update_fix(f["id"], fx.FixPatch(done=False), user=ALAN)
     assert back["done_at"] == ""
+    # Ticked done, then moved to another day: it still needs doing.
+    fx.update_fix(f["id"], fx.FixPatch(done=True), user=ALAN)
+    moved = fx.update_fix(f["id"], fx.FixPatch(date="2026-10-30"), user=ALAN)
+    assert moved["done_at"] == "" and moved["date"] == "2026-10-30"
 
     fx.delete_fix(f["id"], user=ALAN)
     assert not any(x["id"] == f["id"] for x in pm.calendar("2026-10-26", "2026-11-01", user=ALAN)["fixes"])
