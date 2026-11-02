@@ -130,6 +130,76 @@ def save_summary(db, place_info: dict | None = None, fetched_at: str | None = No
     return out
 
 
+# ── The count, from the Maps key (2026-11-02) ──────────────────────────────
+# The SerpAPI key was never added, so the nightly pull never ran and the
+# pages said 40 reviews for weeks while the listing had 48. Google Places
+# gives the rating and the review count with the Maps key Railway already
+# has; it runs nightly when there's no SerpAPI key. The reviews' words still
+# come from the pulled set.
+PLACE_ID_KEY = "google_place_id"
+PLACE_QUERY = "Sterling Fence Staining Houston"
+
+
+def _maps_key() -> str:
+    return (get_settings().google_maps_api_key or "").strip()
+
+
+def counts_configured() -> bool:
+    return bool(_maps_key())
+
+
+def _place_lookup(db) -> dict:
+    """{place_id, rating, total} from Places (legacy first, then the new API)."""
+    key = _maps_key()
+    pid = (SystemConfig.get(db, PLACE_ID_KEY, "") or "").strip()
+    if pid:
+        r = httpx.get("https://maps.googleapis.com/maps/api/place/details/json",
+                      params={"place_id": pid, "fields": "rating,user_ratings_total", "key": key}, timeout=20).json()
+        if r.get("status") == "OK":
+            res = r.get("result") or {}
+            return {"place_id": pid, "rating": res.get("rating"), "total": res.get("user_ratings_total")}
+    r = httpx.get("https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
+                  params={"input": PLACE_QUERY, "inputtype": "textquery", "fields": "place_id,name,rating,user_ratings_total", "key": key},
+                  timeout=20).json()
+    cands = r.get("candidates") or []
+    if r.get("status") == "OK" and cands:
+        c = cands[0]
+        return {"place_id": c.get("place_id"), "rating": c.get("rating"), "total": c.get("user_ratings_total")}
+    n = httpx.post("https://places.googleapis.com/v1/places:searchText", json={"textQuery": PLACE_QUERY},
+                   headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": "places.id,places.rating,places.userRatingCount"}, timeout=20).json()
+    places = n.get("places") or []
+    if places:
+        p = places[0]
+        return {"place_id": p.get("id"), "rating": p.get("rating"), "total": p.get("userRatingCount")}
+    raise RuntimeError(f"Places found nothing ({r.get('status')}: {r.get('error_message') or n.get('error', {}).get('message', '')})")
+
+
+def refresh_counts(db) -> dict:
+    """The rating and the review count, straight from the listing."""
+    if not counts_configured():
+        raise RuntimeError("No Google Maps key set.")
+    found = _place_lookup(db)
+    if found.get("place_id"):
+        SystemConfig.set(db, PLACE_ID_KEY, str(found["place_id"]))
+    old = summary(db)
+    total = int(found.get("total") or 0) or int(old.get("total") or 0)
+    # The listing only gives the count; anything new is taken as five-star
+    # only when the rating says nothing went below.
+    not_five = max(0, int(old.get("total") or 0) - int(old.get("five_star") or 0))
+    out = {"rating": float(found["rating"]) if found.get("rating") is not None else old.get("rating"),
+           "total": total, "five_star": max(0, total - not_five), "fetched_at": _now(), "source": "places"}
+    SystemConfig.set(db, SUMMARY_KEY, json.dumps(out))
+    return out
+
+
+def listing_url(db) -> str:
+    """Where "See all our reviews" goes: the listing on Google Maps."""
+    pid = (SystemConfig.get(db, PLACE_ID_KEY, "") or "").strip()
+    if pid:
+        return f"https://www.google.com/maps/search/?api=1&query=Sterling+Fence+Staining&query_place_id={pid}"
+    return "https://www.google.com/maps/search/?api=1&query=Sterling+Fence+Staining+Houston"
+
+
 def summary(db) -> dict:
     raw = SystemConfig.get(db, SUMMARY_KEY, "") or ""
     try:
@@ -165,7 +235,7 @@ def public_reviews(db) -> dict:
         it.pop("hidden", None)
     s = summary(db)
     return {"rating": s.get("rating"), "total": s.get("total", 0), "five_star": s.get("five_star", 0),
-            "fetched_at": s.get("fetched_at"), "reviews": items}
+            "fetched_at": s.get("fetched_at"), "url": listing_url(db), "reviews": items}
 
 
 # ── By hand ────────────────────────────────────────────────────────────────

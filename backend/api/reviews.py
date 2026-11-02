@@ -42,7 +42,7 @@ def refresh_reviews(user: dict = Depends(require_admin)):
     db = get_db()
     try:
         try:
-            out = gr.refresh(db)
+            out = gr.refresh(db) if gr.configured() else gr.refresh_counts(db)
         except Exception as e:  # noqa: BLE001 - the reason is the answer
             logger.warning("Google reviews refresh failed: %s", e)
             raise HTTPException(status_code=502, detail=f"Couldn't pull the reviews: {e}")

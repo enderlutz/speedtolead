@@ -399,6 +399,18 @@ async def _google_reviews_loop():
     except Exception as e:
         logger.error(f"Google reviews seed error: {e}")
     await asyncio.sleep(330)
+    # The count once on start, so a deploy brings it up to date.
+    if not gr.configured() and gr.counts_configured():
+        try:
+            def _first():
+                db = get_db()
+                try:
+                    return gr.refresh_counts(db)
+                finally:
+                    db.close()
+            logger.info(f"[GOOGLE REVIEWS] counts — {await asyncio.to_thread(_first)}")
+        except Exception as e:
+            logger.error(f"Google reviews counts error: {e}")
     while True:
         try:
             cst_now = clock.now_ct()
@@ -407,6 +419,16 @@ async def _google_reviews_loop():
                 nxt = nxt + timedelta(days=1)
             await asyncio.sleep(max(60, (nxt - cst_now).total_seconds()))
             if not gr.configured():
+                # No SerpAPI: just the rating and count off the listing.
+                if gr.counts_configured():
+                    def _counts():
+                        db = get_db()
+                        try:
+                            return gr.refresh_counts(db)
+                        finally:
+                            db.close()
+                    out = await asyncio.to_thread(_counts)
+                    logger.info(f"[GOOGLE REVIEWS] counts — {out}")
                 continue
 
             def _run():

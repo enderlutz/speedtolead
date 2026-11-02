@@ -60,7 +60,7 @@ export type PkgKey = "essential" | "signature" | "legacy";
  *  words, newest first. The counts come along but the page no longer
  *  prints them (Alan, 2026-10-12: "remove the number of reviews"). Null
  *  until fetched; sample cards show until then and when there are none. */
-type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
+type Reviews = { rating: number | null; total: number; five_star: number; url?: string; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
 import { API_BASE } from "@/lib/apiBase";
 
 function Avatar({ name, photo }: { name: string; photo: string }) {
@@ -1398,7 +1398,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               <ReviewCard key={text} author={who} photo="" text={text} when={when} phone={phone} />
             ))}
           </div>
-          <a href="https://g.page/r/CSqFYMG3SFFFEBM/review" target="_blank" rel="noopener noreferrer"
+          {/* Reading them, not writing one: the listing (2026-11-02). */}
+          <a href={reviews?.url || "https://www.google.com/maps/search/?api=1&query=Sterling+Fence+Staining+Houston"} target="_blank" rel="noopener noreferrer"
             className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15">
             See all our reviews on Google
           </a>

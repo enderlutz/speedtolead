@@ -31,7 +31,7 @@ export type BookingState = "held" | "confirmed";
  *  Live on real booking pages since 2026-10-29. */
 export type BookingTrust = {
   name: string; role: string; photo: string;
-  reviews?: { rating: number | null; total: number; quote?: { author: string; text: string } };
+  reviews?: { rating: number | null; total: number; url?: string; quote?: { author: string; text: string } };
 };
 
 const STEPS = ["Picked your package", "Date held", "Deposit paid", "Job day", "Final payment"];
@@ -493,14 +493,17 @@ function TrustPay({ trust, firstName, longDate, total, dep, paying, onPay, holdU
           <li className="flex gap-2.5"><Phone className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /><span>Questions? Call or text {first} at <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="font-bold underline">{PHONE}</a>.</span></li>
         </ul>
 
+        {/* Tap it to read every review on Google (Alan, 2026-11-02). */}
         {r && r.total > 0 ? (
-          <div className="rounded-2xl p-3.5 ring-1 ring-[#15130F]/10">
+          <a href={r.url || "https://www.google.com/maps/search/?api=1&query=Sterling+Fence+Staining+Houston"} target="_blank" rel="noopener noreferrer"
+             className="block rounded-2xl p-3.5 ring-1 ring-[#15130F]/10 active:bg-[#15130F]/5">
             <p className="flex items-center gap-1.5 text-[15px] font-bold">
               <span className="flex text-[#C9972F]">{[0, 1, 2, 3, 4].map((i) => <Star key={i} className="h-4 w-4 fill-current" />)}</span>
               {r.rating ? r.rating.toFixed(1) : "5.0"} on Google · {r.total} reviews
             </p>
             {r.quote ? <p className="mt-1.5 text-[15px] leading-snug">&ldquo;{r.quote.text}&rdquo; <span className="text-[#15130F]/60">— {r.quote.author}</span></p> : null}
-          </div>
+            <p className="mt-2 text-[15px] font-bold text-[#8C6224] underline underline-offset-2">See all {r.total} reviews on Google ›</p>
+          </a>
         ) : null}
 
         <p className="text-center text-[13px] leading-snug text-[#15130F]/60">

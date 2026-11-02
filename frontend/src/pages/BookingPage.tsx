@@ -23,7 +23,7 @@ type Booking = {
   sender?: { name: string; role: string; photo: string } | null;
 };
 
-type Reviews = { rating: number | null; total: number; reviews: { author: string; rating: number; text: string }[] };
+type Reviews = { rating: number | null; total: number; url?: string; reviews: { author: string; rating: number; text: string }[] };
 
 export default function BookingPage() {
   const { token } = useParams<{ token: string }>();
@@ -94,7 +94,7 @@ export default function BookingPage() {
   const trust: BookingTrust | undefined = b.sender && photoOk ? {
     ...b.sender,
     reviews: reviews && reviews.total > 0 ? {
-      rating: reviews.rating, total: reviews.total,
+      rating: reviews.rating, total: reviews.total, url: reviews.url,
       quote: quote ? { author: quote.author.split(" ")[0], text: quote.text } : undefined,
     } : undefined,
   } : undefined;
