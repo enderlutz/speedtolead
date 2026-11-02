@@ -1,6 +1,10 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Fix": "Arreglo",
+  "Any day, stop by": "Cualquier día, pasa",
+  "Done, I fixed it": "Listo, lo arreglé",
+  "Done. Thank you!": "Listo. ¡Gracias!",
   "I'm here": "Ya llegué",
   "Take 5 photos of the fence before you start.": "Toma 5 fotos de la cerca antes de empezar.",
   "Take a before photo": "Tomar foto de antes",

@@ -4062,6 +4062,8 @@ export const api = {
   markCompanyCamDone: (leadId: string, how?: PwFinishHow) =>
     request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`,
       how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
+  /** The worker it's on marks a job to fix done (2026-11-02). */
+  myFixDone: (fixId: string) => request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST" }),
   /** Each worker's check-in and check-out on a job (2026-11-02). */
   getJobVisits: (leadId: string) => request<JobVisitsPayload>(`/api/company-cam/${leadId}/visits`),
   leaveJob: (leadId: string, b: { reason: string; note?: string; done?: Record<string, number>; task?: string }) =>

@@ -929,7 +929,9 @@ function DailyCheckInCard() {
   );
 }
 
-type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: "" | "flat" | "hourly" | "included"; pay?: number };
+type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: "" | "flat" | "hourly" | "included"; pay?: number;
+  /** A job to fix (2026-11-02): what to do there, and whether it's "any day, stop by". */
+  fix_id?: string; fix_note?: string; any_day?: boolean };
 
 /** "$100" for a flat day, "$16/hr" hourly, "in the flat" for a day that's
  *  part of a flat on another day of the same job, "" when the office hasn't set it. */
@@ -940,7 +942,7 @@ function payLabel(j: CamJob): string {
   return j.pay_type === "hourly" ? `${n}/${tr("hr")}` : n;
 }
 
-const TASK_BG: Record<string, string> = { staining: "bg-cedar", cleaning: "bg-ink", pressure_washing: "bg-walnut", repairs: "bg-stone-600", "": "bg-walnut/70" };
+const TASK_BG: Record<string, string> = { staining: "bg-cedar", cleaning: "bg-ink", pressure_washing: "bg-walnut", repairs: "bg-stone-600", fix: "bg-red-700", "": "bg-walnut/70" };
 const dayWords = (iso: string) => {
   if (!iso) return tr("Day not set yet");
   const [y, m, d] = iso.split("-").map(Number);
@@ -952,20 +954,50 @@ function nthOf(j: CamJob, sameDay: CamJob[]): string {
   const i = sameDay.indexOf(j) + 1;
   return isSpanish() ? `${i}º` : `${i}${i === 1 ? "st" : i === 2 ? "nd" : i === 3 ? "rd" : "th"}`;
 }
-const taskWord = (t: string | undefined) => t === "staining" ? tr("Staining") : t === "cleaning" ? tr("Fence cleaning") : t === "pressure_washing" ? tr("Pressure washing") : t === "repairs" ? tr("Fence repairs") : tr("Job");
+const taskWord = (t: string | undefined) => t === "staining" ? tr("Staining") : t === "cleaning" ? tr("Fence cleaning") : t === "pressure_washing" ? tr("Pressure washing") : t === "repairs" ? tr("Fence repairs") : t === "fix" ? tr("Fix") : tr("Job");
 /** One customer, one row (Alan, 2026-10-21): the same day's rows for a job
  *  fold into the first, every task on the badge. */
 function foldByJob(rows: CamJob[]): (CamJob & { tasks: string[] })[] {
   const out: (CamJob & { tasks: string[] })[] = [];
   for (const r of rows) {
-    const m = out.find((o) => o.lead_id === r.lead_id && o.date === r.date);
+    const m = r.fix_id ? undefined : out.find((o) => !o.fix_id && o.lead_id === r.lead_id && o.date === r.date);
     if (m) { if (r.task && !m.tasks.includes(r.task)) m.tasks.push(r.task); } else out.push({ ...r, tasks: r.task ? [r.task] : [] });
   }
   return out;
 }
 /** One Company Cam job for this person: the task in the Sterling colour,
  *  the customer, the address, their own pay. Tap to open the job. */
+/** A job to fix, on the crew's own day (2026-11-02): red, what to do there,
+ *  and Done when it's done. */
+function FixRow({ j }: { j: CamJob }) {
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const finish = async () => {
+    setBusy(true);
+    try { await api.myFixDone(j.fix_id!); setDone(true); toast.success(tr("Done. Thank you!")); }
+    catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); } finally { setBusy(false); }
+  };
+  return (
+    <div className={cn("rounded-xl p-2.5 shadow-sm ring-2 ring-red-600/60", PAPER, done && "opacity-60")}>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-md bg-red-700 px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide text-white">✕ {tr("Fix")}</span>
+        {j.any_day ? <span className={cn("text-[14px] font-semibold text-red-800")}>{tr("Any day, stop by")}</span> : null}
+      </span>
+      {j.lead_id ? (
+        <Link to={`/company-cam/${j.lead_id}`} className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug underline-offset-2 hover:underline">{(j.name || tr("Customer")).toLowerCase()}</Link>
+      ) : <span className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug">{(j.name || "").toLowerCase()}</span>}
+      {j.address ? <span className={cn("flex items-center gap-1 truncate text-[14px]", MUTED)}><MapPin className="h-3.5 w-3.5 shrink-0" />{j.address}</span> : null}
+      {j.fix_note ? <p className="mt-1 text-[16px] font-bold leading-snug">🔧 {j.fix_note}</p> : null}
+      <button type="button" disabled={busy || done} onClick={() => void finish()}
+              className="mt-2 min-h-12 w-full rounded-xl bg-emerald-600 text-base font-black text-white disabled:opacity-50">
+        {done ? `✓ ${tr("Done")}` : tr("Done, I fixed it")}
+      </button>
+    </div>
+  );
+}
+
 function CamJobRow({ j, nth, showDay }: { j: CamJob & { tasks?: string[] }; nth: string; showDay: boolean }) {
+  if (j.fix_id) return <FixRow j={j} />;
   const tasks = j.tasks?.length ? j.tasks : [j.task || ""];
   // The task is a small pill over the name, so the name gets the whole line
   // on a phone (it used to read "Mich…" next to a wide badge).

@@ -1615,6 +1615,22 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
                     rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"],
                                  "order": effective_order(_crew_entries(jobs_by_lead.get(lid)), e),
                                  "pay_type": e["pay_type"], "pay": e["pay"]})
+            # Their jobs to fix (Alan, 2026-11-02: a customer's trash-wood pickup never
+            # showed on Jose's calendar; fix jobs only lived on PM HQ). An
+            # open one on a day that went by, or with no day, shows today
+            # until it's done: "stop by on the way".
+            from database import FixJob
+            from api.job_visits import today as houston_today
+            day0 = houston_today()
+            for f in db.query(FixJob).filter(FixJob.done_at == "").all():
+                if (f.username or "").lower() != me:
+                    continue
+                lead = db.query(Lead).filter(Lead.id == f.lead_id).first() if f.lead_id else None
+                rows.append({"lead_id": f.lead_id or "", "name": (lead.contact_name if lead else "") or f.name or "",
+                             "address": (lead.address if lead else "") or "",
+                             "date": f.date if f.date and f.date >= day0 else day0, "task": "fix",
+                             "fix_id": f.id, "fix_note": f.description or "", "any_day": not f.date,
+                             "order": 0, "pay_type": "", "pay": 0.0})
         else:
             rows = list(out.values())
         # Within a day, the order the office set in PM HQ (unset ones last).

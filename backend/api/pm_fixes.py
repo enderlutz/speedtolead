@@ -192,3 +192,23 @@ def delete_fix(fix_id: str, user: dict = Depends(require_admin)):
         return {"ok": True}
     finally:
         db.close()
+
+
+@router.post("/my-fixes/{fix_id}/done")
+def my_fix_done(fix_id: str, user: dict = Depends(get_current_user)):
+    """The worker it's on taps Done (2026-11-02)."""
+    db = get_db()
+    try:
+        f = db.query(FixJob).filter(FixJob.id == fix_id).first()
+        if f is None:
+            raise HTTPException(404, "That job to fix is gone")
+        if (f.username or "").lower() != str(user.get("sub") or "").lower() and user.get("role") != "admin":
+            raise HTTPException(403, "That one isn't on you")
+        if not f.done_at:
+            now = datetime.now(timezone.utc).isoformat()
+            f.done_at, f.done_by, f.updated_at = now, str(user.get("name") or user.get("sub") or ""), now
+            db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
