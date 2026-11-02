@@ -1630,7 +1630,8 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
                              "address": (lead.address if lead else "") or "",
                              "date": f.date if f.date and f.date >= day0 else day0, "task": "fix",
                              "fix_id": f.id, "fix_note": f.description or "", "any_day": not f.date,
-                             "order": 0, "pay_type": "", "pay": 0.0})
+                             # After the day's jobs: a stop on the way, never first.
+                             "order": 1000, "pay_type": "", "pay": 0.0})
         else:
             rows = list(out.values())
         # Within a day, the order the office set in PM HQ (unset ones last).
