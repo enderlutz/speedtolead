@@ -19,7 +19,13 @@ const fmt = (iso: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour:
 const TASKS: { key: string; label: string }[] = [
   { key: "cleaning", label: "Cleaning" }, { key: "staining", label: "Staining" }, { key: "repairs", label: "Repairs" },
 ];
-const famOf = (task: string) => (task === "cleaning" ? "clean" : task ? "stain" : "");
+const famOf = (task: string) => (task === "cleaning" ? "clean" : task === "pressure_washing" ? "pw" : task ? "stain" : "");
+// Several tasks in a day, kept as "cleaning,staining" (Alan, 2026-11-02): the
+// before photos are the first task's, the after photos the last's.
+const ORDER = ["cleaning", "repairs", "staining", "pressure_washing"];
+const tasksOf = (t: string) => ORDER.filter((k) => (t || "").split(",").includes(k));
+const beforeSec = (v: JobVisitsPayload, t: string) => v.before_section || (tasksOf(t)[0] ? `${famOf(tasksOf(t)[0])}_before` : "");
+const afterSec = (v: JobVisitsPayload, t: string) => v.after_section || (tasksOf(t).length ? `${famOf(tasksOf(t)[tasksOf(t).length - 1])}_after` : "");
 type Upload = (section: string, files: FileList | File[] | null, typedAt?: string) => Promise<void>;
 /** Queued photos in a section, on a day (today when none). */
 type Pending = (section: string, day?: string) => number;
@@ -140,9 +146,14 @@ export function CheckInCard({ v, pending, task, setTask, upload, uploading }: {
   v: JobVisitsPayload; pending: Pending; task: string; setTask: (t: string) => void;
   upload: Upload; uploading: string;
 }) {
-  const fam = v.family || famOf(task);
+  const fam = v.family || famOf(tasksOf(task)[0] || "");
   if (fam === "pw") return null;   // a washing day keeps its own steps
-  const section = fam ? `${fam}_before` : "";
+  const section = beforeSec(v, task);
+  // Pick as many as they're doing today.
+  const toggle = (k: string) => {
+    const on = tasksOf(task);
+    setTask((on.includes(k) ? on.filter((x) => x !== k) : [...on, k]).join(","));
+  };
   const n = (v.me?.before || 0) + (section ? pending(section) : 0);
   const done = n >= v.need;
   return (
@@ -157,12 +168,12 @@ export function CheckInCard({ v, pending, task, setTask, upload, uploading }: {
           <p className="mt-0.5 text-lg font-bold leading-snug">{tr("Take 5 photos of the fence before you start.")}</p>
           {!v.task ? (
             <div className="mt-3">
-              <p className="mb-1.5 text-base font-semibold">{tr("What are you doing today?")}</p>
+              <p className="mb-1.5 text-base font-semibold">{tr("What are you doing today?")} <span className="font-normal text-black/60">{tr("Pick all that apply")}</span></p>
               <div className="grid grid-cols-3 gap-1.5">
                 {TASKS.map((t) => (
-                  <button key={t.key} type="button" onClick={() => setTask(t.key)}
-                          className={cn("min-h-12 rounded-xl text-base font-bold ring-1", task === t.key ? "bg-ink text-white ring-ink" : "bg-white ring-black/15")}>
-                    {tr(t.label)}
+                  <button key={t.key} type="button" onClick={() => toggle(t.key)} aria-pressed={tasksOf(task).includes(t.key)}
+                          className={cn("min-h-12 rounded-xl text-base font-bold ring-1", tasksOf(task).includes(t.key) ? "bg-ink text-white ring-ink" : "bg-white ring-black/15")}>
+                    {tasksOf(task).includes(t.key) ? "✓ " : ""}{tr(t.label)}
                   </button>
                 ))}
               </div>
@@ -183,7 +194,9 @@ export function CheckInCard({ v, pending, task, setTask, upload, uploading }: {
 
 /** For the stainer and the repair worker: the cleaner's notes on top. */
 export function FromTheCleaner({ job, task, onPhotos }: { job: CompanyCamJob; task: string; onPhotos: () => void }) {
-  if (!task || task === "cleaning" || task === "pressure_washing" || job.no_cleaning) return null;
+  // The stainer or repair worker, on a day the cleaning was done before.
+  const ts = tasksOf(task);
+  if (!ts.length || ts.includes("cleaning") || !(ts.includes("staining") || ts.includes("repairs")) || job.no_cleaning) return null;
   const notes = (job.cleaning_notes || "").trim();
   const color = job.final_color || job.color || "";
   return (
@@ -215,15 +228,16 @@ export function LeaveBar({ leadId, v, job, task, pending, upload, uploading, onL
   const [earlier, setEarlier] = useState(false);
   const [lday, setLday] = useState(v.today);
   const [ltime, setLtime] = useState("");
-  const fam = v.family || famOf(task);
+  const fam = v.family || famOf(tasksOf(task)[0] || "");
   if (fam === "pw") return null;
+  const bSec = beforeSec(v, task), aSec = afterSec(v, task);
   const me: JobVisit | null = v.me;
   // The day being checked out: today, or one they forgot this week.
   const day = earlier ? lday : v.today;
   const dv = day === v.today ? me : (v.earlier || []).find((x) => x.date === day) || null;
-  const before = (dv?.before || 0) + (fam ? pending(`${fam}_before`, day) : 0);
-  const after = (dv?.after || 0) + (fam ? pending(`${fam}_after`, day) : 0);
-  const todayBefore = (me?.before || 0) + (fam ? pending(`${fam}_before`) : 0);
+  const before = (dv?.before || 0) + (bSec ? pending(bSec, day) : 0);
+  const after = (dv?.after || 0) + (aSec ? pending(aSec, day) : 0);
+  const todayBefore = (me?.before || 0) + (bSec ? pending(bSec) : 0);
   const leftAt = earlier ? toIso(lday, ltime) : "";
   const future = !!leftAt && new Date(leftAt).getTime() > Date.now() + 5 * 60_000;
   // Days this week they started and never checked out.
@@ -303,8 +317,8 @@ export function LeaveBar({ leadId, v, job, task, pending, upload, uploading, onL
                     {tr("Before photos that day")}: {before}/{v.need}
                   </p>
                 ) : null}
-                {before < v.need && fam ? (
-                  <div className="mt-2"><ForgotButton day={lday} onFiles={(f, at) => void upload(`${fam}_before`, f, at)} /></div>
+                {before < v.need && bSec ? (
+                  <div className="mt-2"><ForgotButton day={lday} onFiles={(f, at) => void upload(bSec, f, at)} /></div>
                 ) : null}
               </div>
             ) : null}
@@ -312,8 +326,8 @@ export function LeaveBar({ leadId, v, job, task, pending, upload, uploading, onL
             <div className="mt-2 space-y-2">
               <Count n={after} need={v.need} />
               {earlier && lday !== v.today ? null
-                : <CameraButton label="Take an after photo" busy={uploading === `${fam}_after`} onFiles={(f) => void upload(`${fam}_after`, f)} />}
-              <ForgotButton day={earlier ? lday : undefined} onFiles={(f, at) => void upload(`${fam}_after`, f, at)} />
+                : <CameraButton label="Take an after photo" busy={uploading === aSec} onFiles={(f) => void upload(aSec, f)} />}
+              <ForgotButton day={earlier ? lday : undefined} onFiles={(f, at) => void upload(aSec, f, at)} />
             </div>
             <p className="mb-1.5 mt-4 text-base font-semibold">{tr("Why are you leaving?")}</p>
             <div className="grid gap-1.5">
@@ -371,7 +385,7 @@ export function WhoWasHere({ v }: { v: JobVisitsPayload | null }) {
           const did = Object.entries(x.done || {}).map(([k, n]) => `${n} ${k}`).join(", ");
           return (
             <li key={`${x.username}-${x.date}`} className="py-2 text-sm">
-              <p className="font-semibold">{x.name} · {new Date(`${x.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}{x.task ? ` · ${x.task}` : ""}</p>
+              <p className="font-semibold">{x.name} · {new Date(`${x.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}{x.task ? ` · ${x.task.split(",").join(" + ")}` : ""}</p>
               <p className="text-muted-foreground">
                 {x.arrived_at ? `Got here ${fmt(x.arrived_at)}${x.arrived_typed ? " (typed)" : ""}` : "No before photos"}
                 {x.left_at ? ` · left ${fmt(x.left_at)}${x.left_typed ? " (typed)" : ""} (${x.reason_label})` : x.last_photo_at ? ` · last photo ${fmt(x.last_photo_at)}, no check-out` : ""}

@@ -167,3 +167,27 @@ def test_no_after_photos_means_no_auto_check_out(db, setup):
     _photos(db, lead, "jose", "clean_before", 5, 14)
     jv.close_forgotten(db, DAY)
     assert not jv.visits(db, lead.id)[0]["left_at"]
+
+
+def test_cleaning_and_staining_the_same_day(db, setup, monkeypatch):
+    """2026-11-02: one worker cleans and stains in a day. Before photos are the
+    cleaning's, after photos the staining's, and Finished closes the job."""
+    lead = _job(db, [{"username": "jose", "date": DAY, "task": "staining"}, {"username": "jose", "date": DAY, "task": "cleaning"}])
+    closed = []
+    import api.company_cam as cc
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: closed.append(lead_id))
+    v = jv.get_visits(lead.id, {"sub": "jose"})
+    assert v["task"] == "cleaning,staining" and v["before_section"] == "clean_before" and v["after_section"] == "stain_after"
+    _photos(db, lead, "jose", "clean_before", 5, 14)
+    _photos(db, lead, "jose", "stain_after", 5, 20)
+    assert jv.leave(lead.id, jv.LeaveBody(reason="finished"), {"sub": "jose", "name": "Jose"})["job_done"] is True
+
+
+def test_the_crew_can_pick_repairs_and_staining(db, setup, monkeypatch):
+    lead = _job(db, [])
+    import api.company_cam as cc
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: None)
+    _photos(db, lead, "jose", "stain_before", 5, 14)
+    _photos(db, lead, "jose", "stain_after", 5, 18)
+    assert jv.leave(lead.id, jv.LeaveBody(reason="finished", task="staining,repairs"), {"sub": "jose", "name": "Jose"})["job_done"] is True
+    assert jv.visits(db, lead.id)[0]["task"] == "repairs,staining"

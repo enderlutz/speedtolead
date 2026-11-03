@@ -42,6 +42,17 @@ REASONS = {
 STOPPED = ("rain", "scope")
 # The photo sections a task's before and after go in.
 FAMILY = {"cleaning": "clean", "staining": "stain", "repairs": "stain", "pressure_washing": "pw"}
+# Several tasks in one day (Alan, 2026-11-02: cleaning and staining together,
+# or repairs then staining): the before photos are the first task's, the
+# after photos the last's. A day's tasks are kept as "cleaning,staining".
+ORDER = ("cleaning", "repairs", "staining", "pressure_washing")
+FINISHING = {"staining", "repairs"}
+
+
+def tasks_of(task: str) -> list[str]:
+    """ "staining,cleaning" -> ["cleaning", "staining"], in the order they're done."""
+    got = {t for t in (task or "").split(",") if t in FAMILY}
+    return [t for t in ORDER if t in got]
 
 
 def _houston_day(iso: str) -> str:
@@ -64,16 +75,14 @@ def _now() -> str:
 
 
 def task_for(job: CompanyCamJob | None, username: str, day: str) -> str:
-    """This worker's task on this job that day, from the crew list."""
+    """This worker's tasks on this job that day, from the crew list, as
+    "cleaning,staining" (one when there's one)."""
     u = (username or "").lower()
     mine = [c for c in _crew_entries(job) if c["username"].lower() == u]
-    for c in mine:
-        if c["date"] == day and c["task"]:
-            return c["task"]
-    for c in mine:
-        if not c["date"] and c["task"]:
-            return c["task"]
-    return ""
+    today_tasks = [c["task"] for c in mine if c["date"] == day and c["task"]]
+    if not today_tasks:
+        today_tasks = [c["task"] for c in mine if not c["date"] and c["task"]][:1]
+    return ",".join(tasks_of(",".join(today_tasks)))
 
 
 def family_of(section: str) -> str:
@@ -167,10 +176,11 @@ def get_visits(lead_id: str, user: dict = Depends(get_current_user)):
         week = (datetime.fromisoformat(day) - timedelta(days=TYPED_DAYS - 1)).strftime("%Y-%m-%d")
         earlier = [v for v in vs if v["username"].lower() == sub.lower() and week <= v["date"] < day]
         task = task_for(job, sub, day)
-        fam = FAMILY.get(task, "")
-        return {"need": NEED, "today": day, "task": task, "family": fam,
-                "before_section": f"{fam}_before" if fam in ("clean", "stain") else "",
-                "after_section": f"{fam}_after" if fam in ("clean", "stain") else "",
+        ts = tasks_of(task)
+        first, last = (FAMILY[ts[0]], FAMILY[ts[-1]]) if ts else ("", "")
+        return {"need": NEED, "today": day, "task": task, "family": first,
+                "before_section": f"{first}_before" if first in ("clean", "stain") else "",
+                "after_section": f"{last}_after" if last in ("clean", "stain") else "",
                 "me": mine, "earlier": earlier, "visits": vs, "reasons": REASONS, "needs_another_day": needs_another_day(db, lead_id)}
     finally:
         db.close()
@@ -202,7 +212,7 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
             from api.company_cam import _taken_at_typed
             left_at, typed = _taken_at_typed(body.left_at), True
         day = _houston_day(left_at)
-        task = task_for(job, sub, day) or (body.task if body.task in FAMILY else "")
+        task = task_for(job, sub, day) or ",".join(tasks_of(body.task))
         mine = next((v for v in visits(db, lead_id) if v["username"].lower() == sub.lower() and v["date"] == day), None)
         before, after = (mine or {}).get("before", 0), (mine or {}).get("after", 0)
         if before < NEED or after < NEED:
@@ -232,7 +242,7 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
         job_done = False
         # The job is done when the last worker on a staining or repair day
         # leaves with Finished; a cleaning day finishing is just that day.
-        if body.reason == "finished" and task in ("staining", "repairs") and job is not None and not job.completed_at:
+        if body.reason == "finished" and set(tasks_of(task)) & FINISHING and job is not None and not job.completed_at:
             others = [v for v in visits(db, lead_id) if v["date"] == day and v["username"].lower() != sub.lower()
                       and v["before"] and not v["left_at"]]
             if not others:
@@ -294,7 +304,7 @@ def close_forgotten(db, day: str) -> list[str]:
         if any(c["date"] > day and c["task"] in ("staining", "repairs") for c in _crew_entries(job)):
             continue
         day_vs = [v for v in visits(db, lead_id) if v["date"] == day]
-        finished = any(v["task"] in ("staining", "repairs") and v["after"] for v in day_vs)
+        finished = any(set(tasks_of(v["task"])) & FINISHING and v["after"] for v in day_vs)
         if not finished:
             continue
         last = max(v["last_photo_at"] for v in day_vs if v["last_photo_at"])
