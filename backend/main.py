@@ -174,6 +174,21 @@ async def _morning_text_loop():
         await asyncio.sleep(300)
 
 
+async def _forgot_checkout_loop():
+    """Background task: after 9 PM, check out anyone who forgot and close the
+    jobs that finished at their last photo (Alan, 2026-11-02). Hourly."""
+    await asyncio.sleep(240)
+    while True:
+        try:
+            from api.job_visits import sweep as visits_sweep
+            closed = await asyncio.to_thread(visits_sweep)
+            if closed:
+                logger.info(f"Forgot-checkout sweep closed {len(closed)} job(s)")
+        except Exception as e:
+            logger.error(f"Forgot-checkout sweep error: {e}")
+        await asyncio.sleep(3600)
+
+
 async def _call_tone_backlog_loop():
     """Background task: starts the tone backlog at the time set in
     SystemConfig call_tone_backlog_at (Alan, 2026-10-31: 11 PM tonight)."""
@@ -791,6 +806,7 @@ async def lifespan(app: FastAPI):
     calendar_delete_loop = asyncio.create_task(_calendar_delete_loop())  # noqa: F841
     plaud_brief_loop = asyncio.create_task(_plaud_brief_loop())  # noqa: F841
     morning_text_loop = asyncio.create_task(_morning_text_loop())  # noqa: F841
+    forgot_checkout_loop = asyncio.create_task(_forgot_checkout_loop())  # noqa: F841
     tone_backlog_loop = asyncio.create_task(_call_tone_backlog_loop())  # noqa: F841
     fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())

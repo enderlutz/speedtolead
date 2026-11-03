@@ -243,3 +243,81 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
         return {"ok": True, "job_done": job_done}
     finally:
         db.close()
+
+
+# Forgot to check out (Alan, 2026-11-02: one stainer checked out, the other
+# didn't, so the job never closed). After the day, anyone who came and
+# took photos but never tapped Check out is checked out at their last photo,
+# and a staining or repair day where someone finished closes the job at the
+# day's last photo. Nobody has to remember to tap.
+SWEEP_AFTER_HOUR = 21     # 9 PM Houston, once the crews are home
+SWEEP_DAYS_BACK = 3
+
+
+def close_forgotten(db, day: str) -> list[str]:
+    """Check out everyone left open on `day` and close the jobs that finished.
+    Returns the lead ids closed. Commits."""
+    closed: list[str] = []
+    # Stored in UTC: a Houston evening is the next UTC day, so look at both.
+    nxt = (datetime.fromisoformat(day) + timedelta(days=1)).strftime("%Y-%m-%d")
+    lead_ids = {r.lead_id for r in db.query(CompanyCamPhoto.lead_id).filter(
+        CompanyCamPhoto.taken_at.like(f"{day}%") | CompanyCamPhoto.taken_at.like(f"{nxt}%")
+        | CompanyCamPhoto.uploaded_at.like(f"{day}%") | CompanyCamPhoto.uploaded_at.like(f"{nxt}%")).distinct()}
+    for lead_id in lead_ids:
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+        if job is None:
+            continue
+        today_vs = [v for v in visits(db, lead_id) if v["date"] == day and (v["before"] or v["after"])]
+        if not today_vs:
+            continue
+        for v in today_vs:
+            # No after photos = we don't know when they finished; leave it for them.
+            if v["left_at"] or not v["after"] or not v["last_photo_at"]:
+                continue
+            row = (db.query(JobVisit).filter(JobVisit.lead_id == lead_id, JobVisit.username == v["username"],
+                                             JobVisit.work_date == day).first())
+            if row is None:
+                row = JobVisit(id=str(uuid.uuid4()), lead_id=lead_id, username=v["username"], work_date=day, created_at=_now())
+                db.add(row)
+            row.name, row.task = v["name"], v["task"]
+            row.reason = row.reason or "finished"
+            row.note = row.note or "No check-out tapped; the last photo is the time they left"
+            row.done_json = row.done_json or "{}"
+            row.left_at = v["last_photo_at"]
+        db.commit()
+        if job.completed_at:
+            continue
+        # A staining or repair day that someone finished, and nobody stopped for rain or a changed job.
+        if any(v["reason"] in STOPPED or v["reason"] == "other" for v in visits(db, lead_id) if v["date"] == day):
+            continue
+        # More staining or repair days still on the crew list: not done yet.
+        if any(c["date"] > day and c["task"] in ("staining", "repairs") for c in _crew_entries(job)):
+            continue
+        day_vs = [v for v in visits(db, lead_id) if v["date"] == day]
+        finished = any(v["task"] in ("staining", "repairs") and v["after"] for v in day_vs)
+        if not finished:
+            continue
+        last = max(v["last_photo_at"] for v in day_vs if v["last_photo_at"])
+        from api.company_cam import mark_job_done
+        mark_job_done(lead_id, None, {"sub": "system", "name": "Auto (last photo)", "role": "admin"})
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+        db.refresh(job)
+        job.completed_at = last
+        db.commit()
+        closed.append(lead_id)
+    return closed
+
+
+def sweep() -> list[str]:
+    """Run after 9 PM Houston for today and the last few days."""
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("America/Chicago"))
+    start = 0 if now.hour >= SWEEP_AFTER_HOUR else 1
+    db = get_db()
+    try:
+        out = []
+        for back in range(start, SWEEP_DAYS_BACK + 1):
+            out += close_forgotten(db, (now - timedelta(days=back)).strftime("%Y-%m-%d"))
+        return out
+    finally:
+        db.close()

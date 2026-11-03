@@ -116,3 +116,54 @@ def test_a_typed_time_cant_be_in_the_future_or_weeks_back():
     for bad in ["", (now + timedelta(hours=2)).isoformat(), (now - timedelta(days=20)).isoformat()]:
         with pytest.raises(HTTPException):
             _taken_at_typed(bad)
+
+
+def test_someone_who_forgot_to_check_out_leaves_at_their_last_photo_and_the_job_closes(db, setup, monkeypatch):
+    """2026-11-02: one stainer checked out, the other didn't, the job stayed open."""
+    from database import CompanyCamJob
+    lead = _job(db, [{"username": "christian", "date": DAY, "task": "staining"}, {"username": "jose", "date": DAY, "task": "staining"}])
+    closed = []
+    import api.company_cam as cc
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: closed.append(lead_id))
+    _photos(db, lead, "christian", "stain_before", 5, 14)
+    _photos(db, lead, "jose", "stain_before", 5, 15)
+    _photos(db, lead, "christian", "stain_after", 5, 19)
+    _photos(db, lead, "jose", "stain_after", 3, 20)          # last photo 20:02 UTC, no check-out
+    jv.leave(lead.id, jv.LeaveBody(reason="finished"), {"sub": "christian", "name": "Christian"})
+    assert closed == []                                        # Jose is still "there"
+    assert jv.close_forgotten(db, DAY) == [lead.id]
+    jose = next(v for v in jv.visits(db, lead.id) if v["username"] == "jose")
+    assert jose["left_at"].startswith(f"{DAY}T20:02") and jose["reason"] == "finished"
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert job.completed_at.startswith(f"{DAY}T20:02")
+    assert jv.close_forgotten(db, DAY) == []                   # once
+
+
+def test_a_rained_out_day_is_checked_out_but_never_closed(db, setup, monkeypatch):
+    lead = _job(db, [{"username": "jose", "date": DAY, "task": "staining"}, {"username": "christian", "date": DAY, "task": "staining"}])
+    closed = []
+    import api.company_cam as cc
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: closed.append(lead_id))
+    for who in ("jose", "christian"):
+        _photos(db, lead, who, "stain_before", 5, 14)
+        _photos(db, lead, who, "stain_after", 5, 16)
+    jv.leave(lead.id, jv.LeaveBody(reason="rain"), {"sub": "jose", "name": "Jose"})
+    assert jv.close_forgotten(db, DAY) == [] and closed == []
+    assert next(v for v in jv.visits(db, lead.id) if v["username"] == "christian")["left_at"]
+
+
+def test_a_job_with_another_staining_day_coming_stays_open(db, setup, monkeypatch):
+    lead = _job(db, [{"username": "jose", "date": DAY, "task": "staining"}, {"username": "jose", "date": "2026-11-05", "task": "staining"}])
+    closed = []
+    import api.company_cam as cc
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: closed.append(lead_id))
+    _photos(db, lead, "jose", "stain_before", 5, 14)
+    _photos(db, lead, "jose", "stain_after", 5, 18)
+    assert jv.close_forgotten(db, DAY) == [] and closed == []
+
+
+def test_no_after_photos_means_no_auto_check_out(db, setup):
+    lead = _job(db, [{"username": "jose", "date": DAY, "task": "cleaning"}])
+    _photos(db, lead, "jose", "clean_before", 5, 14)
+    jv.close_forgotten(db, DAY)
+    assert not jv.visits(db, lead.id)[0]["left_at"]
