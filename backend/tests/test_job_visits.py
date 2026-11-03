@@ -191,3 +191,14 @@ def test_the_crew_can_pick_repairs_and_staining(db, setup, monkeypatch):
     _photos(db, lead, "jose", "stain_after", 5, 18)
     assert jv.leave(lead.id, jv.LeaveBody(reason="finished", task="staining,repairs"), {"sub": "jose", "name": "Jose"})["job_done"] is True
     assert jv.visits(db, lead.id)[0]["task"] == "repairs,staining"
+
+
+def test_finished_on_day_one_of_a_two_day_stain_leaves_the_job_open(db, setup, monkeypatch):
+    lead = _job(db, [{"username": "jose", "date": DAY, "task": "staining"}, {"username": "jose", "date": "2026-11-04", "task": "staining"}])
+    import api.company_cam as cc
+    closed = []
+    monkeypatch.setattr(cc, "mark_job_done", lambda lead_id, body, user: closed.append(lead_id))
+    _photos(db, lead, "jose", "stain_before", 5, 14)
+    _photos(db, lead, "jose", "stain_after", 5, 18)
+    assert jv.leave(lead.id, jv.LeaveBody(reason="finished"), {"sub": "jose", "name": "Jose"})["job_done"] is False
+    assert closed == []

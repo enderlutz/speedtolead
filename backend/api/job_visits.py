@@ -242,7 +242,9 @@ def leave(lead_id: str, body: LeaveBody, user: dict = Depends(get_current_user))
         job_done = False
         # The job is done when the last worker on a staining or repair day
         # leaves with Finished; a cleaning day finishing is just that day.
-        if body.reason == "finished" and set(tasks_of(task)) & FINISHING and job is not None and not job.completed_at:
+        # Not while more staining or repair days are still on the schedule (a two-day stain).
+        more_days = job is not None and any(c["date"] > day and c["task"] in FINISHING for c in _crew_entries(job))
+        if body.reason == "finished" and set(tasks_of(task)) & FINISHING and job is not None and not job.completed_at and not more_days:
             others = [v for v in visits(db, lead_id) if v["date"] == day and v["username"].lower() != sub.lower()
                       and v["before"] and not v["left_at"]]
             if not others:
