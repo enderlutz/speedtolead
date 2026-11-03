@@ -117,6 +117,7 @@ export default function BookingPage() {
       total={b.total}
       date={new Date(`${b.date}T12:00:00`)}
       notes={b.notes}
+      senderName={(b.sender?.name || "").split(" ")[0] || undefined}
       holdUntilIso={b.hold_until}
       paidAmount={b.paid}
       proposalHref={b.proposal_url || undefined}

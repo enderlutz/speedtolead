@@ -122,24 +122,42 @@ def discount_cents(price_cents: int, kind: str, value: float) -> int:
     return max(0, min(off, price_cents - 100))
 
 
+# The name the customer knows each of us by (Alan, 2026-11-03: "whoever
+# sends the booking link, it needs to have their name"). Olga texts as Amy,
+# Gioconda as Lily. Anyone else goes by their first name.
+TEXTING_NAMES = {"alanbonner": "Alan", "alan": "Alan", "olga": "Amy", "geoconda": "Lily", "gioconda": "Lily"}
+
+
+def texting_name(user: dict | None) -> str:
+    """The sender's name for the booking text and email, from their login."""
+    if not user:
+        return "Alan"
+    for key in (user.get("sub"), user.get("name")):
+        hit = TEXTING_NAMES.get(str(key or "").strip().lower())
+        if hit:
+            return hit
+    first = (str(user.get("name") or "").split() or [""])[0]
+    return first.title() if first else "Alan"
+
+
 def default_message(lead: Lead, iso: str, paid: PayLink | None = None, b: Booking | None = None,
-                    draft: dict | None = None) -> str:
+                    draft: dict | None = None, sender: str = "Alan") -> str:
     what = _what(lead, b, draft)
     no_fence = what != "your fence"
     if paid is not None and no_fence:
-        return (f"Hi {_first(lead)}, it's Alan with Sterling. Your payment is in, so you're booked for {DAY} "
+        return (f"Hi {_first(lead)}, it's {sender} with Sterling. Your payment is in, so you're booked for {DAY} "
                 f"for {what}. Here's your booking and what's left to pay: {LINK}")
     if no_fence:
         dep = hooks.money(deposit_cents(b) / 100) if b is not None else "$250"
-        return (f"Hi {_first(lead)}, it's Alan with Sterling. I'm holding {DAY} for {what}. "
+        return (f"Hi {_first(lead)}, it's {sender} with Sterling. I'm holding {DAY} for {what}. "
                 f"Here's your booking, and the {dep} deposit locks it in: {LINK}")
     if paid is not None:
         # Paid before the invite went out, e.g. a deposit sent from Payment
         # links (Alan, 2026-10-17, Charlotte): confirm, don't ask again.
         what = "payment" if paid.kind == "full" else "$250 deposit"
-        return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. Your {what} is in, so you're "
+        return (f"Hi {_first(lead)}, it's {sender} with Sterling Fence Staining. Your {what} is in, so you're "
                 f"booked for {DAY}. Here's your booking with your package, color and what's left to pay: {LINK}")
-    return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. I'm holding {DAY} "
+    return (f"Hi {_first(lead)}, it's {sender} with Sterling Fence Staining. I'm holding {DAY} "
             f"for your fence. Here's your booking, and the $250 deposit locks it in: {LINK}")
 
 
@@ -228,13 +246,16 @@ def _services(b: Booking) -> list[dict]:
             for r in lines if isinstance(r, dict)]
 
 
-def _state(db, lead: Lead) -> dict:
+def _state(db, lead: Lead, user: dict | None = None) -> dict:
+    sender = texting_name(user)
     draft = _booking_draft(lead)
     paid = _confirmed(db, lead)
     return {
         "draft": draft,
         "booking": _staff_dict(db, lead, _active(db, lead.id)),
-        "message": default_message(lead, draft["date"], paid, draft=draft) if draft.get("date") else "",
+        "message": default_message(lead, draft["date"], paid, draft=draft, sender=sender) if draft.get("date") else "",
+        # Who the text and email are from: the person sending it.
+        "sender_name": sender,
         # Already paid (a Payment links deposit counts): the card says so and
         # the text confirms the day instead of asking for the deposit.
         "deposit_paid": {"amount": (paid.amount_cents or 0) / 100, "kind": paid.kind,
@@ -606,7 +627,7 @@ def get_booking(lead_id: str, user: dict = Depends(require_staff)):
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
-        return _state(db, lead)
+        return _state(db, lead, user)
     finally:
         db.close()
 
@@ -620,9 +641,9 @@ class SendBody(BaseModel):
     notify: bool = True
 
 
-def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None) -> str:
+def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None, sender: str = "Alan") -> str:
     note = (f"<p style=\"background:#FFF8E6;border:1px solid #E8CF8E;border-radius:10px;padding:12px 14px\">"
-            f"<b>A note from Alan</b><br>{html.escape(b.notes).replace(chr(10), '<br>')}</p>") if (b.notes or "").strip() else ""
+            f"<b>A note from {html.escape(sender)}</b><br>{html.escape(b.notes).replace(chr(10), '<br>')}</p>") if (b.notes or "").strip() else ""
     no_fence = services_only(b)
     job = _job_title(b).lower() if no_fence else "fence staining"
     where = html.escape(lead.address or "your home")
@@ -648,7 +669,7 @@ def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None) -
         + ("If rain is coming" if no_fence else "Stain only goes on a dry fence, so if rain is coming")
         + " we'll text you and pick the next dry day together.</p>"
         f"<p>Questions? Call or text 346-589-7877.</p>"
-        f"<p>Alan<br>Sterling Fence Staining</p></div>"
+        f"<p>{html.escape(sender)}<br>Sterling Fence Staining</p></div>"
     )
 
 
@@ -731,9 +752,10 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             db.commit()
             cal = sync_calendar(db, lead, b)
             log_event(lead.id, "booking_updated", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}, not texted")
-            return {**_state(db, lead), "emailed": False, "calendar": bool(cal), "calendar_link": cal, "texted": False}
+            return {**_state(db, lead, user), "emailed": False, "calendar": bool(cal), "calendar_link": cal, "texted": False}
 
-        msg = (body.message if body.message is not None else default_message(lead, b.date, b=b)).strip()
+        sender = texting_name(user)
+        msg = (body.message if body.message is not None else default_message(lead, b.date, b=b, sender=sender)).strip()
         if not msg:
             raise HTTPException(status_code=400, detail="The text is empty.")
         if LINK not in msg and url not in msg:
@@ -757,7 +779,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
                 emailed = bool(ghl.send_email(contact_id=lead.ghl_contact_id,
                                               subject=(f"You're booked: {_job_title(b)} on {_long(b.date)}" if paid_now
                                                        else f"Your date is held: {_job_title(b)} on {_long(b.date)}"),
-                                              html_body=_email_html(lead, b, url, paid_now),
+                                              html_body=_email_html(lead, b, url, paid_now, sender),
                                               location_id=lead.ghl_location_id or None))
             except Exception as e:  # noqa: BLE001
                 logger.warning("booking email failed for %s: %s", lead.id, e)
@@ -768,7 +790,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         db.commit()
         cal = sync_calendar(db, lead, b)
         log_event(lead.id, "booking_sent", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}" + (" +email" if emailed else ""))
-        return {**_state(db, lead), "emailed": emailed, "calendar": bool(cal), "calendar_link": cal}
+        return {**_state(db, lead, user), "emailed": emailed, "calendar": bool(cal), "calendar_link": cal}
     finally:
         db.close()
 
@@ -791,7 +813,7 @@ def cancel_booking(lead_id: str, user: dict = Depends(require_staff)):
                 except Exception as e:  # noqa: BLE001
                     logger.warning("booking calendar delete failed for %s: %s", lead.id, e)
             log_event(lead.id, "booking_cancelled", f"{b.date} by {user.get('name') or user.get('sub') or ''}")
-        return _state(db, lead)
+        return _state(db, lead, user)
     finally:
         db.close()
 
@@ -815,6 +837,8 @@ def _public_booking(db, token: str) -> tuple[Booking, Lead]:
 SENDERS = {
     "alan": {"name": "Alan Bonner", "role": "Project Manager, Sterling Fence Staining", "photo": "/team/alan.jpg"},
     "olga": {"name": "Amy", "role": "Sterling Fence Staining", "photo": "/team/amy.jpg"},
+    # Gioconda texts as Lily (2026-11-03); no photo yet.
+    "geoconda": {"name": "Lily", "role": "Sterling Fence Staining", "photo": ""},
 }
 
 

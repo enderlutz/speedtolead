@@ -86,8 +86,14 @@ function discountOff(price: number, d: Draft): number {
 const longDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) : "";
 
+const NOT_A_NAME = new Set(["no", "yes", "n/a", "na", "none", "test", "unknown", "customer", "x", "-", "."]);
+
 export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
-  const first = (lead.contact_name || "").split(" ")[0] || "them";
+  // A name box answered "No" or "Yes" isn't a name (same list as the server).
+  const first = (() => {
+    const f = (lead.contact_name || "").split(" ")[0] || "";
+    return !f ? "them" : NOT_A_NAME.has(f.toLowerCase()) ? "there" : f;
+  })();
   const [draft, setDraft] = useState<Draft>(blank);
   const [st, setSt] = useState<BookingState | null>(null);
   // The quick $250 under Payment links holds a day; this card reloads to show it.
@@ -119,13 +125,15 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     const sum = draft.services.reduce((t, x) => t + (x.name.trim() ? Number(x.price) || 0 : 0), 0);
     return sum > 0 && sum < 250 ? formatCurrency(sum) : "$250";
   })();
+  // The text is from whoever sends it (Alan, 2026-11-03): Olga = Amy, Gioconda = Lily.
+  const me = st?.sender_name || "Alan";
   const presetFor = () => draft.tier === "none"
     ? st?.deposit_paid
-      ? `Hi ${first}, it's Alan with Sterling. Your payment is in, so you're booked for ${DAY} for your ${svcWords}. Here's your booking and what's left to pay: ${LINK}`
-      : `Hi ${first}, it's Alan with Sterling. I'm holding ${DAY} for your ${svcWords}. Here's your booking, and the ${svcDeposit} deposit locks it in: ${LINK}`
+      ? `Hi ${first}, it's ${me} with Sterling. Your payment is in, so you're booked for ${DAY} for your ${svcWords}. Here's your booking and what's left to pay: ${LINK}`
+      : `Hi ${first}, it's ${me} with Sterling. I'm holding ${DAY} for your ${svcWords}. Here's your booking, and the ${svcDeposit} deposit locks it in: ${LINK}`
     : st?.deposit_paid
-    ? `Hi ${first}, it's Alan with Sterling Fence Staining. Your ${st.deposit_paid.kind === "full" ? "payment" : "$250 deposit"} is in, so you're booked for ${DAY}. Here's your booking with your package, color and what's left to pay: ${LINK}`
-    : `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
+    ? `Hi ${first}, it's ${me} with Sterling Fence Staining. Your ${st.deposit_paid.kind === "full" ? "payment" : "$250 deposit"} is in, so you're booked for ${DAY}. Here's your booking with your package, color and what's left to pay: ${LINK}`
+    : `Hi ${first}, it's ${me} with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
 
   useEffect(() => {
     let alive = true;
@@ -660,6 +668,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           total={total}
           date={day}
           notes={draft.notes}
+          senderName={me}
           klarna={draft.klarna}
           discount={off}
           discountLabel={draft.dlabel}
@@ -688,6 +697,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           total={sent.total}
           date={new Date(`${sent.date}T12:00:00`)}
           notes={sent.notes}
+          senderName={me}
           initial={sent.status}
           holdUntilIso={sent.hold_until}
           klarna={sent.klarna}

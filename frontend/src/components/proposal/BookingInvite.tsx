@@ -56,7 +56,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust }: {
+export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust, senderName }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Still choosing between two packages (Alan, 2026-11-02): the cheaper
    *  one and the job at it. `pkgName` reads "A or B", `total` is the higher. */
@@ -100,7 +100,10 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
   saveLabel?: string;
   /** The trust version of the pay box: sender's face, the money as a sum, card protection. */
   trust?: BookingTrust;
+  /** Who sent it (Olga = Amy, Gioconda = Lily); Alan when not known. */
+  senderName?: string;
 }) {
+  const me = senderName || "Alan";
   // The $250, never more than a small services-only job (same as the server).
   const dep = servicesOnly && total > 0 ? Math.min(DEPOSIT, total) : DEPOSIT;
   const jobTitle = servicesOnly ? ((services || []).map((sv) => sv.name).join(", ") || "Your service") : "Fence staining";
@@ -172,8 +175,8 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
   const textMsg = confirmed
     ? `Hi ${firstName}, you're confirmed! Your deposit is in and ${longDate} is yours. Everything about your job is here: ${bookingUrl}`
     : servicesOnly
-      ? `Hi ${firstName}, it's Alan with Sterling. I'm holding ${longDate} for your ${jobTitle.toLowerCase()}. Here's your booking, and the ${formatCurrency(dep).replace(".00", "")} deposit locks it in: ${bookingUrl}`
-      : `Hi ${firstName}, it's Alan with Sterling Fence Staining. I'm holding ${longDate} for your fence. Here's your booking, and the $250 deposit locks it in: ${bookingUrl}`;
+      ? `Hi ${firstName}, it's ${me} with Sterling. I'm holding ${longDate} for your ${jobTitle.toLowerCase()}. Here's your booking, and the ${formatCurrency(dep).replace(".00", "")} deposit locks it in: ${bookingUrl}`
+      : `Hi ${firstName}, it's ${me} with Sterling Fence Staining. I'm holding ${longDate} for your fence. Here's your booking, and the $250 deposit locks it in: ${bookingUrl}`;
   const emailSubject = confirmed
     ? `Confirmed: ${jobTitle.toLowerCase()} on ${longDate}`
     : `Your date is held: ${jobTitle.toLowerCase()} on ${longDate}`;
@@ -393,7 +396,7 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
 
           {notes?.trim() ? (
             <div className="rounded-2xl bg-[#FFF8E6] p-4 ring-1 ring-[#C9972F]/40">
-              <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">A note from Alan</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">A note from {me}</p>
               <p className="mt-1.5 whitespace-pre-line text-[16px] leading-relaxed">{notes.trim()}</p>
             </div>
           ) : null}

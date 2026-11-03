@@ -36,6 +36,9 @@ def setup(db, monkeypatch):
     from database import User
     monkeypatch.setattr(jv, "get_db", lambda: db)
     monkeypatch.setattr(jv, "today", lambda: DAY)
+    # Leaving uses the clock; pin it to that evening (6 PM Houston) so the
+    # tests don't depend on the day they run.
+    monkeypatch.setattr(jv, "_now", lambda: f"{DAY}T23:00:00+00:00")
     texts = []
     import services.after_pay_hooks as hooks
     monkeypatch.setattr(hooks, "alert_alan", texts.append)

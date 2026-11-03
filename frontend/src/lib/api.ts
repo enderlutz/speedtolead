@@ -616,6 +616,8 @@ export interface BookingState {
   has_phone: boolean;
   /** Already paid, e.g. a deposit sent from Payment links: the text confirms the day. */
   deposit_paid?: { amount: number; kind: string; paid_at: string | null } | null;
+  /** Who the text is from: the person sending it (Olga = Amy, Gioconda = Lily). */
+  sender_name?: string;
 }
 
 export interface LeadDetail extends Lead {

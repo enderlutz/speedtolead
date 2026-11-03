@@ -345,3 +345,22 @@ def test_no_fence_staining_books_just_the_other_services(db, ghl):
     pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="none", services=[{"name": "Gutter cleaning", "price": 180}]), STAFF)
     b = bk.send_booking(lead.id, bk.SendBody(notify=False), STAFF)["booking"]
     assert bk.booking_page(b["token"], _Req())["deposit"] == 180
+
+
+def test_the_booking_text_and_email_carry_the_senders_name():
+    """Whoever sends the invite signs it (Alan, 2026-11-03): Olga texts as
+    Amy, Gioconda as Lily, anyone else by their first name."""
+    from types import SimpleNamespace
+    from api import booking as bk
+    assert bk.texting_name({"sub": "olga", "name": "Olga"}) == "Amy"
+    assert bk.texting_name({"sub": "Geoconda", "name": "Geoconda"}) == "Lily"
+    assert bk.texting_name({"sub": "alanbonner", "name": "Alan"}) == "Alan"
+    assert bk.texting_name({"sub": "fragned", "name": "Fragne"}) == "Fragne"
+    assert bk.texting_name(None) == "Alan"
+    lead = SimpleNamespace(contact_name="No", form_data="{}", address="1 Oak St")
+    msg = bk.default_message(lead, "2026-11-11", sender="Amy")
+    assert msg.startswith("Hi there, it's Amy with Sterling Fence Staining. I'm holding")
+    b = SimpleNamespace(notes="See you then", services_json=None, tier="signature", deposit_cents=None,
+                        total_cents=377244, repairs_json=None, date="2026-11-11")
+    html = bk._email_html(lead, b, "https://x/b/1", None, "Lily")
+    assert "Lily<br>Sterling Fence Staining" in html and "A note from Lily" in html and "Alan" not in html

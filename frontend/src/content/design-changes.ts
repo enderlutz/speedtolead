@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-03", title: "The booking invite is from whoever sends it",
+    what: "The booking text opens \"Hi (name), it's (sender) with Sterling Fence Staining\" with the name of the person sending it instead of always Alan: Olga's say Amy, Gioconda's say Lily, Alan's say Alan. The email signs off with that name too, and a note on the booking says \"A note from (sender)\". A name box answered \"No\" or \"Yes\" becomes \"Hi there\"." },
   { date: "2026-11-01", title: "Packages say less; repairs are a price list",
     what: "Over the packages: \"Choose a package\" (no \"Higher ones last longer\"), then \"Includes:\" with three small chips: Cleaning · 2 coats of stain · Loose boards screwed in. Essential's first line is \"Refresh for newer fences\". Each lasts longer on the card: Essential 2–3 yrs, Signature 4–5 yrs, Legacy 5–8 yrs (asterisk kept). \"Anything need replacing?\" with its counters and running total is now \"Only if needed · Replacement prices\": picket (pine $12 / cedar $14), rot board $50, cap $85, rail $75, post (6 ft $225 / 7 ft $255 / 8 ft $350), \"Each, tax included. We bring the wood.\" Nothing to tap or add up. On every proposal, sent ones too.",
     open: { label: "See it", to: "/new-proposal/mockup" } },
