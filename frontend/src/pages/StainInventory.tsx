@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { PaintBucket, Plus, Pencil, Trash2, Check, X, Search, History, Ruler, ClipboardCheck } from "lucide-react";
 import { JobCostsPanel, ReceiptsPanel, ShelfCountPanel } from "@/components/MaterialsPanels";
+import { tr, isSpanish } from "@/lib/i18n";
 
 type Tab = "stock" | "receipts" | "count" | "costs";
 const COUNT_EVERY_DAYS = 14;
@@ -30,6 +31,7 @@ const COUNT_EVERY_DAYS = 14;
 // both lost to how the count actually happens: he walks the unit and writes one
 // figure per colour. Every save still writes an audit row (who / when / how
 // much) for when workers start updating this from the field.
+// Spanish via tr() for the crew (2026-11-02).
 
 const EMPTY_STAIN: StainBody = {
   brand: "",
@@ -57,6 +59,12 @@ function fmtWhen(iso: string): string {
   return isNaN(d.getTime())
     ? iso
     : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** Finish label in the viewer's language. "Clear" alone is already the
+ * Clear button in the Spanish list, so the finish gets its own words. */
+function finishText(label: string): string {
+  return label === "Clear" ? (isSpanish() ? "Transparente sin color" : label) : tr(label);
 }
 
 type Group = { key: string; brand: string; finish: string; items: StainInventoryItem[]; gallons: number };
@@ -95,7 +103,7 @@ export default function StainInventory() {
     api
       .listStainInventory({ q: search.trim() || undefined, finish_type: finishFilter || undefined })
       .then((r) => { setItems(r.items); setTotalGallons(r.total_gallons); })
-      .catch(() => { setItems([]); toast.error("Couldn't load the stain inventory"); })
+      .catch(() => { setItems([]); toast.error(tr("Couldn't load the stain inventory")); })
       .finally(() => setLoading(false));
   }, [search, finishFilter]);
 
@@ -131,30 +139,30 @@ export default function StainInventory() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <PaintBucket className="h-5 w-5 text-primary" /> Stain Inventory
+            <PaintBucket className="h-5 w-5 text-primary" /> {tr("Stain Inventory")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Stain and bleach in the storage unit, what it cost, and what each job used.
+            {tr("Stain and bleach in the storage unit, what it cost, and what each job used.")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
-          <History className="h-3.5 w-3.5 mr-1" /> {showHistory ? "Hide history" : "History"}
+          <History className="h-3.5 w-3.5 mr-1" /> {showHistory ? tr("Hide history") : tr("History")}
         </Button>
       </div>
 
       {showHistory && <MovementHistory />}
 
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {tabBtn("stock", "On hand")}
-        {tabBtn("receipts", "Receipts")}
-        {tabBtn("count", "Shelf count")}
-        {isAdmin ? tabBtn("costs", "Job costs") : null}
+        {tabBtn("stock", tr("On hand"))}
+        {tabBtn("receipts", tr("Receipts"))}
+        {tabBtn("count", tr("Shelf count"))}
+        {isAdmin ? tabBtn("costs", tr("Job costs")) : null}
       </div>
 
       {countDue && tab !== "count" ? (
         <button type="button" onClick={() => setTab("count")}
                 className="flex w-full items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-left text-sm font-semibold text-amber-950">
-          <ClipboardCheck className="h-4 w-4 shrink-0" /> Shelf count due: it's been over 2 weeks. Tap to count.
+          <ClipboardCheck className="h-4 w-4 shrink-0" /> {tr("Shelf count due: it's been over 2 weeks. Tap to count.")}
         </button>
       ) : null}
 
@@ -166,9 +174,9 @@ export default function StainInventory() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <CardTitle className="text-sm">On hand</CardTitle>
+            <CardTitle className="text-sm">{tr("On hand")}</CardTitle>
             <Button size="sm" variant={showAdd ? "outline" : "default"} onClick={() => setShowAdd(!showAdd)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> {showAdd ? "Cancel" : "New brand or finish"}
+              <Plus className="h-3.5 w-3.5 mr-1" /> {showAdd ? tr("Cancel") : tr("New brand or finish")}
             </Button>
           </div>
           <div className="flex items-center gap-2 flex-wrap pt-1">
@@ -176,7 +184,7 @@ export default function StainInventory() {
               <Search className="h-3.5 w-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-7 h-9"
-                placeholder="Search brand or stain name…"
+                placeholder={tr("Search brand or stain name…")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -186,9 +194,9 @@ export default function StainInventory() {
               value={finishFilter}
               onChange={(e) => setFinishFilter(e.target.value)}
             >
-              <option value="">All finishes</option>
+              <option value="">{tr("All finishes")}</option>
               {STAIN_FINISH_TYPES.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
+                <option key={f.value} value={f.value}>{finishText(f.label)}</option>
               ))}
             </select>
           </div>
@@ -202,13 +210,13 @@ export default function StainInventory() {
             />
           )}
 
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {loading && <p className="text-sm text-muted-foreground">{tr("Loading…")}</p>}
 
           {!loading && groups.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {filtered
-                ? "No stains match that search."
-                : "Nothing logged yet. Hit “New brand or finish” to start the count."}
+                ? tr("No stains match that search.")
+                : tr("Nothing logged yet. Hit “New brand or finish” to start the count.")}
             </p>
           )}
 
@@ -216,7 +224,7 @@ export default function StainInventory() {
             <div key={g.key} className="space-y-1">
               <div className="flex items-baseline justify-between gap-2 border-b pb-1">
                 <h3 className="text-sm font-semibold">
-                  {g.brand} <span className="text-muted-foreground font-normal">— {stainFinishLabel(g.finish)}</span>
+                  {g.brand} <span className="text-muted-foreground font-normal">— {finishText(stainFinishLabel(g.finish))}</span>
                 </h3>
                 <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                   {gal(g.gallons)}
@@ -245,7 +253,7 @@ export default function StainInventory() {
                     dark:text-blue-400"
                   onClick={() => setAddingTo(g.key)}
                 >
-                  <Plus className="h-3.5 w-3.5" /> Add stain
+                  <Plus className="h-3.5 w-3.5" /> {tr("Add stain")}
                 </button>
               )}
             </div>
@@ -254,14 +262,14 @@ export default function StainInventory() {
           {!loading && groups.length > 0 && (
             <div className="flex items-baseline justify-between gap-2 border-t-2 pt-3">
               <span className="text-sm font-semibold">
-                {filtered ? "Total shown" : "Total Stain Inventory"}
+                {filtered ? tr("Total shown") : tr("Total Stain Inventory")}
               </span>
-              <span className="text-lg font-semibold tabular-nums">{num(totalGallons)} gallons</span>
+              <span className="text-lg font-semibold tabular-nums">{num(totalGallons)} {tr("gallons")}</span>
             </div>
           )}
           {!loading && shelfValue > 0 && (
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs text-muted-foreground">Worth on the shelf (at what we paid)</span>
+              <span className="text-xs text-muted-foreground">{tr("Worth on the shelf (at what we paid)")}</span>
               <span className="text-sm font-semibold tabular-nums">${shelfValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
           )}
@@ -287,15 +295,15 @@ function CoverageFile() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base"><Ruler className="h-4 w-4" /> Coverage file</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base"><Ruler className="h-4 w-4" /> {tr("Coverage file")}</CardTitle>
         <p className="text-xs text-muted-foreground">
-          How many square feet one gallon covered, for each stain, wood, fence age and whether it was stained before.
-          Each job lands here when Company Cam has the stain they went with and the gallons used.
+          {tr("How many square feet one gallon covered, for each stain, wood, fence age and whether it was stained before.")}{" "}
+          {tr("Each job lands here when Company Cam has the stain they went with and the gallons used.")}
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
-        {file === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
-        {file && !file.rows.length ? <p className="text-sm text-muted-foreground">No finished jobs yet. The first one shows up here.</p> : null}
+        {file === null ? <p className="text-sm text-muted-foreground">{tr("Loading…")}</p> : null}
+        {file && !file.rows.length ? <p className="text-sm text-muted-foreground">{tr("No finished jobs yet. The first one shows up here.")}</p> : null}
         {file?.rows.map((r) => {
           const key = `${r.stain_id}|${r.wood_type}|${r.fence_age}|${r.previously_stained}`;
           return (
@@ -304,23 +312,23 @@ function CoverageFile() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{r.stain}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {WOOD[r.wood_type] || r.wood_type} · {r.fence_age} · {STAINED[r.previously_stained] || r.previously_stained}
+                    {tr(WOOD[r.wood_type] || r.wood_type)} · {tr(r.fence_age)} · {tr(STAINED[r.previously_stained] || r.previously_stained)}
                   </span>
                 </span>
                 <span className="shrink-0 text-right tabular-nums">
                   <span className="block text-lg font-bold">{r.sqft_per_gallon ?? "?"}</span>
-                  <span className="block text-[10px] text-muted-foreground">sq ft a gallon</span>
+                  <span className="block text-[10px] text-muted-foreground">{tr("sq ft a gallon")}</span>
                 </span>
               </button>
               <p className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground tabular-nums">
-                {r.jobs.length} {r.jobs.length === 1 ? "job" : "jobs"} · {r.sqft.toLocaleString()} sq ft · {r.gallons} gallons used
+                {r.jobs.length} {r.jobs.length === 1 ? tr("job") : tr("jobs")} · {r.sqft.toLocaleString()} {tr("sq ft")} · {r.gallons} {tr("gallons used")}
               </p>
               {open === key ? (
                 <ul className="border-t border-border px-3 py-1.5 text-xs">
                   {r.jobs.map((j) => (
                     <li key={j.lead_id} className="flex justify-between gap-2 py-0.5 tabular-nums">
-                      <a href={`/leads/${j.lead_id}`} className="truncate font-medium underline-offset-2 hover:underline">{j.name || "Customer"}</a>
-                      <span className="shrink-0 text-muted-foreground">{j.sqft.toLocaleString()} sq ft ÷ {j.gallons} gal = {j.sqft_per_gallon}</span>
+                      <a href={`/leads/${j.lead_id}`} className="truncate font-medium underline-offset-2 hover:underline">{j.name || tr("Customer")}</a>
+                      <span className="shrink-0 text-muted-foreground">{j.sqft.toLocaleString()} {tr("sq ft")} ÷ {j.gallons} gal = {j.sqft_per_gallon}</span>
                     </li>
                   ))}
                 </ul>
@@ -330,16 +338,18 @@ function CoverageFile() {
         })}
         {file?.bleach?.length ? (
           <div className="rounded-lg border border-cyan-200 bg-cyan-50/50 px-3 py-2">
-            <p className="text-sm font-semibold">Bleach: sq ft one gallon cleaned, by fence age</p>
+            <p className="text-sm font-semibold">{tr("Bleach: sq ft one gallon cleaned, by fence age")}</p>
             <p className="text-xs text-muted-foreground">
-              After {file.bleach_min_jobs ?? 10} cleanings on fences that age, the cleaner is told how much bleach to bring.
+              {isSpanish()
+                ? `Después de ${file.bleach_min_jobs ?? 10} limpiezas en cercas de esa edad, al limpiador se le dice cuánto cloro llevar.`
+                : `After ${file.bleach_min_jobs ?? 10} cleanings on fences that age, the cleaner is told how much bleach to bring.`}
             </p>
             {file.bleach.map((b) => (
               <div key={b.fence_age} className="mt-1.5 flex items-center justify-between gap-2 text-xs tabular-nums">
-                <span className="font-medium">{b.fence_age}</span>
+                <span className="font-medium">{tr(b.fence_age)}</span>
                 <span className="text-muted-foreground">
-                  {b.jobs.length} {b.jobs.length === 1 ? "cleaning" : "cleanings"} · {b.sqft.toLocaleString()} sq ft · {b.gallons} gal ·{" "}
-                  <b className="text-foreground">{b.sqft_per_gallon ?? "?"} sq ft a gallon</b>
+                  {b.jobs.length} {b.jobs.length === 1 ? tr("cleaning") : tr("cleanings")} · {b.sqft.toLocaleString()} {tr("sq ft")} · {b.gallons} gal ·{" "}
+                  <b className="text-foreground">{b.sqft_per_gallon ?? "?"} {tr("sq ft a gallon")}</b>
                 </span>
               </div>
             ))}
@@ -347,10 +357,10 @@ function CoverageFile() {
         ) : null}
         {file && file.missing_stain.length ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            <p className="font-semibold">Gallons recorded but no stain picked, so not counted yet:</p>
+            <p className="font-semibold">{tr("Gallons recorded but no stain picked, so not counted yet:")}</p>
             {file.missing_stain.map((j) => (
               <a key={j.lead_id} href={`/leads/${j.lead_id}`} className="mt-0.5 block underline-offset-2 hover:underline">
-                {j.name || "Customer"} · {j.sqft.toLocaleString()} sq ft ÷ {j.gallons} gal{j.color ? ` · "${j.color}"` : ""}
+                {j.name || tr("Customer")} · {j.sqft.toLocaleString()} {tr("sq ft")} ÷ {j.gallons} gal{j.color ? ` · "${j.color}"` : ""}
               </a>
             ))}
           </div>
@@ -385,16 +395,16 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
         active: item.active,
       })
       .then(() => { toast.success(`${item.color_name} → ${gal(parsed)}`); onChanged(); })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't save"))
+      .catch((e) => toast.error(e instanceof Error ? e.message : tr("Couldn't save")))
       .finally(() => setSaving(false));
   };
 
   const remove = () => {
-    if (!confirm(`Remove ${item.color_name} from the inventory?`)) return;
+    if (!confirm(isSpanish() ? `¿Quitar ${item.color_name} del inventario?` : `Remove ${item.color_name} from the inventory?`)) return;
     api
       .deleteStain(item.id)
-      .then(() => { toast.success(`${item.color_name} removed`); onChanged(); })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't remove"));
+      .then(() => { toast.success(isSpanish() ? `${item.color_name} quitado` : `${item.color_name} removed`); onChanged(); })
+      .catch((e) => toast.error(e instanceof Error ? e.message : tr("Couldn't remove")));
   };
 
   if (editing) {
@@ -413,7 +423,7 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
         {item.color_name}
         {item.notes && <span className="text-xs text-muted-foreground ml-2">{item.notes}</span>}
         {item.avg_cost > 0 && <span className="text-xs text-muted-foreground ml-2 tabular-nums">${item.avg_cost.toFixed(2)}/gal</span>}
-        {item.gallons < 0 && <span className="text-xs font-semibold text-destructive ml-2">count it</span>}
+        {item.gallons < 0 && <span className="text-xs font-semibold text-destructive ml-2">{tr("count it")}</span>}
       </span>
 
       <Input
@@ -435,14 +445,14 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
         disabled={!dirty || saving}
         onClick={save}
       >
-        {saving ? "Saving…" : "Save"}
+        {saving ? tr("Saving…") : tr("Save")}
       </Button>
 
       <Button
         size="sm"
         variant="ghost"
         className="h-8 w-8 p-0 text-muted-foreground"
-        title="Edit name / brand / finish"
+        title={tr("Edit name / brand / finish")}
         onClick={() => setEditing(true)}
       >
         <Pencil className="h-3.5 w-3.5" />
@@ -451,7 +461,7 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
         size="sm"
         variant="ghost"
         className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-        title="Remove"
+        title={tr("Remove")}
         onClick={remove}
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -495,12 +505,12 @@ function AddToSection({
         gallons: gallonsText.trim() === "" ? 0 : parsed,
       })
       .then(() => {
-        toast.success(`${added} added to ${brand} — ${stainFinishLabel(finish)}`);
+        toast.success(isSpanish() ? `${added} agregado a ${brand} — ${finishText(stainFinishLabel(finish))}` : `${added} added to ${brand} — ${stainFinishLabel(finish)}`);
         setName("");
         setGallonsText("");
         onSaved();
       })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't add it"))
+      .catch((e) => toast.error(e instanceof Error ? e.message : tr("Couldn't add it")))
       .finally(() => setSaving(false));
   };
 
@@ -515,7 +525,7 @@ function AddToSection({
       <Input
         autoFocus
         className="h-8 flex-1"
-        placeholder={`New ${stainFinishLabel(finish).toLowerCase()} stain name\u2026`}
+        placeholder={isSpanish() ? `Nombre del tinte nuevo (${finishText(stainFinishLabel(finish)).toLowerCase()})\u2026` : `New ${stainFinishLabel(finish).toLowerCase()} stain name\u2026`}
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={onKey}
@@ -533,13 +543,13 @@ function AddToSection({
       />
       <span className="w-7 text-xs text-muted-foreground">gal</span>
       <Button size="sm" className="h-8" disabled={!canSave} onClick={submit}>
-        {saving ? "Saving\u2026" : "Save"}
+        {saving ? tr("Saving\u2026") : tr("Save")}
       </Button>
       <Button
         size="sm"
         variant="ghost"
         className="h-8 w-8 p-0 text-muted-foreground"
-        title="Done adding"
+        title={tr("Done adding")}
         onClick={onCancel}
       >
         <X className="h-3.5 w-3.5" />
@@ -588,7 +598,7 @@ function StainForm({
     const req = item ? api.updateStain(item.id, body) : api.createStain(body);
     req
       .then(() => {
-        toast.success(item ? "Saved" : `${body.color_name} added`);
+        toast.success(item ? tr("Saved") : isSpanish() ? `${body.color_name} agregado` : `${body.color_name} added`);
         if (!item) {
           // Keep brand + finish for the next one down the shelf.
           setForm({ ...form, color_name: "" });
@@ -596,7 +606,7 @@ function StainForm({
         }
         onSaved();
       })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't save"))
+      .catch((e) => toast.error(e instanceof Error ? e.message : tr("Couldn't save")))
       .finally(() => setSaving(false));
   };
 
@@ -605,7 +615,7 @@ function StainForm({
       <div className="flex gap-2 flex-wrap">
         <Input
           className="h-9 flex-1 min-w-[130px]"
-          placeholder="Brand (Valspar…)"
+          placeholder={tr("Brand (Valspar…)")}
           value={form.brand}
           onChange={(e) => setForm({ ...form, brand: e.target.value })}
         />
@@ -615,14 +625,14 @@ function StainForm({
           onChange={(e) => setForm({ ...form, finish_type: e.target.value })}
         >
           {STAIN_FINISH_TYPES.map((f) => (
-            <option key={f.value} value={f.value}>{f.label}</option>
+            <option key={f.value} value={f.value}>{finishText(f.label)}</option>
           ))}
         </select>
       </div>
       <div className="flex gap-2 flex-wrap items-center">
         <Input
           className="h-9 flex-1 min-w-[150px]"
-          placeholder="Stain name (Pine Bark…)"
+          placeholder={tr("Stain name (Pine Bark…)")}
           value={form.color_name}
           onChange={(e) => setForm({ ...form, color_name: e.target.value })}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
@@ -640,7 +650,7 @@ function StainForm({
         />
         <span className="text-xs text-muted-foreground">gal</span>
         <Button size="sm" className="h-9" disabled={!canSave} onClick={submit}>
-          <Check className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}
+          <Check className="h-3.5 w-3.5 mr-1" /> {saving ? tr("Saving…") : tr("Save")}
         </Button>
         <Button size="sm" variant="ghost" className="h-9" onClick={onCancel}>
           <X className="h-3.5 w-3.5" />
@@ -659,19 +669,19 @@ function MovementHistory() {
     api
       .listStainMovements({ limit: 100 })
       .then((r) => setRows(r.movements))
-      .catch(() => toast.error("Couldn't load the history"))
+      .catch(() => toast.error(tr("Couldn't load the history")))
       .finally(() => setLoading(false));
   }, []);
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">History</CardTitle>
+        <CardTitle className="text-sm">{tr("History")}</CardTitle>
       </CardHeader>
       <CardContent>
-        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{tr("Loading…")}</p>}
         {!loading && rows.length === 0 && (
-          <p className="text-sm text-muted-foreground">No changes logged yet.</p>
+          <p className="text-sm text-muted-foreground">{tr("No changes logged yet.")}</p>
         )}
         {!loading && rows.length > 0 && (
           <div className="space-y-1 max-h-72 overflow-y-auto text-sm">

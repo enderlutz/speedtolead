@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
-import { tr } from "@/lib/i18n";
+import { tr, isSpanish } from "@/lib/i18n";
 
 export type ShelfOption = { id: string; label: string };
 
@@ -174,12 +174,12 @@ function ReceiptButton({ id }: { id: string }) {
   const open = async () => {
     const w = window.open("", "_blank");
     const url = await api.fetchReceiptUrl(id);
-    if (!url) { w?.close(); toast.error("Couldn't open the receipt"); return; }
+    if (!url) { w?.close(); toast.error(tr("Couldn't open the receipt")); return; }
     if (w) w.location.href = url; else window.location.href = url;
   };
   return (
     <button type="button" onClick={open} className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline">
-      <Receipt className="h-3.5 w-3.5" /> Receipt
+      <Receipt className="h-3.5 w-3.5" /> {tr("Receipt")}
     </button>
   );
 }
@@ -210,9 +210,11 @@ export function ReceiptsPanel({ items, onChanged }: { items: StainInventoryItem[
   }, [rows]);
 
   const remove = async (p: MaterialPurchase) => {
-    if (!confirm(`Delete this ${money(p.total_cost)} receipt? Its gallons come back off the shelf.`)) return;
+    if (!confirm(isSpanish()
+      ? `¿Borrar este recibo de ${money(p.total_cost)}? Sus galones se quitan del inventario.`
+      : `Delete this ${money(p.total_cost)} receipt? Its gallons come back off the shelf.`)) return;
     try { await api.deleteMaterialPurchase(p.id); setTick((x) => x + 1); onChanged(); }
-    catch (e) { toast.error(errMessage(e, "Couldn't delete it")); }
+    catch (e) { toast.error(errMessage(e, tr("Couldn't delete it"))); }
   };
 
   return (
@@ -220,14 +222,14 @@ export function ReceiptsPanel({ items, onChanged }: { items: StainInventoryItem[
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="text-sm">Receipts</CardTitle>
+            <CardTitle className="text-sm">{tr("Receipts")}</CardTitle>
             <div className="flex items-center gap-2">
               <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-9 w-40" />
-              {!adding ? <Button size="sm" onClick={() => setAdding(true)}><Camera className="mr-1 h-3.5 w-3.5" /> Log a receipt</Button> : null}
+              {!adding ? <Button size="sm" onClick={() => setAdding(true)}><Camera className="mr-1 h-3.5 w-3.5" /> {tr("Log a receipt")}</Button> : null}
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Every stain, bleach and shop-supplies purchase on the company card, with the receipt. Stain and bleach go onto the shelf.
+            {tr("Every stain, bleach and shop-supplies purchase on the company card, with the receipt. Stain and bleach go onto the shelf.")}
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -238,31 +240,31 @@ export function ReceiptsPanel({ items, onChanged }: { items: StainInventoryItem[
           <div className="grid grid-cols-3 gap-2 text-center">
             {([["Stain", byCategory.stain], ["Bleach", byCategory.bleach], ["Supplies", byCategory.supplies]] as const).map(([l, v]) => (
               <div key={l} className="rounded-lg bg-muted/50 p-2">
-                <p className="text-[11px] font-semibold uppercase text-muted-foreground">{l}</p>
+                <p className="text-[11px] font-semibold uppercase text-muted-foreground">{tr(l)}</p>
                 <p className="text-sm font-bold tabular-nums">{money(v)}</p>
               </div>
             ))}
           </div>
-          {rows === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
-          {rows && !rows.length ? <p className="text-sm text-muted-foreground">No receipts this month.</p> : null}
+          {rows === null ? <p className="text-sm text-muted-foreground">{tr("Loading…")}</p> : null}
+          {rows && !rows.length ? <p className="text-sm text-muted-foreground">{tr("No receipts this month.")}</p> : null}
           <ul className="divide-y">
             {(rows || []).map((p) => (
               <li key={p.id} className="flex items-start gap-3 py-2">
                 <span className="w-14 shrink-0 text-xs text-muted-foreground tabular-nums">{p.purchased_on.slice(5)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">
-                    {p.category === "supplies" ? (p.description || "Shop supplies") : p.item_label || p.category}
+                    {p.category === "supplies" ? (p.description || tr("Shop supplies")) : p.item_label || tr(p.category === "bleach" ? "Bleach" : p.category === "stain" ? "Stain" : p.category)}
                   </span>
                   <span className="block text-xs text-muted-foreground">
                     {p.store_label}
                     {p.gallons ? ` · ${num(p.gallons)} gal · ${money(p.cost_per_gallon)}/gal` : ""}
-                    {p.customer ? ` · for ${p.customer}` : ""} · {p.created_by}
+                    {p.customer ? ` · ${tr("for")} ${p.customer}` : ""} · {p.created_by}
                   </span>
                   {p.has_receipt ? <ReceiptButton id={p.id} /> : null}
                 </span>
                 <span className="shrink-0 text-sm font-bold tabular-nums">{money(p.total_cost)}</span>
                 {isAdmin ? (
-                  <button type="button" onClick={() => remove(p)} className="shrink-0 p-1 text-muted-foreground hover:text-destructive" title="Delete">
+                  <button type="button" onClick={() => remove(p)} className="shrink-0 p-1 text-muted-foreground hover:text-destructive" title={tr("Delete")}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 ) : null}
@@ -271,7 +273,7 @@ export function ReceiptsPanel({ items, onChanged }: { items: StainInventoryItem[
           </ul>
           {rows && rows.length ? (
             <div className="flex items-baseline justify-between border-t-2 pt-2">
-              <span className="text-sm font-semibold">Month total</span>
+              <span className="text-sm font-semibold">{tr("Month total")}</span>
               <span className="text-lg font-bold tabular-nums">{money(total)}</span>
             </div>
           ) : null}
@@ -280,18 +282,18 @@ export function ReceiptsPanel({ items, onChanged }: { items: StainInventoryItem[
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Price per gallon by store</CardTitle>
-          <p className="text-xs text-muted-foreground">From every receipt so far. Cheapest store first for each item.</p>
+          <CardTitle className="text-sm">{tr("Price per gallon by store")}</CardTitle>
+          <p className="text-xs text-muted-foreground">{tr("From every receipt so far. Cheapest store first for each item.")}</p>
         </CardHeader>
         <CardContent>
-          {!prices.length ? <p className="text-sm text-muted-foreground">Shows up after the first receipts.</p> : null}
+          {!prices.length ? <p className="text-sm text-muted-foreground">{tr("Shows up after the first receipts.")}</p> : null}
           <ul className="divide-y">
             {prices.map((p) => (
               <li key={`${p.stain_id}-${p.store}`} className="flex items-center gap-3 py-1.5">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{p.item_label}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {p.store_label} · {p.receipts} {p.receipts === 1 ? "receipt" : "receipts"} · last {money(p.last_per_gallon)} on {p.last_date}
+                    {p.store_label} · {p.receipts} {p.receipts === 1 ? tr("receipt") : tr("receipts")} · {isSpanish() ? `último ${money(p.last_per_gallon)} el ${p.last_date}` : `last ${money(p.last_per_gallon)} on ${p.last_date}`}
                   </span>
                 </span>
                 <span className="shrink-0 text-sm font-bold tabular-nums">{money(p.avg_per_gallon)}/gal</span>
@@ -314,31 +316,31 @@ export function ShelfCountPanel({ items, onChanged }: { items: StainInventoryIte
 
   const save = async () => {
     const lines = filled.map((i) => ({ id: i.id, gallons: Number(counts[i.id]) }));
-    if (lines.some((l) => !Number.isFinite(l.gallons) || l.gallons < 0)) { toast.error("Check the numbers"); return; }
+    if (lines.some((l) => !Number.isFinite(l.gallons) || l.gallons < 0)) { toast.error(tr("Check the numbers")); return; }
     setBusy(true);
     try {
       const r = await api.shelfCount(lines);
       setResult(r); setCounts({}); onChanged();
-      toast.success(`Counted ${r.counted} items`);
+      toast.success(isSpanish() ? `${r.counted} contados` : `Counted ${r.counted} items`);
     } catch (e) {
-      toast.error(errMessage(e, "Couldn't save the count"));
+      toast.error(errMessage(e, tr("Couldn't save the count")));
     } finally { setBusy(false); }
   };
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Shelf count</CardTitle>
+        <CardTitle className="text-sm">{tr("Shelf count")}</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Every 2 weeks: walk the storage unit and type what's really there. Leave an item blank to skip it.
-          Anything that doesn't match the books shows up below in gallons and dollars.
+          {tr("Every 2 weeks: walk the storage unit and type what's really there. Leave an item blank to skip it.")}{" "}
+          {tr("Anything that doesn't match the books shows up below in gallons and dollars.")}
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
         {result ? (
           <div className={`rounded-lg p-3 text-sm ${result.difference_value < 0 ? "bg-rose-50 text-rose-900" : "bg-emerald-50 text-emerald-900"}`}>
             <p className="font-semibold">
-              {result.differences.length ? `${money(Math.abs(result.difference_value))} ${result.difference_value < 0 ? "missing" : "more than the books"}` : "Everything matched the books."}
+              {result.differences.length ? `${money(Math.abs(result.difference_value))} ${result.difference_value < 0 ? tr("missing") : tr("more than the books")}` : tr("Everything matched the books.")}
             </p>
             {result.differences.map((d) => (
               <p key={d.id} className="text-xs tabular-nums">{d.label}: {d.difference > 0 ? "+" : ""}{num(d.difference)} gal ({money(d.value)})</p>
@@ -350,7 +352,7 @@ export function ShelfCountPanel({ items, onChanged }: { items: StainInventoryIte
             <li key={i.id} className="flex items-center gap-2 py-1.5">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{i.color_name}</span>
-                <span className="block text-xs text-muted-foreground">{i.brand} · books say {num(i.gallons)} gal</span>
+                <span className="block text-xs text-muted-foreground">{i.brand} · {tr("books say")} {num(i.gallons)} gal</span>
               </span>
               <Input type="number" inputMode="decimal" min="0" step="0.5" placeholder={num(i.gallons)}
                      value={counts[i.id] ?? ""} onChange={(e) => setCounts({ ...counts, [i.id]: e.target.value })}
@@ -361,7 +363,7 @@ export function ShelfCountPanel({ items, onChanged }: { items: StainInventoryIte
         </ul>
         <Button className="h-11 w-full" disabled={!filled.length || busy} onClick={save}>
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-          Save count{filled.length ? ` (${filled.length})` : ""}
+          {tr("Save count")}{filled.length ? ` (${filled.length})` : ""}
         </Button>
       </CardContent>
     </Card>
