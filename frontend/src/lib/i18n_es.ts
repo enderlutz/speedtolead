@@ -1,6 +1,13 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Got there": "Llegó",
+  "Left at": "Se fue",
+  "Add more": "Agregar más",
+  "Take a photo": "Tomar una foto",
+  "At least 1 photo": "Al menos 1 foto",
+  "I'm leaving: photo of the fix": "Ya me voy: foto del arreglo",
+  "Done, I fixed it · I'm leaving": "Listo, lo arreglé · Ya me voy",
   "pay day": "día de pago",
   "Paid week ending": "Semana pagada que terminó el",
   "This week, ends": "Esta semana, termina el",

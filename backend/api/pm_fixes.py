@@ -20,12 +20,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from api.auth import get_current_user, require_admin
 from api.company_cam import _sees_all
-from database import FixJob, Lead, get_db
+from database import CompanyCamPhoto, FixJob, Lead, get_db
 
 router = APIRouter()
 
@@ -63,11 +63,38 @@ def _day(s: str | None) -> str:
     return s
 
 
-def fix_dict(f: FixJob) -> dict:
+# Fix photos live with the job photos under their own key, so each one has
+# its time and feeds the worker's hours like any other job photo (Alan,
+# 2026-11-02: "timestamp when they get there, when they leave"). At least one
+# when they get there, at least one when they leave; as many as they like.
+FIX_BEFORE, FIX_AFTER = "fix_before", "fix_after"
+
+
+def photo_key(fix_id: str) -> str:
+    return f"fix:{fix_id}"
+
+
+def _fix_photos(db, ids: list[str]) -> dict[str, list]:
+    if not ids:
+        return {}
+    out: dict[str, list] = {}
+    for p in (db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id.in_([photo_key(i) for i in ids]))
+              .order_by(CompanyCamPhoto.seq).all()):
+        out.setdefault(p.lead_id[4:], []).append(p)
+    return out
+
+
+def fix_dict(f: FixJob, photos: list | None = None) -> dict:
+    photos = photos or []
+    before = sorted((p.taken_at or p.uploaded_at or "") for p in photos if p.section == FIX_BEFORE)
+    after = [p for p in photos if p.section == FIX_AFTER]
     return {
         "id": f.id, "lead_id": f.lead_id or "", "name": f.name or "", "description": f.description or "",
         "date": f.date or "", "username": f.username or "", "done_at": f.done_at or "", "done_by": f.done_by or "",
         "created_at": f.created_at or "", "created_by": f.created_by or "",
+        # Got there = the first "I'm here" photo; left = done_at.
+        "arrived_at": before[0] if before else "",
+        "before_count": len(before), "after_count": len(after),
     }
 
 
@@ -86,7 +113,8 @@ def fixes_for(db, start: str = "", end: str = "") -> list[dict]:
             out.append(f)
     # The list order: not on a day yet first, then by day; done ones last.
     out.sort(key=lambda f: (bool(f.done_at), bool(f.date), f.date or "", f.created_at or ""))
-    return [fix_dict(f) for f in out]
+    photos = _fix_photos(db, [f.id for f in out])
+    return [fix_dict(f, photos.get(f.id)) for f in out]
 
 
 class FixBody(BaseModel):
@@ -200,21 +228,79 @@ def delete_fix(fix_id: str, user: dict = Depends(require_admin)):
         db.close()
 
 
-@router.post("/my-fixes/{fix_id}/done")
-def my_fix_done(fix_id: str, user: dict = Depends(get_current_user)):
-    """The worker it's on taps Done (2026-11-02)."""
+def _mine(db, fix_id: str, user: dict) -> FixJob:
+    f = db.query(FixJob).filter(FixJob.id == fix_id).first()
+    if f is None:
+        raise HTTPException(404, "That job to fix is gone")
+    if (f.username or "").lower() != str(user.get("sub") or "").lower() and not _sees_all(user):
+        raise HTTPException(403, "That one isn't on you")
+    return f
+
+
+@router.get("/my-fixes/{fix_id}/photos")
+def my_fix_photos(fix_id: str, user: dict = Depends(get_current_user)):
+    from api.company_cam import _photo_dict
     db = get_db()
     try:
-        f = db.query(FixJob).filter(FixJob.id == fix_id).first()
-        if f is None:
-            raise HTTPException(404, "That job to fix is gone")
-        if (f.username or "").lower() != str(user.get("sub") or "").lower() and user.get("role") != "admin":
-            raise HTTPException(403, "That one isn't on you")
+        f = _mine(db, fix_id, user)
+        photos = _fix_photos(db, [f.id]).get(f.id, [])
+        return {"fix": fix_dict(f, photos),
+                "before": [_photo_dict(p) for p in photos if p.section == FIX_BEFORE],
+                "after": [_photo_dict(p) for p in photos if p.section == FIX_AFTER]}
+    finally:
+        db.close()
+
+
+@router.post("/my-fixes/{fix_id}/photos")
+async def my_fix_photo(fix_id: str, file: UploadFile = File(...), which: str = Form(...),
+                       taken_at: str = Form(""), time_typed: bool = Form(False),
+                       user: dict = Depends(get_current_user)):
+    """"I'm here" (before) or "I'm leaving" (after) photo on a job to fix."""
+    from api.company_cam import MAX_PHOTO_BYTES, _photo_dict, _store_photo, _taken_at, _taken_at_typed
+    section = {"before": FIX_BEFORE, "after": FIX_AFTER}.get(which)
+    if section is None:
+        raise HTTPException(400, "which is before or after")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file was empty")
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(400, f"Photo is over {MAX_PHOTO_BYTES // (1024*1024)}MB")
+    typed = time_typed is True   # a Form default when called directly
+    db = get_db()
+    try:
+        f = _mine(db, fix_id, user)
+        when = _taken_at_typed(taken_at) if typed else _taken_at(taken_at, datetime.now(timezone.utc))
+        photo = _store_photo(db, photo_key(f.id), section, data, file.content_type or "image/jpeg", user,
+                             taken_at=when or _now(), time_typed=typed)
+        db.commit()
+        return _photo_dict(photo)
+    finally:
+        db.close()
+
+
+class LeaveBody(BaseModel):
+    left_at: str = ""      # typed when they check out later
+
+
+@router.post("/my-fixes/{fix_id}/done")
+def my_fix_done(fix_id: str, body: LeaveBody | None = None, user: dict = Depends(get_current_user)):
+    """The worker it's on taps Done, I'm leaving (2026-11-02): needs a photo
+    from when they got there and one from when they left. The time is when
+    they tap, or the time they type if they forgot."""
+    from api.company_cam import _taken_at_typed
+    db = get_db()
+    try:
+        f = _mine(db, fix_id, user)
         if not f.done_at:
-            now = datetime.now(timezone.utc).isoformat()
-            f.done_at, f.done_by, f.updated_at = now, str(user.get("name") or user.get("sub") or ""), now
+            photos = _fix_photos(db, [f.id]).get(f.id, [])
+            if not any(p.section == FIX_BEFORE for p in photos):
+                raise HTTPException(400, "Take at least 1 photo when you get there first")
+            if not any(p.section == FIX_AFTER for p in photos):
+                raise HTTPException(400, "Take at least 1 photo of the fix before you leave")
+            now = _now()
+            left = _taken_at_typed(body.left_at) if body and body.left_at else now
+            f.done_at, f.done_by, f.updated_at = left, str(user.get("name") or user.get("sub") or ""), now
             db.commit()
         return {"ok": True}
     finally:
         db.close()
-

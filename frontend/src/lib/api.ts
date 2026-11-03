@@ -4077,7 +4077,24 @@ export const api = {
   getCrewHours: (start = "", end = "") =>
     request<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[] }>(`/api/crew-hours?start=${start}&end=${end}`),
   /** The worker it's on marks a job to fix done (2026-11-02). */
-  myFixDone: (fixId: string) => request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST" }),
+  myFixDone: (fixId: string, leftAt = "") =>
+    request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST", body: JSON.stringify({ left_at: leftAt }) }),
+  /** A job to fix's "I'm here" and "I'm leaving" photos (2026-11-02). */
+  getMyFixPhotos: (fixId: string) =>
+    request<{ fix: FixJob; before: CompanyCamPhoto[]; after: CompanyCamPhoto[] }>(`/api/my-fixes/${fixId}/photos`),
+  uploadMyFixPhoto: async (fixId: string, file: File, which: "before" | "after", takenAt: string, timeTyped = false) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("which", which);
+    fd.append("taken_at", takenAt || "");
+    if (timeTyped) fd.append("time_typed", "true");
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/my-fixes/${fixId}/photos`, {
+      method: "POST", body: fd, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<CompanyCamPhoto>;
+  },
   /** Each worker's check-in and check-out on a job (2026-11-02). */
   getJobVisits: (leadId: string) => request<JobVisitsPayload>(`/api/company-cam/${leadId}/visits`),
   /** `left_at`: checking out later, the time they left, typed (2026-11-02). */
@@ -6627,6 +6644,8 @@ export interface PmDay {
 export interface FixJob {
   id: string; lead_id: string; name: string; description: string; date: string; username: string;
   done_at: string; done_by: string; created_at: string; created_by: string;
+  /** Got there (the first "I'm here" photo) and how many photos each side (2026-11-02). */
+  arrived_at?: string; before_count?: number; after_count?: number;
 }
 /** A quick $250 waiting for the office's look (Alan, 2026-10-27). */
 export interface BookingReviewRow {

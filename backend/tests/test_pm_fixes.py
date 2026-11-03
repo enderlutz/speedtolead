@@ -122,3 +122,42 @@ def test_fix_jobs_never_touch_the_crew_days(db, monkeypatch):
     cal = pm.calendar("2026-10-26", "2026-11-01", user=ALAN)
     assert [(d["date"], d["task"]) for d in cal["days"]] == [("2026-10-28", "staining")]
     assert len(cal["fixes"]) == 1
+
+
+def test_a_fix_is_timestamped_a_photo_in_and_a_photo_out(db, monkeypatch):
+    """At least one photo when they get there, one when they leave; the first
+    is the arrival time, Done is the leave time (2026-11-02)."""
+    import asyncio
+    from io import BytesIO
+    from datetime import datetime, timedelta, timezone
+    from starlette.datastructures import UploadFile
+    from api import company_cam as cc
+    _seed(db, monkeypatch)
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    f = fx.add_fix(fx.FixBody(name="A patio", description="Bleach the wall", date="2026-11-03", username="Chris"), user=ALAN)
+
+    def up(which):
+        when = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        return asyncio.run(fx.my_fix_photo(f["id"], file=UploadFile(BytesIO(b"jpg"), filename="a.jpg"), which=which,
+                                           taken_at=when, time_typed=False, user=CHRIS))
+
+    with pytest.raises(HTTPException):
+        fx.my_fix_done(f["id"], None, user=CHRIS)        # no photo in yet
+    up("before")
+    up("before")
+    with pytest.raises(HTTPException):
+        fx.my_fix_done(f["id"], None, user=CHRIS)        # no photo of the fix yet
+    up("after")
+    with pytest.raises(HTTPException):
+        fx.my_fix_done(f["id"], None, user={"sub": "Jose", "name": "Jose", "role": "worker"})
+    fx.my_fix_done(f["id"], None, user=CHRIS)
+
+    got = fx.my_fix_photos(f["id"], user=CHRIS)
+    assert len(got["before"]) == 2 and len(got["after"]) == 1
+    assert got["fix"]["arrived_at"] and got["fix"]["done_at"] and got["fix"]["done_by"] == "Chris"
+    # The office list shows the times and counts too.
+    row = next(x for x in fx.list_fixes("2026-11-01", "2026-11-08", user=ALAN)["fixes"] if x["id"] == f["id"])
+    assert row["before_count"] == 2 and row["after_count"] == 1 and row["arrived_at"]
+    # Fix photos count toward the worker's hours like any job photo.
+    from database import CompanyCamPhoto
+    assert db.query(CompanyCamPhoto).filter(CompanyCamPhoto.uploaded_sub == "Chris").count() == 3

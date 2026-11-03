@@ -16,6 +16,7 @@ import TodaysMap from "@/components/TodaysMap";
 import { cn, errMessage } from "@/lib/utils";
 import { tr, isSpanish } from "@/lib/i18n";
 import { CrewRules } from "@/components/JobCheckInOut";
+import FixCheckInOut from "@/components/FixCheckInOut";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
 // Three tabs:
@@ -974,15 +975,8 @@ function foldByJob(rows: CamJob[]): (CamJob & { tasks: string[] })[] {
 /** A job to fix, on the crew's own day (2026-11-02): red, what to do there,
  *  and Done when it's done. */
 function FixRow({ j }: { j: CamJob }) {
-  const [done, setDone] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const finish = async () => {
-    setBusy(true);
-    try { await api.myFixDone(j.fix_id!); setDone(true); toast.success(tr("Done. Thank you!")); }
-    catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); } finally { setBusy(false); }
-  };
   return (
-    <div className={cn("rounded-xl p-2.5 shadow-sm ring-2 ring-red-600/60", PAPER, done && "opacity-60")}>
+    <div className={cn("rounded-xl p-2.5 shadow-sm ring-2 ring-red-600/60", PAPER)}>
       <span className="flex flex-wrap items-center gap-1.5">
         <span className="rounded-md bg-red-700 px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide text-white">✕ {tr("Fix")}</span>
         {j.any_day ? <span className={cn("text-[14px] font-semibold text-red-800")}>{tr("Any day, stop by")}</span> : null}
@@ -992,10 +986,8 @@ function FixRow({ j }: { j: CamJob }) {
       ) : <span className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug">{(j.name || "").toLowerCase()}</span>}
       {j.address ? <span className={cn("flex items-center gap-1 truncate text-[14px]", MUTED)}><MapPin className="h-3.5 w-3.5 shrink-0" />{j.address}</span> : null}
       {j.fix_note ? <p className="mt-1 text-[16px] font-bold leading-snug">🔧 {j.fix_note}</p> : null}
-      <button type="button" disabled={busy || done} onClick={() => void finish()}
-              className="mt-2 min-h-12 w-full rounded-xl bg-emerald-600 text-base font-black text-white disabled:opacity-50">
-        {done ? `✓ ${tr("Done")}` : tr("Done, I fixed it")}
-      </button>
+      {/* I'm here photo(s) -> photo(s) of the fix -> Done, I'm leaving (2026-11-02). */}
+      <FixCheckInOut fixId={j.fix_id!} />
     </div>
   );
 }

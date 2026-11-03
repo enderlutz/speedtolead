@@ -35,13 +35,13 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const dayOf = (d: Date) => d.toLocaleDateString("en-CA");
 const hhmm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const weekAgo = () => dayOf(new Date(Date.now() - 6 * 86_400_000));
-const toIso = (day: string, time: string) => {
+export const toIso = (day: string, time: string) => {
   const d = new Date(`${day}T${time}`);
   return day && time && !Number.isNaN(d.getTime()) ? d.toISOString() : "";
 };
 const shortDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 
-function WhenFields({ day, time, setDay, setTime }: { day: string; time: string; setDay: (d: string) => void; setTime: (t: string) => void }) {
+export function WhenFields({ day, time, setDay, setTime }: { day: string; time: string; setDay: (d: string) => void; setTime: (t: string) => void }) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <label className="text-base font-semibold">{tr("Day")}

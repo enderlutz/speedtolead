@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Loader2, Plus, Search, Trash2, Undo2, Wrench, X } from "lucide-react";
 import { api, type FixJob } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { stampText } from "@/lib/photoTime";
 import type { JobLinkComponent } from "./bits";
 import { INK, IVORY, LINE, MUTED, PAPER, RING } from "./look";
 import { fmt, whoOf } from "./dates";
@@ -116,6 +117,14 @@ export function FixCard({ f, crew, canEdit, actions, startOpen, Link }: {
             {who ? <span className={MUTED}>· {who}</span> : null}
             {fin && f.done_by ? <span className={MUTED}>· done by {f.done_by}</span> : null}
           </span>
+          {/* Timestamped from their photos (2026-11-02): got there, left. */}
+          {f.arrived_at || (fin && f.after_count) ? (
+            <span className={cn("block text-[14px] leading-snug", MUTED)}>
+              {f.arrived_at ? `Got there ${stampText(f.arrived_at)}` : ""}
+              {fin && f.after_count ? `${f.arrived_at ? " · " : ""}Left ${stampText(f.done_at)}` : ""}
+              {` · ${(f.before_count || 0) + (f.after_count || 0)} photos`}
+            </span>
+          ) : null}
         </span>
         {open ? <ChevronUp className={cn("mt-1 h-4 w-4 shrink-0", MUTED)} /> : <ChevronDown className={cn("mt-1 h-4 w-4 shrink-0", MUTED)} />}
       </button>
