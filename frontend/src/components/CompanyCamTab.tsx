@@ -34,7 +34,7 @@ import {
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
 import PhotoViewer from "@/components/PhotoViewer";
-import { CheckInCard, CrewRules, ForgotButton, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
+import { CrewRules, ForgotButton, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -766,7 +766,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const [queued, setQueued] = useState<PendingPhoto[]>([]);
   // Each worker's own check-in and check-out (2026-11-02).
   const { data: visits, reload: reloadVisits } = useJobVisits(leadId, true);
-  const [pickedTask, setPickedTask] = useState("");
+  const pickedTask = "";   // the task now comes from the crew list (no I'm-here picker, 2026-11-03)
   useEffect(() => {
     let live = true;
     const refresh = () => { void queuedPhotos(leadId).then((q) => { if (live) setQueued(q); }); };
@@ -918,11 +918,18 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const pwOptions = data.pw_service_options || [];
   const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
   const mixedPw = !pwMode && pwSecs.length > 0;
+  // Repairs go in on the staining day (Alan, 2026-11-03): a job with repairs
+  // calls its staining steps "Before staining / repairs" and "After staining /
+  // repairs"; a job without keeps the plain names.
+  const withRepairs = hasRepairs(job) || Object.values(job.extras?.counts || {}).some((x) => x > 0)
+    || (job.crew || []).some((c) => (c.task || "").split(",").includes("repairs"));
+  const REPAIR_LABELS: Record<string, string> = { stain_before: "Before staining / repairs", stain_after: "After staining / repairs" };
   const steps = (pwMode ? pwSecs : mixedPw ? [...sections, ...pwSecs] : sections).map((sec) => {
     // A photo waiting to send counts: the crew moves on, it goes up by itself.
     const n = (photos[sec.key] || []).length + queued.filter((q) => q.section === sec.key).length;
     const written = sec.key === "fence_scope" && !!job.scope_explanation.trim();
-    return { ...sec, ...sectionLook(sec.key), n, done: n > 0 || written, written };
+    const label = withRepairs && REPAIR_LABELS[sec.key] ? REPAIR_LABELS[sec.key] : sec.label;
+    return { ...sec, label, ...sectionLook(sec.key), n, done: n > 0 || written, written };
   });
   const donePct = steps.length
     ? Math.round((steps.filter((s) => s.done).length / steps.length) * 100)
@@ -1159,6 +1166,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
             {sec.key === "stain_after" ? (
               <>
+                <StainUsedBox job={job} onSave={(v) => void patch({ stain_gallons_used: v })} />
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     {tr("Before you leave — stainer's checklist")}
@@ -1531,8 +1539,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {!manager && !pwMode && visits ? (
         <>
           {visits.me && visits.me.before >= visits.need ? null : <CrewRules compact />}
-          <CheckInCard v={visits} task={visits.task || pickedTask} setTask={setPickedTask} upload={upload} uploading={uploading}
-                       pending={(sec, day) => queued.filter((q) => q.section === sec && localDay(q.takenAt) === (day || visits.today)).length} />
+          {/* No "I'm here" card (Alan, 2026-11-03): they just take 5 photos of
+              whatever they're starting in that step (before cleaning, before
+              staining); the first one is when they got there. */}
           {/* "From the cleaner" is off (Alan, 2026-11-02: not needed on the stainer's screen). */}
         </>
       ) : null}
@@ -3232,6 +3241,51 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/** The stainer's gallons, big, inside After staining (Alan, 2026-11-03: the
+ *  stainer couldn't find where to put the gallons he used; "it needs to be
+ *  super clearly seen on the stainer's part"). Job done takes these off the
+ *  shelf, so the number matters. */
+function StainUsedBox({ job, onSave }: { job: CompanyCamJob; onSave: (v: number) => void }) {
+  const saved = Number(job.stain_gallons_used || 0);
+  const [val, setVal] = useState(saved ? String(saved) : "");
+  useEffect(() => { setVal(saved ? String(saved) : ""); }, [saved]);
+  const color = job.final_color || job.color || "";
+  const save = (raw: string) => {
+    const v = parseFloat(raw || "0");
+    if (!Number.isNaN(v) && v >= 0 && v !== saved) onSave(v);
+  };
+  return (
+    <div className={cn("rounded-2xl border-2 p-3.5", saved ? "border-emerald-500 bg-emerald-50" : "border-cedar bg-[#FBF3DF]")}>
+      <p className="text-lg font-black leading-snug">🪣 {tr("How many gallons of stain did you use?")}</p>
+      {color ? <p className="mt-0.5 text-base font-semibold">{color}</p> : null}
+      {job.gallons_needed ? (
+        <p className="text-[15px] text-black/60">
+          {isSpanish() ? `Se trajeron unos ${job.gallons_needed}` : `Brought about ${job.gallons_needed}`}
+        </p>
+      ) : null}
+      <div className="mt-2 flex items-center gap-2">
+        <Input type="number" inputMode="decimal" step="0.5" min="0" placeholder="0" value={val}
+               onChange={(e) => setVal(e.target.value)} onBlur={(e) => save(e.target.value)}
+               className="h-14 w-32 bg-white text-2xl font-black tabular-nums" />
+        <span className="text-lg font-bold">{isSpanish() ? "galones" : "gallons"}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {[1, 2, 3, 4, 5, 10, 15].map((n) => (
+          <button key={n} type="button" onClick={() => { setVal(String(n)); save(String(n)); }}
+                  className={cn("min-h-11 min-w-11 rounded-xl px-3 text-base font-bold ring-1",
+                                saved === n ? "bg-ink text-white ring-ink" : "bg-white ring-black/15")}>
+            {n}
+          </button>
+        ))}
+      </div>
+      <p className={cn("mt-2 text-base font-bold", saved ? "text-emerald-800" : "text-cedar")}>
+        {saved ? `✓ ${tr("Saved")}: ${saved} ${isSpanish() ? "galones" : saved === 1 ? "gallon" : "gallons"}` : tr("Put this in before you leave.")}
+      </p>
     </div>
   );
 }

@@ -406,9 +406,9 @@ export function WhoWasHere({ v }: { v: JobVisitsPayload | null }) {
  *  On My Schedule and on top of every job. */
 export function CrewRules({ compact = false }: { compact?: boolean }) {
   const steps: [string, string, string][] = [
-    ["📸", "I'm here", "When you get to the job: 5 photos of the fence before you start."],
+    ["📸", "When you get there", "5 photos of what you're starting: before cleaning, or before staining."],
     ["🛠️", "While you work", "Take the photos as you do the job, not later."],
-    ["✅", "I'm leaving", "When you leave: 5 photos of what you did, then Check out."],
+    ["✅", "When you leave", "5 photos of what you finished, then Check out."],
   ];
   return (
     <section className="rounded-2xl border-2 border-ink bg-white p-4">

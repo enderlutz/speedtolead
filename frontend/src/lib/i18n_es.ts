@@ -1,6 +1,15 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Before staining / repairs": "Antes de pintar / reparaciones",
+  "After staining / repairs": "Después de pintar / reparaciones",
+  "When you leave: photo of the fix": "Al irte: foto del arreglo",
+  "When you get there": "Al llegar",
+  "When you leave": "Al irte",
+  "5 photos of what you're starting: before cleaning, or before staining.": "5 fotos de lo que vas a empezar: antes de limpiar o antes de teñir.",
+  "5 photos of what you finished, then Check out.": "5 fotos de lo que terminaste y luego marca tu salida.",
+  "How many gallons of stain did you use?": "¿Cuántos galones de tinte usaste?",
+  "Put this in before you leave.": "Ponlo antes de irte.",
   "Got there": "Llegó",
   "Left at": "Se fue",
   "Add more": "Agregar más",

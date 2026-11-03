@@ -114,8 +114,8 @@ export default function FixCheckInOut({ fixId, onDone }: { fixId: string; onDone
   const ready = before.length > 0 && after.length > 0 && (!earlier || (!!leftAt && !future));
   return (
     <div>
-      {step(1, "before", tr("I'm here"), before, false)}
-      {step(2, "after", tr("I'm leaving: photo of the fix"), after, before.length === 0)}
+      {step(1, "before", tr("When you get there"), before, false)}
+      {step(2, "after", tr("When you leave: photo of the fix"), after, before.length === 0)}
       {before.length && after.length ? (
         <div className="mt-2">
           <button type="button" onClick={() => { setEarlier(!earlier); if (!lday) setLday(new Date().toLocaleDateString("en-CA")); }}
