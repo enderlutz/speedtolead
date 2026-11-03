@@ -840,6 +840,8 @@ function fmtElapsed(ms: number): string {
 // General daily check-in / check-out for the day — a shift clock separate from
 // per-job photos. Reuses the same slide control as the check-in gesture, and
 // shows a live day timer while the worker is on the clock.
+const SHOW_DAY_CLOCK = false;
+
 function DailyCheckInCard() {
   const [shift, setShift] = useState<WorkerShift | null | undefined>(undefined); // undefined = loading
   // Off for someone paid per job, not by the hour (Alan, 2026-10-16).
@@ -1335,7 +1337,9 @@ export default function MySchedule() {
       </div>
 
       {/* General daily check-in / check-out for the day */}
-      {camReady && !allFlatToday ? <DailyCheckInCard /> : null}
+      {/* The "Your day" slide-to-check-in card is off (Alan, 2026-11-02): the
+          crew log their hours at the end of the day in My Hours instead. */}
+      {SHOW_DAY_CLOCK && camReady && !allFlatToday ? <DailyCheckInCard /> : null}
 
       {/* Friday: "How did the week go?" (Alan, 2026-10-28). Three questions
           in his words, read only by the office; whoever drives the company
