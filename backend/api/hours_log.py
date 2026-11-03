@@ -13,11 +13,36 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user, require_staff
 from api.job_visits import today
-from database import CompanyCamPhoto, HoursLog, User, get_db
+from database import CompanyCamPhoto, HoursLog, SystemConfig, User, get_db
 
 router = APIRouter()
 
 BACK_DAYS = 7
+# Each worker's week ends on their pay day, and once it's over the week is
+# locked: they still see it, they can't change it (Alan, 2026-11-02: Jose
+# Mon–Sat, Brent paid Sundays, Alfredo Tuesday nights, the rest Saturdays).
+# {username: "sat"} in SystemConfig; Saturday when not set.
+PAY_DAYS_KEY = "crew_pay_days"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+DEFAULT_PAY_DAY = 5
+
+
+def pay_day(db, username: str) -> int:
+    """The worker's pay day, Monday = 0."""
+    import json
+    try:
+        days = json.loads(SystemConfig.get(db, PAY_DAYS_KEY, "{}") or "{}")
+    except ValueError:
+        days = {}
+    v = str((days or {}).get(username) or (days or {}).get((username or "").lower()) or "").lower()[:3]
+    return WEEKDAYS.index(v) if v in WEEKDAYS else DEFAULT_PAY_DAY
+
+
+def week_of(day: str, pd: int) -> tuple[str, str]:
+    """(first day, pay day) of the pay week `day` is in."""
+    d = datetime.strptime(day, "%Y-%m-%d")
+    end = d + timedelta(days=(pd - d.weekday()) % 7)
+    return (end - timedelta(days=6)).strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 _HM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
@@ -69,8 +94,13 @@ def my_hours(user: dict = Depends(get_current_user)):
     try:
         rows = (db.query(HoursLog).filter(HoursLog.username == sub, HoursLog.work_date >= since)
                 .order_by(HoursLog.work_date.desc()).all())
-        return {"today": day0, "back_days": BACK_DAYS, "entries": [_row(r) for r in rows],
-                "photo_times": photo_times(db, sub, day0)}
+        pd = pay_day(db, sub)
+        start, end = week_of(day0, pd)
+        # Only this pay week can be changed; earlier weeks are shown, locked.
+        open_days = (datetime.strptime(day0, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")).days
+        return {"today": day0, "back_days": min(BACK_DAYS, open_days), "entries": [_row(r) for r in rows],
+                "photo_times": photo_times(db, sub, day0),
+                "week_start": start, "week_end": end, "pay_day": pd}
     finally:
         db.close()
 
@@ -92,6 +122,10 @@ def save_my_hours(day: str, body: HoursIn, user: dict = Depends(get_current_user
     sub = str(user.get("sub") or "")
     db = get_db()
     try:
+        pd = pay_day(db, sub)
+        start, _ = week_of(today(), pd)
+        if day < start:
+            raise HTTPException(400, f"That week is closed (paid {WEEKDAYS[pd].capitalize()}). Ask the office to fix it.")
         r = db.query(HoursLog).filter(HoursLog.username == sub, HoursLog.work_date == day).first()
         now = datetime.now(timezone.utc).isoformat()
         if r is None:

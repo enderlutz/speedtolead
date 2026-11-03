@@ -1,6 +1,10 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "pay day": "día de pago",
+  "Paid week ending": "Semana pagada que terminó el",
+  "This week, ends": "Esta semana, termina el",
+  "Closed. Ask the office if something is wrong.": "Cerrada. Avísale a la oficina si algo está mal.",
   "Every person, every job": "Cada persona, cada trabajo",
   "Each of you on your own phone, even if you came together.": "Cada uno con su propio teléfono, aunque hayan llegado juntos.",
   "While you work": "Mientras trabajas",

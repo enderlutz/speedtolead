@@ -4069,7 +4069,9 @@ export const api = {
       how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
   /** The hours a worker logs at the end of the day (2026-11-02). */
   /** photo_times: their first and last job photo each day, to fill in the form (2026-11-02). */
-  getMyHours: () => request<{ today: string; back_days: number; entries: HoursEntry[]; photo_times?: Record<string, { first: string; last: string }> }>("/api/my-hours"),
+  getMyHours: () => request<{ today: string; back_days: number; entries: HoursEntry[]; photo_times?: Record<string, { first: string; last: string }>;
+    /** Their pay week (2026-11-02): only it can be changed. pay_day: Monday = 0. */
+    week_start?: string; week_end?: string; pay_day?: number }>("/api/my-hours"),
   saveMyHours: (day: string, b: { start: string; end: string; note: string }) =>
     request<HoursEntry>(`/api/my-hours/${day}`, { method: "PUT", body: JSON.stringify(b) }),
   getCrewHours: (start = "", end = "") =>

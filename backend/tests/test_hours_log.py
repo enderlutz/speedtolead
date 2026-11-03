@@ -21,11 +21,33 @@ def test_log_change_and_the_office_totals(db, monkeypatch):
     r = hl.save_my_hours("2026-11-02", hl.HoursIn(start="7:30", end="16:15"), W)
     assert r["minutes"] == 525 and r["start"] == "07:30"
     hl.save_my_hours("2026-11-02", hl.HoursIn(start="08:00", end="16:00", note="rain at 2"), W)   # saved again: replaced
-    hl.save_my_hours("2026-10-31", hl.HoursIn(start="08:00", end="12:00"), W)
+    hl.save_my_hours("2026-11-01", hl.HoursIn(start="08:00", end="12:00"), W)
     mine = hl.my_hours(W)["entries"]
-    assert [e["date"] for e in mine] == ["2026-11-02", "2026-10-31"] and mine[0]["hours"] == 8.0
-    for bad in (("2026-11-03", "08:00", "16:00"), ("2026-10-20", "08:00", "16:00"), ("2026-11-02", "16:00", "08:00"), ("2026-11-02", "8am", "4pm")):
+    assert [e["date"] for e in mine] == ["2026-11-02", "2026-11-01"] and mine[0]["hours"] == 8.0
+    # Paid Saturdays (the default): Saturday Oct 31 closed the last week.
+    for bad in (("2026-11-03", "08:00", "16:00"), ("2026-10-31", "08:00", "16:00"), ("2026-11-02", "16:00", "08:00"), ("2026-11-02", "8am", "4pm")):
         with pytest.raises(HTTPException):
             hl.save_my_hours(bad[0], hl.HoursIn(start=bad[1], end=bad[2]), W)
     office = hl.crew_hours("", "", {"role": "admin"})
     assert office["totals"] == [{"name": "Jose Arthur", "hours": 12.0}] and len(office["entries"]) == 2
+
+
+def test_each_worker_s_week_closes_on_their_pay_day(db, monkeypatch):
+    """Alan, 2026-11-02: one worker paid Tuesday nights, another Sundays."""
+    import json
+    from database import SystemConfig
+    monkeypatch.setattr(hl, "get_db", lambda: db)
+    monkeypatch.setattr(hl, "today", lambda: "2026-11-04")          # a Wednesday
+    SystemConfig.set(db, hl.PAY_DAYS_KEY, json.dumps({"jose": "tue", "brent": "sun"}))
+    db.commit()
+    tue = {"sub": "jose", "name": "Jose", "role": "worker"}
+    sun = {"sub": "brent", "name": "Brent", "role": "worker"}
+    m = hl.my_hours(tue)
+    assert (m["week_start"], m["week_end"], m["back_days"]) == ("2026-11-04", "2026-11-10", 0)
+    with pytest.raises(HTTPException):                               # paid last night
+        hl.save_my_hours("2026-11-03", hl.HoursIn(start="08:00", end="16:00"), tue)
+    m = hl.my_hours(sun)
+    assert (m["week_start"], m["week_end"], m["back_days"]) == ("2026-11-02", "2026-11-08", 2)
+    hl.save_my_hours("2026-11-02", hl.HoursIn(start="08:00", end="16:00"), sun)
+    with pytest.raises(HTTPException):
+        hl.save_my_hours("2026-11-01", hl.HoursIn(start="08:00", end="16:00"), sun)

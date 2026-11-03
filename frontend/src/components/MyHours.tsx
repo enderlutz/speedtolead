@@ -9,7 +9,7 @@
 // and PM can't get mixed up), a big live total, one Save, and a receipt.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, CheckCircle2, Loader2, Minus, Moon, Plus, Sun } from "lucide-react";
+import { Check, CheckCircle2, Loader2, Lock, Minus, Moon, Plus, Sun } from "lucide-react";
 import { api, type HoursEntry } from "@/lib/api";
 import { isSpanish, tr } from "@/lib/i18n";
 import { cn, errMessage } from "@/lib/utils";
@@ -36,8 +36,9 @@ const hmOf = (mins: number) => { const x = Math.max(0, Math.min(23 * 60 + 45, mi
 // Photo times rounded to the quarter hour: the start down, the finish up.
 const roundDown = (hm: string) => hmOf(Math.floor(minsOf(hm) / 15) * 15);
 const roundUp = (hm: string) => hmOf(Math.ceil(minsOf(hm) / 15) * 15);
-/** Monday of the week `iso` is in. */
-const monday = (iso: string) => addDays(iso, -((asDate(iso).getDay() + 6) % 7));
+/** The pay day ending the week `iso` is in; `payDay` is Monday = 0 (the
+ *  server's), each worker's own (Alan, 2026-11-02). */
+const weekEnd = (iso: string, payDay: number) => addDays(iso, (((payDay + 1) % 7) - asDate(iso).getDay() + 7) % 7);
 
 const START_CHIPS = ["06:00", "06:30", "07:00", "07:30", "08:00", "08:30"];
 const END_CHIPS = ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
@@ -88,7 +89,8 @@ function TimeBlock({ icon: Icon, label, value, onChange, chips, fallback, minAft
 }
 
 export default function MyHours() {
-  const [data, setData] = useState<{ today: string; back_days: number; entries: HoursEntry[]; photo_times?: PhotoTimes } | null>(null);
+  const [data, setData] = useState<{ today: string; back_days: number; entries: HoursEntry[]; photo_times?: PhotoTimes;
+    week_start?: string; week_end?: string; pay_day?: number } | null>(null);
   const [day, setDay] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -113,25 +115,28 @@ export default function MyHours() {
     setNote(e?.note || ""); setNoteOpen(!!e?.note);
   }, [day, data]);
 
+  const payDay = data?.pay_day ?? 5;
+  const weekStart = data?.week_start || (data ? addDays(data.today, -data.back_days) : "");
   const weekTotal = useMemo(() => {
     if (!data) return 0;
-    const mon = monday(data.today);
-    return data.entries.filter((e) => e.date >= mon && e.date <= data.today).reduce((t, e) => t + e.minutes, 0);
-  }, [data]);
-  // Past entries grouped by week, newest first.
+    return data.entries.filter((e) => e.date >= weekStart && e.date <= data.today).reduce((t, e) => t + e.minutes, 0);
+  }, [data, weekStart]);
+  // Every entry grouped by pay week, newest first. Weeks before this one are closed.
   const weeks = useMemo(() => {
-    const out: { mon: string; total: number; rows: HoursEntry[] }[] = [];
+    const out: { end: string; total: number; rows: HoursEntry[] }[] = [];
     for (const e of data?.entries || []) {
-      const mon = monday(e.date);
-      const w = out.find((x) => x.mon === mon) || (out.push({ mon, total: 0, rows: [] }), out[out.length - 1]);
+      const end = weekEnd(e.date, payDay);
+      const w = out.find((x) => x.end === end) || (out.push({ end, total: 0, rows: [] }), out[out.length - 1]);
       w.rows.push(e); w.total += e.minutes;
     }
     return out;
-  }, [data]);
+  }, [data, payDay]);
 
   if (!data) return <p className="py-12 text-center text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />{tr("Loading…")}</p>;
 
-  const days = Array.from({ length: data.back_days + 1 }, (_, i) => addDays(data.today, -(data.back_days - i)));
+  // The whole pay week; days still to come are shown but can't be picked.
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const payName = asDate(weekEnd(data.today, payDay)).toLocaleDateString(loc(), { weekday: "long" });
   const logged = (d: string) => data.entries.some((x) => x.date === d);
   const saved = data.entries.find((x) => x.date === day);
   const mins = minsOf(end) - minsOf(start);
@@ -152,15 +157,15 @@ export default function MyHours() {
       {/* The week at a glance: a check on each day that has hours. */}
       <section className="rounded-2xl bg-ink p-4 text-white">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-[15px] font-semibold text-white/70">{tr("This week")}</p>
+          <p className="text-[15px] font-semibold text-white/70">{tr("This week")} <span className="capitalize">· {tr("pay day")} {payName}</span></p>
           <p className="font-heading text-[26px] font-bold tabular-nums text-gold">{span(weekTotal)}</p>
         </div>
-        <div className="mt-3 grid grid-cols-8 gap-1">
+        <div className="mt-3 grid grid-cols-7 gap-1">
           {days.map((d) => {
-            const on = d === day, ok = logged(d), isToday = d === data.today;
+            const on = d === day, ok = logged(d), isToday = d === data.today, later = d > data.today;
             return (
-              <button key={d} type="button" onClick={() => { setDay(d); setReceipt(null); }} aria-pressed={on}
-                      className={cn("flex min-h-[64px] flex-col items-center justify-center rounded-xl text-center transition",
+              <button key={d} type="button" disabled={later} onClick={() => { setDay(d); setReceipt(null); }} aria-pressed={on}
+                      className={cn("flex min-h-[64px] flex-col items-center justify-center rounded-xl text-center transition disabled:opacity-35",
                         on ? "bg-gold text-ink" : "bg-white/10 text-white")}>
                 <span className="text-[12px] font-bold uppercase">{isToday ? tr("Today").slice(0, 4) : asDate(d).toLocaleDateString(loc(), { weekday: "short" }).slice(0, 3)}</span>
                 <span className="text-[17px] font-black tabular-nums">{asDate(d).getDate()}</span>
@@ -223,25 +228,32 @@ export default function MyHours() {
       {weeks.length ? (
         <section className="rounded-2xl border bg-card p-4">
           <p className="text-base font-bold">{tr("Your hours")}</p>
-          {weeks.map((w) => (
-            <div key={w.mon} className="mt-3">
-              <div className="flex items-baseline justify-between border-b pb-1">
-                <p className="text-[13px] font-bold uppercase tracking-wide text-black/60">{tr("Week of")} {dayWords(w.mon)}</p>
-                <p className="text-[15px] font-black tabular-nums">{span(w.total)}</p>
+          {weeks.map((w) => {
+            const closed = w.end < weekStart;
+            return (
+            <div key={w.end} className="mt-3">
+              <div className="flex items-baseline justify-between gap-2 border-b pb-1">
+                <p className="flex items-center gap-1.5 text-[13px] font-bold uppercase tracking-wide text-black/60">
+                  {closed ? <Lock className="h-3.5 w-3.5" /> : null}
+                  {closed ? tr("Paid week ending") : tr("This week, ends")} {dayWords(w.end)}
+                </p>
+                <p className="shrink-0 text-[15px] font-black tabular-nums">{span(w.total)}</p>
               </div>
               <ul className="divide-y">
                 {w.rows.map((e) => (
                   <li key={e.date}>
-                    <button type="button" onClick={() => { if (days.includes(e.date)) { setDay(e.date); setReceipt(null); window.scrollTo({ top: 0, behavior: "smooth" }); } }}
-                            className="flex min-h-12 w-full items-center justify-between gap-2 py-2 text-left text-[15px]">
+                    <button type="button" disabled={closed} onClick={() => { setDay(e.date); setReceipt(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                            className="flex min-h-12 w-full items-center justify-between gap-2 py-2 text-left text-[15px] disabled:text-black/70">
                       <span className="min-w-0"><span className="font-semibold capitalize">{dayWords(e.date)}</span><span className="block text-black/60 tabular-nums">{clock(e.start)} – {clock(e.end)}</span></span>
                       <span className="shrink-0 font-bold tabular-nums">{span(e.minutes)}</span>
                     </button>
                   </li>
                 ))}
               </ul>
+              {closed ? <p className="mt-1 text-[13px] text-black/50">{tr("Closed. Ask the office if something is wrong.")}</p> : null}
             </div>
-          ))}
+            );
+          })}
         </section>
       ) : null}
     </div>
