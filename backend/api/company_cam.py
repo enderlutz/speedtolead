@@ -209,6 +209,19 @@ def _crew_options(db) -> list[dict]:
             if not getattr(u, "disabled", False)]
 
 
+def _has_fix_there(db, lead_id: str, sub: str) -> bool:
+    """A job to fix at this customer on this worker: still open, or done
+    within the last week."""
+    from database import FixJob
+    if not sub or not lead_id:
+        return False
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    for f in db.query(FixJob).filter(FixJob.lead_id == lead_id).all():
+        if (f.username or "").lower() == sub.lower() and (not f.done_at or (f.date or "") >= since or (f.done_at or "") >= since):
+            return True
+    return False
+
+
 def crew_guard(lead_id: str, user: dict = Depends(get_current_user)) -> dict:
     """Every Company Cam call: the Company Cam permission, and for the crew,
     being on this job."""
@@ -219,9 +232,13 @@ def crew_guard(lead_id: str, user: dict = Depends(get_current_user)) -> dict:
     db = get_db()
     try:
         job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
-        if (user.get("sub") or "").lower() not in {c.lower() for c in _crew_of(job)}:
-            raise HTTPException(403, "This job isn't assigned to you. Ask the office.")
-        return user
+        if (user.get("sub") or "").lower() in {c.lower() for c in _crew_of(job)}:
+            return user
+        # A job to fix there is theirs too (Alan, 2026-11-03: the fix worker
+        # opened the customer's job from the fix card and couldn't upload).
+        if _has_fix_there(db, lead_id, str(user.get("sub") or "")):
+            return user
+        raise HTTPException(403, "This job isn't assigned to you. Ask the office.")
     finally:
         db.close()
 

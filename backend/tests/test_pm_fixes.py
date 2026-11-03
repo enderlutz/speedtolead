@@ -161,3 +161,26 @@ def test_a_fix_is_timestamped_a_photo_in_and_a_photo_out(db, monkeypatch):
     # Fix photos count toward the worker's hours like any job photo.
     from database import CompanyCamPhoto
     assert db.query(CompanyCamPhoto).filter(CompanyCamPhoto.uploaded_sub == "Chris").count() == 3
+
+
+def test_the_fix_worker_can_open_the_customers_job(db, monkeypatch):
+    """Tapping the customer's name on a fix card opens their job; the worker
+    on the fix gets in, someone else doesn't (2026-11-03)."""
+    from api import company_cam as cc
+    _seed(db, monkeypatch)
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    def perm(key):   # a crew login: Company Cam yes, prices no
+        def dep(user=None):
+            if key != "company_cam":
+                raise HTTPException(403, "no")
+            return user
+        return dep
+    monkeypatch.setattr("api.permissions.require_perm", perm)
+    db.add(CompanyCamJob(id="j1", lead_id="Y", crew_json="[]"))
+    db.commit()
+    with pytest.raises(HTTPException):
+        cc.crew_guard("Y", user=CHRIS)                     # no fix yet: not his job
+    fx.add_fix(fx.FixBody(lead_id="Y", description="Bleach the patio wall", date="2026-11-03", username="Chris"), user=ALAN)
+    assert cc.crew_guard("Y", user=CHRIS) == CHRIS
+    with pytest.raises(HTTPException):
+        cc.crew_guard("Y", user={"sub": "Jose", "name": "Jose", "role": "worker"})
