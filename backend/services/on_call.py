@@ -151,16 +151,15 @@ def message_person(db, user, text: str) -> bool:
 
 
 # WhatsApp accepts the send and fails it a few seconds later when the person
-# hasn't written to us in 24 hours (Olga, 2026-10-20: every alert since the
-# day before bounced, and nobody knew). So look again shortly after, and tell
-# Alan: what they missed, and once in a while, how to fix it.
+# hasn't written to us in 24 hours (Olga, 2026-10-20). We used to text Alan
+# "X isn't getting WhatsApp alerts" each time; on every new lead that was too
+# much (Alan, 2026-11-02: "it's so annoying… I'd rather not have that"). Now
+# it's only logged.
 WA_CHECK_AFTER_SECONDS = 25
-WA_HOWTO_EVERY = timedelta(hours=3)
-_wa_howto_sent: dict[str, datetime] = {}
 
 
 def _check_whatsapp(name: str, cid: str, text: str) -> str:
-    """'failed' (Alan told), 'ok', or '' when it couldn't tell."""
+    """'failed' (logged), 'ok', or '' when it couldn't tell."""
     import time
     from services import ghl
     time.sleep(WA_CHECK_AFTER_SECONDS)
@@ -176,20 +175,8 @@ def _check_whatsapp(name: str, cid: str, text: str) -> str:
         return ""
     if mine.get("status") != "failed":
         return "ok"
-    now = now_utc()
-    lines = []
-    last = _wa_howto_sent.get(name)
-    if not last or now - last > WA_HOWTO_EVERY:
-        _wa_howto_sent[name] = now
-        why = mine.get("error") or "WhatsApp didn't deliver it"
-        lines.append(f"{name} isn't getting WhatsApp alerts ({why[:120]}). "
-                     f"Ask {name} to send \"on\" to the Sterling WhatsApp, 346-589-7877.")
-    # Their own lead, the 5-minute alarm and the shift reminder matter; a
-    # "not yours" heads-up doesn't need forwarding.
-    if not text.startswith("New lead:"):
-        lines.append(f"{name} missed this: {text[:300]}")
-    if lines:
-        _alan("\n\n".join(lines))
+    logger.warning("on call: WhatsApp alert to %s failed (%s): %s", name,
+                   (mine.get("error") or "not delivered")[:120], text[:120])
     return "failed"
 
 

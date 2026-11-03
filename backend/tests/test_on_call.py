@@ -275,24 +275,17 @@ def test_report_shows_the_real_form_time_and_both_waits(db, sent):
     assert r["filled_at"].startswith("2026-10-20T11:00") and r["text_sent_at"].startswith("2026-10-20T11:01")
 
 
-def test_a_failed_whatsapp_is_caught_and_alan_is_told(monkeypatch, sent):
-    """Olga, 2026-10-20: every alert bounced (24-hour window) and nobody knew."""
+def test_a_failed_whatsapp_is_logged_not_texted_to_alan(monkeypatch, sent):
+    """Alan, 2026-11-02: the "isn't getting WhatsApp alerts" texts on every
+    lead were too much. A bounce is still caught, just not texted."""
     from services import ghl
     monkeypatch.setattr(oc, "WA_CHECK_AFTER_SECONDS", 0)
-    monkeypatch.setattr(oc, "_wa_howto_sent", {})
     failed = {"messageType": "TYPE_WHATSAPP", "direction": "outbound", "status": "failed",
               "body": "🚨 5 MINUTES and nobody has called Khalid", "error": "more than 24 hours have passed"}
     monkeypatch.setattr(ghl, "get_conversations", lambda cid: [{"id": "conv"}])
     monkeypatch.setattr(ghl, "get_conversation_messages", lambda conv: [failed])
     assert oc._check_whatsapp("Olga", "cid", failed["body"]) == "failed"
-    assert 'send "on"' in sent["alan"][0] and "Olga missed this" in sent["alan"][0]
-    # Within 3 hours: just what she missed, no second how-to; a "not yours" isn't forwarded.
-    oc._check_whatsapp("Olga", "cid", failed["body"])
-    assert 'send "on"' not in sent["alan"][1]
-    failed["body"] = "New lead: Stephen. It's Alan's, not yours."
-    n = len(sent["alan"])
-    oc._check_whatsapp("Olga", "cid", failed["body"])
-    assert len(sent["alan"]) == n
+    assert not sent["alan"]
 
 
 def test_the_five_minute_alert_uses_the_persons_name(db, sent):
