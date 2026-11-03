@@ -251,6 +251,22 @@ def my_fix_photos(fix_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
+@router.get("/my-fixes/{fix_id}/photos/{photo_id}/image")
+def my_fix_photo_image(fix_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """A fix photo kept in the database (no Storage), for the fix card."""
+    from fastapi.responses import Response
+    db = get_db()
+    try:
+        _mine(db, fix_id, user)
+        p = (db.query(CompanyCamPhoto).filter(CompanyCamPhoto.id == photo_id, CompanyCamPhoto.lead_id == photo_key(fix_id))
+             .first())
+        if not p or not p.image_data:
+            raise HTTPException(404, "No picture stored for this photo")
+        return Response(content=p.image_data, media_type=p.mime or "image/jpeg")
+    finally:
+        db.close()
+
+
 @router.post("/my-fixes/{fix_id}/photos")
 async def my_fix_photo(fix_id: str, file: UploadFile = File(...), which: str = Form(...),
                        taken_at: str = Form(""), time_typed: bool = Form(False),

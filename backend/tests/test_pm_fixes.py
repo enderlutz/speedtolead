@@ -154,6 +154,8 @@ def test_a_fix_is_timestamped_a_photo_in_and_a_photo_out(db, monkeypatch):
 
     got = fx.my_fix_photos(f["id"], user=CHRIS)
     assert len(got["before"]) == 2 and len(got["after"]) == 1
+    # No Storage here: the picture comes back through the fix's own route.
+    assert fx.my_fix_photo_image(f["id"], got["before"][0]["id"], user=CHRIS).body == b"jpg"
     assert got["fix"]["arrived_at"] and got["fix"]["done_at"] and got["fix"]["done_by"] == "Chris"
     # The office list shows the times and counts too.
     row = next(x for x in fx.list_fixes("2026-11-01", "2026-11-08", user=ALAN)["fixes"] if x["id"] == f["id"])

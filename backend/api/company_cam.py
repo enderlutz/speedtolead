@@ -1102,7 +1102,8 @@ def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: d
         from services.supabase_storage import upload_image
 
         ext = (mime.split("/")[-1] or "jpg").replace("jpeg", "jpg")
-        url = upload_image(STORAGE_BUCKET, f"{lead_id}/{section}/{photo_id}.{ext}", data, mime) or ""
+        # No ":" in a Storage path (a job to fix is keyed "fix:<id>").
+        url = upload_image(STORAGE_BUCKET, f"{lead_id.replace(':', '_')}/{section}/{photo_id}.{ext}", data, mime) or ""
     except Exception as e:
         logger.warning(f"Company Cam: Storage upload failed for {photo_id}: {e}")
     photo = CompanyCamPhoto(

@@ -15,13 +15,26 @@ import { tr } from "@/lib/i18n";
 
 type Which = "before" | "after";
 
-function Shots({ photos }: { photos: CompanyCamPhoto[] }) {
+/** A photo from Storage loads straight; one kept in the database comes
+ *  through the fix's own route with the login. */
+function Thumb({ fixId, p }: { fixId: string; p: CompanyCamPhoto }) {
+  const [src, setSrc] = useState(p.from_storage ? p.url : "");
+  useEffect(() => {
+    if (p.from_storage) return;
+    let url = "";
+    void api.fetchMyFixImage(fixId, p.id).then((u) => { if (u) { url = u; setSrc(u); } });
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [fixId, p.id, p.from_storage]);
+  return src ? <img src={src} alt="" className="h-full w-full object-cover" /> : null;
+}
+
+function Shots({ fixId, photos }: { fixId: string; photos: CompanyCamPhoto[] }) {
   if (!photos.length) return null;
   return (
     <div className="mt-1.5 flex gap-1.5 overflow-x-auto">
       {photos.map((p) => (
         <div key={p.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-black/10">
-          {p.from_storage ? <img src={p.url} alt="" className="h-full w-full object-cover" /> : null}
+          <Thumb fixId={fixId} p={p} />
           <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 text-center text-[12px] font-semibold leading-5 text-white">
             {stampText(p.taken_at || "").split(" · ")[1] || ""}
           </span>
@@ -78,7 +91,7 @@ export default function FixCheckInOut({ fixId, onDone }: { fixId: string; onDone
         <p className="text-[14px] text-black/60">
           {have ? `${photos.length} ${tr(photos.length === 1 ? "photo" : "photos")} · ${stampText(photos[0].taken_at || "")}` : tr("At least 1 photo")}
         </p>
-        <Shots photos={photos} />
+        <Shots fixId={fixId} photos={photos} />
         {!doneAt && !locked ? (
           <>
             <input ref={ref} type="file" accept="image/*" capture="environment" multiple hidden
@@ -105,7 +118,7 @@ export default function FixCheckInOut({ fixId, onDone }: { fixId: string; onDone
         <p className="text-[14px] text-black/70">
           {before.length ? `${tr("Got there")} ${stampText(before[0].taken_at || "")} · ` : ""}{tr("Left at")} {stampText(doneAt)}
         </p>
-        <Shots photos={[...before, ...after]} />
+        <Shots fixId={fixId} photos={[...before, ...after]} />
       </div>
     );
   }

@@ -4084,6 +4084,15 @@ export const api = {
   /** A job to fix's "I'm here" and "I'm leaving" photos (2026-11-02). */
   getMyFixPhotos: (fixId: string) =>
     request<{ fix: FixJob; before: CompanyCamPhoto[]; after: CompanyCamPhoto[] }>(`/api/my-fixes/${fixId}/photos`),
+  /** A fix photo kept in the database, as a blob url (an <img> sends no token). */
+  fetchMyFixImage: async (fixId: string, photoId: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/my-fixes/${fixId}/photos/${photoId}/image`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
   uploadMyFixPhoto: async (fixId: string, file: File, which: "before" | "after", takenAt: string, timeTyped = false) => {
     const fd = new FormData();
     fd.append("file", file);
