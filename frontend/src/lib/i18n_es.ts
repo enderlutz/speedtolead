@@ -1,6 +1,7 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Tomorrow": "Mañana",
   "Pick all that apply": "Escoge todos los que hagas",
   // Stain Inventory + receipts + shelf count (2026-11-02)
   "Couldn't load the stain inventory": "No se pudo cargar el inventario de tinte",

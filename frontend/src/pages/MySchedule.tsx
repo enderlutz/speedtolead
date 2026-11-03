@@ -29,7 +29,8 @@ import { tr, isSpanish } from "@/lib/i18n";
 
 // Today, the next 3 days, the week (Mon–Sun) and Past (Alan, 2026-10-21:
 // "my goal is to schedule out a whole week for him").
-type Tab = "today" | "3day" | "week" | "past";
+// Today, Tomorrow, Week, Past (Alan, 2026-11-02: tomorrow in place of 3 days).
+type Tab = "today" | "tomorrow" | "week" | "past";
 
 function ctISO(offsetDays = 0): string {
   // Date arithmetic in Central Time so "today"/"tomorrow" boundaries match
@@ -1237,10 +1238,10 @@ export default function MySchedule() {
   const allFlatToday = todaysCam.length > 0 && todaysCam.every((j) => j.pay_type === "flat");
 
   const range = useMemo(() => {
-    if (tab === "3day") return { start: anchor, end: addDays(anchor, 2) };
+    if (tab === "tomorrow") return { start: addDays(today, 1), end: addDays(today, 1) };
     if (tab === "week") { const mon = startOfWeek(anchor); return { start: mon, end: addDays(mon, 6) }; }
     return null;
-  }, [tab, anchor]);
+  }, [tab, anchor, today]);
 
   const load = useCallback(async (which: Tab) => {
     setLoading(true);
@@ -1258,7 +1259,7 @@ export default function MySchedule() {
       let params: { start?: string; end?: string; employee_id?: string };
       if (which === "today") {
         params = { start: today, end: today, ...adminPreview };
-      } else if (which === "3day" || which === "week") {
+      } else if (which === "tomorrow" || which === "week") {
         params = { start: range?.start || today, end: range?.end || today, ...adminPreview };
       } else {
         params = { start: ctISO(-30), end: ctISO(-1), ...adminPreview };  // last 30 days
@@ -1344,13 +1345,13 @@ export default function MySchedule() {
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">
         {tabBtn("today", tr("Today"))}
-        {tabBtn("3day", tr("3 days"))}
+        {tabBtn("tomorrow", tr("Tomorrow"))}
         {tabBtn("week", tr("Week"))}
         {tabBtn("past", tr("Past"))}
       </div>
 
-      {/* ‹ Today › over the 3-day and week views, the Sterling black bar. */}
-      {range ? (
+      {/* ‹ Today › over the week view, the Sterling black bar. */}
+      {range && tab === "week" ? (
         <div className="mb-3 flex items-center gap-1 rounded-2xl bg-ink px-2 py-2 text-white">
           <button type="button" onClick={() => setAnchor(today)} className="min-h-11 rounded-full border border-white/40 px-3 text-[15px] font-bold">{tr("Today")}</button>
           <button type="button" onClick={() => step(-1)} aria-label={tr("Earlier")} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10"><ChevronLeft className="h-6 w-6" /></button>
@@ -1392,7 +1393,7 @@ export default function MySchedule() {
           )}
         </>
       ) : range ? (
-        <CrewDays dates={dayList(range.start, tab === "week" ? 7 : 3)} camJobs={camJobs} jobs={jobs} today={today} onSaved={handleMaterialsSaved} />
+        <CrewDays dates={dayList(range.start, tab === "week" ? 7 : 1)} camJobs={camJobs} jobs={jobs} today={today} onSaved={handleMaterialsSaved} />
       ) : (
         <>
           <CamJobs jobs={camJobs} tab="past" today={today} />
