@@ -34,7 +34,7 @@ import {
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
 import PhotoViewer from "@/components/PhotoViewer";
-import { CheckInCard, ForgotButton, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
+import { CheckInCard, CrewRules, ForgotButton, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1530,6 +1530,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
       {!manager && !pwMode && visits ? (
         <>
+          {visits.me && visits.me.before >= visits.need ? null : <CrewRules compact />}
           <CheckInCard v={visits} task={visits.task || pickedTask} setTask={setPickedTask} upload={upload} uploading={uploading}
                        pending={(sec, day) => queued.filter((q) => q.section === sec && localDay(q.takenAt) === (day || visits.today)).length} />
           {/* "From the cleaner" is off (Alan, 2026-11-02: not needed on the stainer's screen). */}

@@ -400,3 +400,31 @@ export function WhoWasHere({ v }: { v: JobVisitsPayload | null }) {
     </section>
   );
 }
+
+/** The rule, where every worker sees it (Alan, 2026-11-02: "everybody needs
+ *  to upload the photos separately… in real time as they're doing the job").
+ *  On My Schedule and on top of every job. */
+export function CrewRules({ compact = false }: { compact?: boolean }) {
+  const steps: [string, string, string][] = [
+    ["📸", "I'm here", "When you get to the job: 5 photos of the fence before you start."],
+    ["🛠️", "While you work", "Take the photos as you do the job, not later."],
+    ["✅", "I'm leaving", "When you leave: 5 photos of what you did, then Check out."],
+  ];
+  return (
+    <section className="rounded-2xl border-2 border-ink bg-white p-4">
+      <p className="text-[15px] font-black uppercase tracking-[0.08em]">{tr("Every person, every job")}</p>
+      <p className="mt-0.5 text-[15px] font-semibold text-rose-700">{tr("Each of you on your own phone, even if you came together.")}</p>
+      <ol className={cn("mt-2.5 grid gap-2", compact ? "" : "sm:grid-cols-3")}>
+        {steps.map(([icon, title, text], i) => (
+          <li key={title} className="flex items-start gap-2.5 rounded-xl bg-[#F4EEE1] p-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-base font-black text-white">{i + 1}</span>
+            <span className="min-w-0">
+              <span className="block text-base font-black">{icon} {tr(title)}</span>
+              <span className="block text-[15px] leading-snug">{tr(text)}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}

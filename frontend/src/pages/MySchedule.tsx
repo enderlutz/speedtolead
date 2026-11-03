@@ -15,6 +15,7 @@ import type { MyJobTask, JobPhotoMeta, WeekCheckinKey } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 import { cn, errMessage } from "@/lib/utils";
 import { tr, isSpanish } from "@/lib/i18n";
+import { CrewRules } from "@/components/JobCheckInOut";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
 // Three tabs:
@@ -1345,6 +1346,7 @@ export default function MySchedule() {
           in his words, read only by the office; whoever drives the company
           truck taps through it too. */}
       {user?.role !== "admin" ? <WeekCheckinCard /> : null}
+      {user?.role === "worker" ? <div className="mb-4"><CrewRules compact /></div> : null}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">

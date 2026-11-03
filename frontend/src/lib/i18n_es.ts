@@ -1,6 +1,12 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "Every person, every job": "Cada persona, cada trabajo",
+  "Each of you on your own phone, even if you came together.": "Cada uno con su propio teléfono, aunque hayan llegado juntos.",
+  "While you work": "Mientras trabajas",
+  "When you get to the job: 5 photos of the fence before you start.": "Al llegar al trabajo: 5 fotos de la cerca antes de empezar.",
+  "Take the photos as you do the job, not later.": "Toma las fotos mientras haces el trabajo, no después.",
+  "When you leave: 5 photos of what you did, then Check out.": "Al irte: 5 fotos de lo que hiciste y luego marca tu salida.",
   "This week": "Esta semana",
   "Another time": "Otra hora",
   "Not logged yet": "Sin anotar todavía",
