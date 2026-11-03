@@ -139,12 +139,19 @@ def derive_from_estimate(db, lead_id: str) -> dict:
     """
     from database import Estimate
 
-    est = (
-        db.query(Estimate)
-        .filter(Estimate.lead_id == lead_id, Estimate.status == "sent")
-        .order_by(Estimate.sent_at.desc().nullslast())
-        .first()
-    )
+    # The one they bought first (Alan, 2026-11-02: a closed estimate's job
+    # showed no footage, and another took an older sent price's footage),
+    # then the latest sent.
+    est = None
+    for status in ("closed", "sent"):
+        est = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id == lead_id, Estimate.status == status)
+            .order_by(Estimate.sent_at.desc().nullslast())
+            .first()
+        )
+        if est:
+            break
     if not est:
         return {}
 

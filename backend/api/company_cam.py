@@ -259,6 +259,16 @@ def _get_or_create(db, lead: Lead) -> CompanyCamJob:
         .first()
     )
     if job:
+        # Made before the estimate had its footage (Alan, 2026-11-02: "you
+        # have the square footage of this customer's job"): fill it in now,
+        # and the gallons from it, unless the office typed their own.
+        if float(job.sqft or 0) <= 0 and not getattr(job, "sqft_edited", False):
+            sqft = float(derive_from_estimate(db, lead.id).get("sqft") or 0)
+            if sqft > 0:
+                job.sqft = sqft
+                if not getattr(job, "gallons_edited", False) and float(job.gallons_needed or 0) <= 0:
+                    job.gallons_needed = gallons_for(sqft, sqft_per_gallon(db, job))
+                db.commit()
         return job
 
     derived = derive_from_estimate(db, lead.id)
@@ -503,7 +513,7 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
     }
 
 
-def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
+def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto], has_sides: bool = False) -> list[str]:
     """What still has to happen before this job is properly documented.
 
     Shown as a checklist rather than enforced, because a crew standing in
@@ -525,8 +535,10 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
                 out.append(f"{sec['label']} photos.")
         return out
     # Alan's rule: a scope photo, or failing that a written scope. One or the
-    # other is mandatory so nobody arrives not knowing the job.
-    if not by_section.get("fence_scope") and not (job.scope_explanation or "").strip():
+    # other is mandatory so nobody arrives not knowing the job. The sides
+    # picked on the estimate count too (Alan, 2026-11-02: "we did put the
+    # sides we're staining").
+    if not by_section.get("fence_scope") and not (job.scope_explanation or "").strip() and not has_sides:
         out.append("Fence scope: add a photo, or write out what we're doing.")
     if not getattr(job, "no_cleaning", False):
         if not by_section.get("clean_before"):
@@ -625,7 +637,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # What the cleaner has to settle on site. Derived, never stored,
             # so it cannot drift from the plan it describes.
             "cleaner_actions": cleaner_color_actions(_json_list(job.color_plan_json)),
-            "blockers": _blockers(job, photos),
+            "blockers": _blockers(job, photos, bool(estimate_sides(db, lead))),
             # How old the fence is, from the estimate (read-only here), and
             # what a gallon has covered on our jobs, overall and on fences
             # this old (Alan, 2026-10-15).
@@ -1025,7 +1037,7 @@ def update_company_cam(
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
-        return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos),
+        return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos, bool(estimate_sides(db, lead))),
                 "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(db, job, user),
                 # Ticking a service or a washing day can switch the screen.
                 "pw_mode": _pw_view(job, user), "pw_sections": job_pw_sections(job)}
@@ -1581,7 +1593,7 @@ def mark_job_done(lead_id: str, body: DoneBody | None = None, user: dict = Depen
             except Exception as e:  # noqa: BLE001
                 logger.warning("job done: alert failed for %s: %s", lead_id, e)
         photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()
-        return {"job": _job_dict(job, user=user), "blockers": _blockers(job, photos)}
+        return {"job": _job_dict(job, user=user), "blockers": _blockers(job, photos, bool(estimate_sides(db, lead)))}
     finally:
         db.close()
 

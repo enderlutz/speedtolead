@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user, require_staff
 from api.job_visits import today
-from database import HoursLog, User, get_db
+from database import CompanyCamPhoto, HoursLog, User, get_db
 
 router = APIRouter()
 
@@ -40,6 +40,26 @@ class HoursIn(BaseModel):
     note: str = ""
 
 
+def photo_times(db, username: str, day0: str) -> dict:
+    """{day: {"first": "07:42", "last": "15:10"}} from this worker's own job
+    photos, the last week (Alan, 2026-11-02): the hours form fills in from
+    them, so most days are one tap."""
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/Chicago")
+    since = (datetime.strptime(day0, "%Y-%m-%d") - timedelta(days=BACK_DAYS + 1)).strftime("%Y-%m-%d")
+    out: dict[str, dict] = {}
+    for at, in (db.query(CompanyCamPhoto.taken_at).filter(CompanyCamPhoto.uploaded_sub == username,
+                                                          CompanyCamPhoto.taken_at >= since).all()):
+        try:
+            d = datetime.fromisoformat((at or "").replace("Z", "+00:00")).astimezone(tz)
+        except ValueError:
+            continue
+        day, hm = d.strftime("%Y-%m-%d"), d.strftime("%H:%M")
+        x = out.setdefault(day, {"first": hm, "last": hm})
+        x["first"], x["last"] = min(x["first"], hm), max(x["last"], hm)
+    return out
+
+
 @router.get("/my-hours")
 def my_hours(user: dict = Depends(get_current_user)):
     sub = str(user.get("sub") or "")
@@ -49,7 +69,8 @@ def my_hours(user: dict = Depends(get_current_user)):
     try:
         rows = (db.query(HoursLog).filter(HoursLog.username == sub, HoursLog.work_date >= since)
                 .order_by(HoursLog.work_date.desc()).all())
-        return {"today": day0, "back_days": BACK_DAYS, "entries": [_row(r) for r in rows]}
+        return {"today": day0, "back_days": BACK_DAYS, "entries": [_row(r) for r in rows],
+                "photo_times": photo_times(db, sub, day0)}
     finally:
         db.close()
 
