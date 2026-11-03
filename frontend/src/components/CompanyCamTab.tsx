@@ -34,7 +34,7 @@ import {
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
 import PhotoViewer from "@/components/PhotoViewer";
-import { CheckInCard, FromTheCleaner, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
+import { CheckInCard, ForgotButton, FromTheCleaner, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1085,6 +1085,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                 </div>
                 <PhotoDoors busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
                             gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
+                {/* Forgot to take them (Alan, 2026-11-02: Chris couldn't add
+                    today's after photos): from the phone's photos, time typed. */}
+                {manager ? null : <ForgotButton onFiles={(f, at) => void upload(sec.key, f, at)} />}
               </>
             ) : (
               // Big, because on a phone this is the one thing the crew is
@@ -1093,6 +1096,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                 <PhotoDoors big busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
                             gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
                 <p className="text-center text-sm text-muted-foreground">{tr(sec.who)}</p>
+                {manager ? null : <ForgotButton onFiles={(f, at) => void upload(sec.key, f, at)} />}
               </div>
             )}
 

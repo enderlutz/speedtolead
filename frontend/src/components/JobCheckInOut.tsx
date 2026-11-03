@@ -52,7 +52,7 @@ function WhenFields({ day, time, setDay, setTime }: { day: string; time: string;
 
 /** Forgot to take them? Pick them from the phone's photos and say when
  *  (Alan, 2026-11-02). The phone's time fills in when the photo has one. */
-function ForgotButton({ onFiles, day: forDay }: { onFiles: (files: File[], at: string) => void; day?: string }) {
+export function ForgotButton({ onFiles, day: forDay }: { onFiles: (files: File[], at: string) => void; day?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [day, setDay] = useState("");
