@@ -12,6 +12,8 @@ type After = {
   paid: boolean; kind: string; flow: "A" | "B"; amount: number; method: string; paid_total: number;
   first_name: string; address: string; answers: Record<string, unknown>;
   ask_review?: boolean; referral_url?: string;
+  /** Nothing after paying: straight to the receipt (2026-11-03). */
+  quiet?: boolean;
   /** Their fence's after photos; an /api path is ours, else a CDN url. */
   photos?: string[];
 };
@@ -37,6 +39,7 @@ export default function AfterPayPage() {
         if (r.status === 404) { if (alive) setState("gone"); return; }
         const data = (await r.json()) as After;
         if (!alive) return;
+        if (data.paid && data.quiet) { window.location.replace(`/receipt/${token}`); return; }
         if (data.paid) { setAfter(data); setState("ready"); return; }
         tries.current += 1;
         if (tries.current < 8) setTimeout(check, 1500);

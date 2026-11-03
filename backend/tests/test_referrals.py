@@ -113,3 +113,18 @@ def test_the_referrals_list_shows_who_sent_whom(db, monkeypatch, quiet):
     got = rf.all_referrals(STAFF)["referrals"]
     assert got[0]["name"] == "Angie Smith" and got[0]["referrer_name"] == "Val Aldred" and got[0]["referrer_lead_id"] == val.id
     assert got[0]["stage"] == "New, needs a quote" and got[0]["paid"] is False
+
+
+def test_a_quiet_link_shows_nothing_after_paying(db, monkeypatch):
+    """ask_review -1: after paying, straight to the receipt; no review ask
+    (2026-11-03)."""
+    _settings(monkeypatch)
+    lead = _lead(db)
+    link = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="done"), STAFF)
+    from database import PayLink
+    row = db.query(PayLink).filter(PayLink.token == link["token"]).first()
+    row.ask_review = -1
+    db.commit()
+    a = sp.after_info(link["token"])
+    assert a["quiet"] is True and a["ask_review"] is False
+    assert sp.after_info(sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="done"), STAFF)["token"])["quiet"] is False

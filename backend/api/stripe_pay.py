@@ -125,7 +125,9 @@ def link_dict(link: PayLink) -> dict:
         "after_url": f"{_base()}/after/{link.token}",
         "created_by": link.created_by or "",
         "created_at": link.created_at,
-        "ask_review": link.ask_review != 0,
+        "ask_review": link.ask_review not in (0, -1),
+        # -1 = nothing after paying, straight to the receipt.
+        "quiet": link.ask_review == -1,
         "due_date": link.due_date or None,
         "sent_at": link.sent_at,
         "paid_at": link.paid_at,
@@ -1162,7 +1164,10 @@ def after_info(token: str, s: str | None = None, request: Request = None, previe
             "first_name": _first_name(lead),
             "address": (lead.address if lead else "") or "",
             "answers": _loads(link.answers),
-            "ask_review": link.ask_review != 0,
+            "ask_review": link.ask_review not in (0, -1),
+            # Nothing after paying, just the receipt (Alan, 2026-11-03: a
+            # customer who shouldn't see the review, referral or photo screens).
+            "quiet": link.ask_review == -1,
             # Their own referral link, a real page (it used to 404).
             "referral_url": referral_url_for(db, lead) if lead else "",
             # Their fence's after photos, to save and put in a Google review
