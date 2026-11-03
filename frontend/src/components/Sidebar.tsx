@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Lightbulb, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare } from "lucide-react";
+import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Lightbulb, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare, Clock } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -124,6 +124,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // page and its data stay at /job-map; put this line back to bring it back.
   // { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
+  // Their hours, one tap from the menu (Alan, 2026-11-02).
+  { to: "/my-hours", icon: Clock, label: "My Hours", perm: "my_schedule" },
   // { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] }, // archived 2026-10-27 (Alan: not using an estimator right now). Route/page kept.
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
@@ -333,7 +335,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             // Company Cam list); the Company Cam tab is the crew's (2026-10-27).
             if (item.to === "/company-cam" && (hasPerm("assign_crew") || hasPerm("pm_hq"))) return false;
             // Alan owns the business; he has no crew schedule (2026-10-27).
-            if (item.to === "/my-schedule" && (u?.sub || "").toLowerCase() === "alanbonner") return false;
+            if ((item.to === "/my-schedule" || item.to === "/my-hours") && (u?.sub || "").toLowerCase() === "alanbonner") return false;
             if (item.perm === "pm_hq") return hasPerm("pm_hq") && !hasPerm("assign_crew");
             if (item.perm) return hasPerm(item.perm);
             if (item.to === "/on-call") return u?.role === "admin" || u?.role === "va";

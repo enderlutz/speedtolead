@@ -38,6 +38,7 @@ const VideoEstimates = lazy(() => import("@/pages/VideoEstimates"));
 const CrewEmployee = lazy(() => import("@/pages/CrewEmployee"));
 const CalendarPage = lazy(() => import("@/pages/Calendar"));
 const MySchedule = lazy(() => import("@/pages/MySchedule"));
+const MyHoursPage = lazy(() => import("@/pages/MyHoursPage"));
 const Estimator = lazy(() => import("@/pages/Estimator"));
 const EstimatorDay = lazy(() => import("@/pages/EstimatorDay"));
 import CallListPanel from "@/components/CallListPanel";
@@ -314,6 +315,7 @@ function AppLayout() {
               <Route path="/accounting" element={<RequireView view="accounting"><Money forced="accounting" /></RequireView>} />
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
+              <Route path="/my-hours" element={<RequireView view="my_schedule"><MyHoursPage /></RequireView>} />
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
               <Route path="/estimator/day/:date" element={<RequireView view="estimator"><EstimatorDay /></RequireView>} />
               <Route path="/crew-schedule" element={<StaffOnly><CrewSchedule /></StaffOnly>} />

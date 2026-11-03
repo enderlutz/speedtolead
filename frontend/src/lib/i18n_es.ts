@@ -17,6 +17,7 @@ export const ES: Record<string, string> = {
   "Forgot to check out": "No marcaste salida",
   "Before photos that day": "Fotos de antes ese día",
   "Hours": "Horas",
+  "My Hours": "Mis horas",
   "Log your hours": "Anota tus horas",
   "Yesterday": "Ayer",
   "I started": "Empecé",
