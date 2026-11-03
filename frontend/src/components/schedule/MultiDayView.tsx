@@ -12,6 +12,10 @@
  *
  * A job to fix on a day (Alan, 2026-10-27) sits under the real jobs as a
  * dashed 🔧 placeholder, and drags to another day the same way.
+ *
+ * Moving on a phone (Alan, 2026-11-02): every card also has a Move button
+ * that opens MoveSheet (pick a day, or move it up or down in the day). It
+ * calls the same onMove / onMoveFix / onReorder the drag does.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import {
@@ -23,6 +27,7 @@ import type { FixJob, PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, JobChip, type JobLinkComponent } from "./bits";
 import { FixChip } from "./FixJobs";
+import { MoveButton, MoveSheet } from "./MoveSheet";
 import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "./look";
 import { groupJobs, groupKey, type JobGroup } from "./dates";
 
@@ -81,7 +86,8 @@ function ToFixRow({ fixes, chip }: { fixes: FixJob[]; chip: (f: FixJob) => React
         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-[14px] font-black text-white" aria-hidden>✕</span>
         {fixes.length} {fixes.length === 1 ? "job" : "jobs"} to fix · stop by on the way
       </p>
-      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{fixes.map(chip)}</div>
+      {/* grid-cols-1 is minmax(0,1fr): a long description truncates instead of pushing past the screen. */}
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{fixes.map(chip)}</div>
     </div>
   );
 }
@@ -121,6 +127,9 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
+  // The card whose Move sheet is open: a job by its key and day (looked up
+  // fresh, so it follows a Move up / Move down), or a job to fix.
+  const [moving, setMoving] = useState<{ key: string; date: string } | { fix: FixJob } | null>(null);
   const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { g?: JobGroup; fix?: FixJob } | undefined) || null);
   // A card under the finger wins over the day around it.
   const collide: CollisionDetection = (args) => {
@@ -148,19 +157,26 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
     ids.splice(at, 0, g.key);
     onReorder(to, ids);
   };
-  const chip = (g: JobGroup) => (
-    <Draggable key={groupKey(g)} g={g} on={dnd}><JobChip g={g} Link={Link} stacked={stacked && wide} showPay={showPay} /></Draggable>
+  // A card with its Move button beside it: a word on a phone, an icon in a laptop's column.
+  const withMove = (key: string, card: ReactNode, name: string, open: (() => void) | null) => (
+    <div key={key} className="flex min-w-0 items-stretch gap-1">
+      <div className="min-w-0 flex-1">{card}</div>
+      {open ? <MoveButton name={name} onClick={open} compact={wide} /> : null}
+    </div>
   );
-  const fixChip = (f: FixJob) => (
-    <DraggableFix key={`fix:${f.id}`} f={f} on={dnd && !!onMoveFix}>
+  const chip = (g: JobGroup) => withMove(groupKey(g),
+    <Draggable g={g} on={dnd}><JobChip g={g} Link={Link} stacked={stacked && wide} showPay={showPay} /></Draggable>,
+    g.x.name, dnd && onMove ? () => setMoving({ key: g.key, date: g.x.date }) : null);
+  const fixChip = (f: FixJob) => withMove(`fix:${f.id}`,
+    <DraggableFix f={f} on={dnd && !!onMoveFix}>
       <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} stacked={stacked && wide} red={!f.done_at} onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
-    </DraggableFix>
-  );
-  const redChip = (f: FixJob) => (
-    <DraggableFix key={`fix:${f.id}`} f={f} on={dnd && !!onMoveFix}>
+    </DraggableFix>,
+    f.name, dnd && onMoveFix ? () => setMoving({ fix: f }) : null);
+  const redChip = (f: FixJob) => withMove(`fix:${f.id}`,
+    <DraggableFix f={f} on={dnd && !!onMoveFix}>
       <FixChip f={f} who={f.username && whoOf ? whoOf(f.username) : undefined} red onClick={onOpenFix ? () => onOpenFix(f) : undefined} />
-    </DraggableFix>
-  );
+    </DraggableFix>,
+    f.name, dnd && onMoveFix ? () => setMoving({ fix: f }) : null);
   const topRow = <ToFixRow fixes={openFixes || []} chip={redChip} />;
   const moreBtn = "flex min-h-11 w-full items-center rounded-lg px-2 text-left text-[14px] font-bold text-[#8C6224] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60";
   const addBtn = (d: string) => canEdit && onAdd ? (
@@ -218,9 +234,39 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
       </div>
   );
   if (!dnd) return body;
+
+  // The open Move sheet. A job is found again on its day each time, so after
+  // Move up / Move down the sheet shows its new place; gone = closed.
+  const close = () => setMoving(null);
+  let sheet: ReactNode = null;
+  if (moving && "fix" in moving) {
+    const f = moving.fix;
+    sheet = <MoveSheet name={f.name} detail={f.description} from={f.date || ""} today={today} onClose={close}
+                       onDay={(to) => { close(); onMoveFix?.(f, to); }} />;
+  } else if (moving) {
+    const groups = groupJobs(byDay.get(moving.date) || []);
+    const i = groups.findIndex((g) => g.key === moving.key);
+    const g = groups[i];
+    const swap = (by: -1 | 1) => {
+      const ids = groups.map((x) => x.key);
+      [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
+      onReorder?.(moving.date, ids);
+    };
+    sheet = g ? (
+      <MoveSheet name={g.x.name} detail={g.people} from={g.x.date} today={today} onClose={close}
+                 onDay={(to) => { close(); onMove?.(g, to); }}
+                 place={{ n: i + 1, of: groups.length }}
+                 onUp={onReorder && i > 0 ? () => swap(-1) : undefined}
+                 onDown={onReorder && i < groups.length - 1 ? () => swap(1) : undefined} />
+    ) : null;
+  }
+
   return (
     <>
-      <p className={cn("px-1 text-[14px]", MUTED)}>Drag a job to another day to move it, or onto another job to swap their order. On a phone, hold it for a moment first.</p>
+      <p className={cn("px-1 text-[14px]", MUTED)}>
+        {wide ? "Drag a job to another day, or onto another job to change the order. Or click the calendar button on a job." : "Tap Move on a job to put it on another day or change its order."}
+      </p>
+      {sheet}
       <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(null)}>
         {body}
         <DragOverlay dropAnimation={null}>

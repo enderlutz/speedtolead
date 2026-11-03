@@ -59,7 +59,8 @@ export function FixChip({ f, who, tiny, stacked, onClick, red }: { f: FixJob; wh
         {icon}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-bold">{f.name}</span>
-          <span className={cn("block truncate text-[14px] font-medium", MUTED)}>{f.description}{who ? ` · ${who}` : ""}</span>
+          {/* Two lines of what to fix, then … (Alan, 2026-11-02: long ones ran off a phone). */}
+          <span className={cn("line-clamp-2 break-words text-[14px] font-medium", MUTED)}>{f.description}{who ? ` · ${who}` : ""}</span>
         </span>
       </>
     );

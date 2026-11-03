@@ -38,7 +38,8 @@ import { WhatToBuy } from "@/components/schedule/WhatToBuy";
 import { FixCard, FixList, type FixActions } from "@/components/schedule/FixJobs";
 import { JobList } from "@/pages/CompanyCamPage";
 import { DayBanner } from "@/components/schedule/bits";
-import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek, whoOf } from "@/components/schedule/dates";
+import { addDays as plusDays, addMonths, dayList, groupByDay, groupJobs, isDay, monthGrid, parseView, rangeLabel, startOfWeek, whoOf } from "@/components/schedule/dates";
+import { MoveSheet } from "@/components/schedule/MoveSheet";
 
 // "google" is the old Job Calendar tab, the mirror of Google Calendar, folded
 // in here (Alan, 2026-10-28: "we never really look at it").
@@ -134,16 +135,21 @@ export default function PmHq() {
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
           <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
         </h1>
-        <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
+        <p className="text-sm text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
-      <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-        {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : []), ...(isOffice() ? [["fridays", "Fridays", MessageSquare] as const] : [])] as const).map(([k, label, Icon]) => (
-          <button key={k} type="button" onClick={() => setTab(k)}
-                  className={cn("flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
-                    tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
-            <Icon className="h-4 w-4" />{label}
-          </button>
-        ))}
+      {/* One row of tabs (Alan, 2026-11-02: the labels wrapped onto two lines
+          and ran off his phone). On a phone the row slides sideways inside
+          the page's edges; the page itself never scrolls sideways. */}
+      <div className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+        <div className="flex w-max min-w-full snap-x gap-1 rounded-xl bg-muted/50 p-1" role="tablist">
+          {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : []), ...(isOffice() ? [["fridays", "Fridays", MessageSquare] as const] : [])] as const).map(([k, label, Icon]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+                    className={cn("flex min-h-11 flex-1 shrink-0 snap-start items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 text-[15px] font-semibold transition-colors",
+                      tab === k ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted")}>
+              <Icon className="h-[18px] w-[18px] shrink-0" />{label}
+            </button>
+          ))}
+        </div>
       </div>
       {tab === "google" ? (
         <>
@@ -434,7 +440,7 @@ function CalendarView() {
             <>
               <DayBanner day={day} today={today} items={byDay.get(day) || []} />
               <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} pwOptions={pwOptions} canEdit={canEdit} onChange={load}
-                        fixes={fixesByDay.get(day) || []} fixActions={fixActions} />
+                        fixes={fixesByDay.get(day) || []} fixActions={fixActions} today={today} onMove={(g, to) => void moveJob(g, to)} />
             </>
           ) : view === "month" ? (
             <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} fixesByDay={fixesByDay} />
@@ -465,10 +471,12 @@ function CalendarView() {
   );
 }
 
-function DayPanel({ day, items, crew, pwOptions, canEdit, onChange, fixes, fixActions }: {
+function DayPanel({ day, items, crew, pwOptions, canEdit, onChange, fixes, fixActions, today, onMove }: {
   day: string; items: PmDay[]; crew: { username: string; name: string }[]; pwOptions: { key: string; label: string }[]; canEdit: boolean; onChange: () => void;
   /** The jobs to fix on this day (Alan, 2026-10-27), with their own editing. */
   fixes: FixJob[]; fixActions: FixActions;
+  /** The Move button's sheet (Alan, 2026-11-02): today for its day chips, and the calendar's own move. */
+  today: string; onMove: (g: JobGroup, to: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   // One column per worker (Alan, 2026-10-18): their jobs top to bottom in the
@@ -493,10 +501,10 @@ function DayPanel({ day, items, crew, pwOptions, canEdit, onChange, fixes, fixAc
       </div>
       {adding ? <AddToDay day={day} crew={crew} pwOptions={pwOptions} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
       {lanes.length === 0 && !adding && !fixes.length ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
-      {lanes.length && canEdit ? <p className="text-[11px] text-muted-foreground">Hold the dots on a job and drag it up or down. Number 1 is where they start in the morning.</p> : null}
+      {lanes.length && canEdit ? <p className="text-sm text-muted-foreground">Tap Move on a job to put it on another day or change its order, or drag the dots. Number 1 is where they start in the morning.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {lanes.map((l) => <WorkerLane key={l.username} day={day} username={l.username} person={l.person} rows={l.rows} canEdit={canEdit} onChange={onChange}
-                                      crew={crew} dayItems={items} />)}
+                                      crew={crew} dayItems={items} today={today} onMove={onMove} />)}
       </div>
       {fixes.length ? (
         <div className="space-y-2 rounded-xl border border-dashed border-[#8C6224]/50 p-2.5">
@@ -536,9 +544,9 @@ function PayChip({ x }: { x: PmDay }) {
   );
 }
 
-function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayItems }: {
+function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayItems, today, onMove }: {
   day: string; username: string; person: string; rows: PmDay[]; canEdit: boolean; onChange: () => void;
-  crew: { username: string; name: string }[]; dayItems: PmDay[];
+  crew: { username: string; name: string }[]; dayItems: PmDay[]; today: string; onMove: (g: JobGroup, to: string) => void;
 }) {
   // Local copy so a drop shows instantly; the server catches up behind it.
   const [list, setList] = useState(rows);
@@ -562,17 +570,28 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
   const drag = canEdit && !helper;
   const goesWith = [...new Set(list.flatMap((x) => x.with))];
 
-  const onDragEnd = async (e: DragEndEvent) => {
-    const from = ids.indexOf(String(e.active.id));
-    const to = e.over ? ids.indexOf(String(e.over.id)) : -1;
-    if (from < 0 || to < 0 || from === to) return;
+  // Card `from` goes to place `to` in this worker's order: the drag and the Move sheet's up/down.
+  const reorder = async (from: number, to: number, said?: boolean) => {
     const next = arrayMove(merged, from, to);
     setList(next.flatMap((m) => m.rows));
     try {
       await api.pmHqOrder(day, next.map((m) => m.x.lead_id), username);
+      if (said) toast.success("Order saved");
       onChange();
     } catch (err) { setList(rows); toast.error(errMessage(err, "Couldn't change the order")); }
   };
+  const onDragEnd = async (e: DragEndEvent) => {
+    const from = ids.indexOf(String(e.active.id));
+    const to = e.over ? ids.indexOf(String(e.over.id)) : -1;
+    if (from < 0 || to < 0 || from === to) return;
+    await reorder(from, to);
+  };
+  // Moving on a phone (Alan, 2026-11-02): the card's Move button opens the
+  // sheet. Another day moves the whole job (everyone on it that day), the
+  // same as dragging it in the week; up/down is this worker's order.
+  const [moving, setMoving] = useState("");
+  const at = ids.indexOf(moving);
+  const movingCard = at >= 0 ? merged[at] : null;
 
   const remove = async (rows: PmDay[]) => {
     try {
@@ -592,18 +611,32 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
           <div className="space-y-2">
             {merged.map(({ x, rows }, i) => (
               <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} tasks={rows.map((r) => r.task)} canEdit={canEdit} drag={drag} onRemove={() => void remove(rows)} crew={crew} onChange={onChange}
-                       mates={dayItems.filter((d) => d.lead_id === x.lead_id && d.username !== x.username)} />
+                       mates={dayItems.filter((d) => d.lead_id === x.lead_id && d.username !== x.username)}
+                       onMoveOpen={canEdit ? () => setMoving(ids[i]) : undefined} />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+      {movingCard ? (
+        <MoveSheet name={movingCard.x.name} detail={person} from={day} today={today} onClose={() => setMoving("")}
+                   onDay={(to) => {
+                     const g = groupJobs(dayItems.filter((d) => d.lead_id === movingCard.x.lead_id))[0];
+                     setMoving("");
+                     if (g) onMove(g, to);
+                   }}
+                   place={drag ? { n: at + 1, of: merged.length } : undefined}
+                   onUp={drag && at > 0 ? () => void reorder(at, at - 1, true) : undefined}
+                   onDown={drag && at < merged.length - 1 ? () => void reorder(at, at + 1, true) : undefined} />
+      ) : null}
     </div>
   );
 }
 
-function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChange }: {
+function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChange, onMoveOpen }: {
   id: string; n: number; x: PmDay; tasks: string[]; canEdit: boolean; drag: boolean; onRemove: () => void;
   crew: { username: string; name: string }[]; mates: PmDay[]; onChange: () => void;
+  /** Opens the Move sheet (Alan, 2026-11-02: moving on a phone). */
+  onMoveOpen?: () => void;
 }) {
   // A person once, even when they're on two tasks of the job.
   const people = mates.filter((m, i) => mates.findIndex((o) => o.username === m.username) === i);
@@ -677,8 +710,16 @@ function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChan
         ) : null}
       </div>
       {canEdit ? (
-        <button type="button" onClick={onRemove} aria-label={`Take ${x.person} off ${x.name}`}
-                className="self-start rounded-full p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <button type="button" onClick={onRemove} aria-label={`Take ${x.person} off ${x.name}`}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+          {onMoveOpen ? (
+            <button type="button" onClick={onMoveOpen} aria-label={`Move ${x.name}`}
+                    className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2.5 text-sm font-bold text-[#8C6224] ring-1 ring-[#E4DCCB] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60">
+              <CalendarDays className="h-4 w-4" />Move
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
