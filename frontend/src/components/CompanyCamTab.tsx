@@ -34,7 +34,7 @@ import {
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
 import PhotoViewer from "@/components/PhotoViewer";
-import { CheckInCard, ForgotButton, FromTheCleaner, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
+import { CheckInCard, ForgotButton, LeaveBar, WhoWasHere, useJobVisits } from "@/components/JobCheckInOut";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -326,6 +326,12 @@ function PhotoCard({
       <div className="flex h-56 items-center justify-center rounded-xl bg-muted"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
     );
   }
+  // No note an hour after it went up (Alan, 2026-11-02: "the cleaner is not
+  // really noting much"): drop the note box and show more of the photo, with
+  // just who took it on it.
+  const quiet = !(photo.note || "").trim() && !!photo.uploaded_at
+    && Date.now() - new Date(photo.uploaded_at).getTime() > 60 * 60_000;
+  const by = photo.uploaded_by && !photo.uploaded_by.startsWith("auto:") ? photo.uploaded_by : "";
   return (
     <div className={cn(
       "overflow-hidden rounded-xl border bg-card shadow-sm transition hover:shadow-md",
@@ -335,7 +341,7 @@ function PhotoCard({
         {src ? (
           <button type="button" onClick={onOpen} className="block w-full" aria-label={tr("Open photo")}>
             <img src={src} alt={photo.side || `Photo ${photo.seq}`}
-                 className="h-36 w-full bg-muted object-cover sm:h-40" loading="lazy" />
+                 className={cn("w-full bg-muted object-cover", quiet ? "h-56 sm:h-60" : "h-36 sm:h-40")} loading="lazy" />
           </button>
         ) : (
           <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-muted to-muted/50 sm:h-40">
@@ -346,6 +352,11 @@ function PhotoCard({
         <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/55 px-1.5 py-0.5 text-sm font-bold text-white backdrop-blur-sm">
           <Hash className="h-2.5 w-2.5" />{photo.seq}
         </span>
+        {quiet && by ? (
+          <span className="absolute left-10 top-1.5 max-w-[60%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-sm font-semibold text-white backdrop-blur-sm">
+            📷 {by}
+          </span>
+        ) : null}
         {photo.is_damage ? (
           <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-red-600 px-1.5 py-0.5 text-sm font-bold text-white shadow-sm">
             <AlertTriangle className="h-2.5 w-2.5" /> {tr("DAMAGE")}
@@ -358,12 +369,12 @@ function PhotoCard({
         ) : null}
         <PhotoStamp photo={photo} />
       </div>
-      <div className="space-y-1.5 p-2">
+      <div className={cn(quiet ? "px-2 py-1" : "space-y-1.5 p-2")}>
         {/* "Which side?" archived 2026-10-16 (Alan): not needed for now. A
             side already typed still shows on the photo. The note stays. */}
-        <NoteBox photo={photo} save={(note) => onPatch({ note })} />
-        {photo.uploaded_by && !photo.uploaded_by.startsWith("auto:") ? (
-          <p className="truncate text-sm text-muted-foreground">{tr("Photo by")} {photo.uploaded_by}</p>
+        {quiet ? null : <NoteBox photo={photo} save={(note) => onPatch({ note })} />}
+        {!quiet && by ? (
+          <p className="truncate text-sm text-muted-foreground">{tr("Photo by")} {by}</p>
         ) : null}
         <div className="flex items-center justify-between gap-1">
           <button
@@ -1521,7 +1532,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         <>
           <CheckInCard v={visits} task={visits.task || pickedTask} setTask={setPickedTask} upload={upload} uploading={uploading}
                        pending={(sec, day) => queued.filter((q) => q.section === sec && localDay(q.takenAt) === (day || visits.today)).length} />
-          <FromTheCleaner job={job} task={visits.task || pickedTask} onPhotos={() => jump("clean_after")} />
+          {/* "From the cleaner" is off (Alan, 2026-11-02: not needed on the stainer's screen). */}
         </>
       ) : null}
       {manager ? <WhoWasHere v={visits} /> : null}

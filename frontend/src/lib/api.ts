@@ -4068,7 +4068,8 @@ export const api = {
     request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`,
       how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
   /** The hours a worker logs at the end of the day (2026-11-02). */
-  getMyHours: () => request<{ today: string; back_days: number; entries: HoursEntry[] }>("/api/my-hours"),
+  /** photo_times: their first and last job photo each day, to fill in the form (2026-11-02). */
+  getMyHours: () => request<{ today: string; back_days: number; entries: HoursEntry[]; photo_times?: Record<string, { first: string; last: string }> }>("/api/my-hours"),
   saveMyHours: (day: string, b: { start: string; end: string; note: string }) =>
     request<HoursEntry>(`/api/my-hours/${day}`, { method: "PUT", body: JSON.stringify(b) }),
   getCrewHours: (start = "", end = "") =>

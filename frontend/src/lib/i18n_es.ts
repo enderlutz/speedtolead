@@ -1,6 +1,17 @@
 // Spanish for the crew screens (Alan, 2026-10-16). Keyed by the exact English.
 // A line missing here just shows in English, so adding one is always safe.
 export const ES: Record<string, string> = {
+  "This week": "Esta semana",
+  "Another time": "Otra hora",
+  "Not logged yet": "Sin anotar todavía",
+  "Filled in from your job photos. Change it if it's not right.": "Lo llenamos con la hora de tus fotos del trabajo. Cámbialo si no está bien.",
+  "Total": "Total",
+  "Lunch is not taken out": "No se descuenta el almuerzo",
+  "That's a long day. Check the times.": "Es un día muy largo. Revisa las horas.",
+  "Add a note": "Agregar una nota",
+  "Update my hours": "Actualizar mis horas",
+  "Change it": "Cambiarlo",
+  "Week of": "Semana del",
   "Tomorrow": "Mañana",
   "Pick all that apply": "Escoge todos los que hagas",
   // Stain Inventory + receipts + shelf count (2026-11-02)
