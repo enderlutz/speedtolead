@@ -4,7 +4,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { BookOpen, Check, CornerDownRight, GraduationCap, Mic, Quote } from "lucide-react";
-import { hasPerm } from "@/lib/api";
+import { api, hasPerm } from "@/lib/api";
+import { toast } from "sonner";
+import { ScriptDoc, ScriptTabs, useScripts } from "@/components/ScriptLibrary";
 import Calls from "@/pages/Calls";
 import TrainingCourse from "@/pages/TrainingCourse";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,7 +35,7 @@ export default function CallScript() {
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Call script</h1>
           <p className="text-sm text-muted-foreground">
             {view === "script"
-              ? `What to say on the first call, word for word. ${SCRIPT_VERSION}, from Alan's closed jobs and a read of 183 calls.`
+              ? "Our call scripts. Tap a tab to read one, Edit to change it. Everyone in the office sees the same words."
               : view === "coach" ? "The recordings, transcripts and the AI review of every call."
               : "The training modules: videos and steps for every part of the job."}
           </p>
@@ -45,7 +47,35 @@ export default function CallScript() {
         </div>
       </div>
 
-      {view === "coach" ? <CoachEmbed /> : view === "training" ? <TrainingEmbed /> : <ScriptView />}
+      {view === "coach" ? <CoachEmbed /> : view === "training" ? <TrainingEmbed /> : <Scripts />}
+    </div>
+  );
+}
+
+/** Our own scripts as tabs (Alan, 2026-11-04), each editable here. The old
+ *  built-in script is set aside on the last tab. */
+function Scripts() {
+  const [params, setParams] = useSearchParams();
+  const { scripts, setScripts } = useScripts();
+  if (!scripts) return <p className="text-sm text-muted-foreground">Loading the scripts…</p>;
+  const asked = params.get("s") || "";
+  const active = asked === "old" || scripts.some((x) => x.id === asked) ? asked : (scripts[0]?.id || "old");
+  const pick = (id: string) => { const n = new URLSearchParams(params); n.set("s", id); setParams(n, { replace: true }); };
+  const add = async () => {
+    const name = window.prompt("Title for the new script", `Call script ${scripts.length + 1}`);
+    if (!name?.trim()) return;
+    try { const s = await api.createCallScript(name.trim(), ""); setScripts([...scripts, s]); pick(s.id); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't add it"); }
+  };
+  const cur = scripts.find((x) => x.id === active);
+  return (
+    <div className="space-y-3">
+      <ScriptTabs scripts={scripts} active={active} onPick={pick} onAdd={() => void add()} oldLabel={`Old script (${SCRIPT_VERSION})`} />
+      {cur ? (
+        <ScriptDoc key={cur.id} script={cur}
+          onSaved={(s) => setScripts(scripts.map((x) => (x.id === s.id ? s : x)))}
+          onDeleted={(id) => { setScripts(scripts.filter((x) => x.id !== id)); pick("old"); }} />
+      ) : <ScriptView />}
     </div>
   );
 }

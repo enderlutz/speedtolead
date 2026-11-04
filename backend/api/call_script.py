@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 from database import get_db, CallScript
-from api.auth import require_admin, get_current_user
+from api.auth import require_admin, require_staff, get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -228,8 +228,11 @@ def get_call_script(user: dict = Depends(get_current_user)):
 
 
 # ── Create / update / delete ──────────────────────────────────────────────
+# Anyone in the office (Alan, Olga, the VAs) adds and edits scripts from the
+# Call script tab (Alan, 2026-11-04: "edit it from everybody's angle").
+# Deleting one stays admin-only.
 @router.post("/call-scripts")
-def create_call_script(body: CallScriptCreate, user: dict = Depends(require_admin)):
+def create_call_script(body: CallScriptCreate, user: dict = Depends(require_staff)):
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(400, "Give the script a name.")
@@ -254,7 +257,7 @@ def create_call_script(body: CallScriptCreate, user: dict = Depends(require_admi
 
 
 @router.put("/call-scripts/{script_id}")
-def update_call_script_by_id(script_id: str, body: CallScriptUpdate, user: dict = Depends(require_admin)):
+def update_call_script_by_id(script_id: str, body: CallScriptUpdate, user: dict = Depends(require_staff)):
     db = get_db()
     try:
         row = db.query(CallScript).filter(CallScript.id == script_id).first()
@@ -409,7 +412,7 @@ async def _extract_upload_text(file: UploadFile) -> str:
 
 
 @router.post("/call-scripts/extract")
-async def extract_call_script_file(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+async def extract_call_script_file(file: UploadFile = File(...), user: dict = Depends(require_staff)):
     """Pull the text out of an uploaded PDF / Word (.docx) / text file so admin
     can import a script written elsewhere instead of retyping it. Returns the
     extracted text; the caller loads it into the editor to review + save. Does
