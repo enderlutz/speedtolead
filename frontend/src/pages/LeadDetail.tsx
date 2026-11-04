@@ -1436,8 +1436,10 @@ export default function LeadDetail() {
               estimate was sent"). Status, Responded, the follow-up flag and
               the last-call line are gone — the customer journey says all of
               that. */}
+          {/* Their real area, not the GHL account name (Alan, 2026-11-03:
+              every lead said "Cypress", which is just the account label). */}
           <HeaderMeta
-            location={lead.location_label}
+            location={[lead.area, lead.zip_code].filter(Boolean).join(" · ") || null}
             viewCount={lead.proposal_view_count || 0}
             lastViewedAt={lead.proposal_last_viewed_at || lead.proposal_viewed_at}
             sentAt={estimate?.sent_at}
