@@ -9,7 +9,7 @@
 // iPhone it needs some work") sixteen chips in three columns were five rows
 // of buttons before any card — so each row is a swipeable strip instead,
 // scrolled so the current step sits in the middle.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Check, ChevronDown, Star, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Accent } from "@/lib/accents";
@@ -42,13 +42,15 @@ export type JourneyStep = {
 // Below Tailwind's `sm` the rows swipe; from `sm` up they are grids.
 const PHONE = "(max-width: 639px)";
 
-export function JourneyStrip({ steps, note, collapsed = false, onToggle }: {
+export function JourneyStrip({ steps, note, collapsed = false, onToggle, footer }: {
   steps: JourneyStep[];
   /** One line under the title, e.g. "came back and restarted". */
   note?: string;
   /** Folded to its one-line header (Alan, 2026-10-16: "way too much"); a tap opens it. */
   collapsed?: boolean;
   onToggle?: () => void;
+  /** Shown under the steps when open, e.g. the objections (Alan, 2026-11-03). */
+  footer?: ReactNode;
 }) {
   const done = steps.filter((s) => s.done).length;
   const current = steps.find((s) => !s.done && !s.skipped);
@@ -192,6 +194,7 @@ export function JourneyStrip({ steps, note, collapsed = false, onToggle }: {
           </div>
         );
       })}
+      {footer ? <div className="relative mt-3 text-foreground">{footer}</div> : null}
       </>}
     </div>
   );

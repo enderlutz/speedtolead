@@ -2383,7 +2383,10 @@ export default function LeadDetail() {
           )}
 
           {/* Folded by default (Alan, 2026-10-16): the header says what's
-              next; a tap opens every step. */}
+              next; a tap opens every step. The objections live at the bottom
+              of it when open (Alan, 2026-11-03: one card, not two): every
+              objection the scanner found in their texts and calls, with their
+              exact words. Nobody picks; a wrong one can be removed. */}
           <JourneyStrip
             collapsed={!isOpen("journey", false)}
             onToggle={() => toggle("journey", false)}
@@ -2391,18 +2394,14 @@ export default function LeadDetail() {
             note={cameBack
               ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
               : undefined}
-          />
-
-          {/* Every objection the scanner found in this customer's texts and
-              calls, each with their exact words and whether it came before or
-              after the estimate. Nobody picks; a wrong one can be removed. */}
-          <ObjectionsPanel
-            leadId={lead.id}
-            objections={objections}
-            categories={objectionCats}
-            onChange={loadObjections}
-            collapsed={!isOpen("objections", objections.length > 0)}
-            onToggle={() => toggle("objections", objections.length > 0)}
+            footer={
+              <ObjectionsPanel
+                leadId={lead.id}
+                objections={objections}
+                categories={objectionCats}
+                onChange={loadObjections}
+              />
+            }
           />
 
           {/* Our own booking invite, in place of the Google Calendar one
