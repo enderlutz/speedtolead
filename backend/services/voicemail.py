@@ -70,6 +70,24 @@ VOICEMAIL_PHRASES = (
 
 VOICEMAIL_RE = re.compile("|".join(VOICEMAIL_PHRASES), re.IGNORECASE)
 
+# A phone's AI call screener (Alan, 2026-11-04: "we never got to talk to
+# him"). It reads a long script first ("I'm an AI assistant recording this
+# call for the person you're trying to reach. Please say who you are...") and
+# the rep answers it, so the voicemail greeting lands past OPENING_CHARS. When
+# the screener opens the call, look further, and also catch its own "they're
+# busy, I'll let them know you called", which it only says when nobody picks up.
+SCREENER_RE = re.compile(
+    r"ai assistant recording this call|say who you are and why you'?re calling"
+    r"|(?:google|call) (?:assistant|screen)",
+    re.IGNORECASE,
+)
+SCREENER_CHARS = 1500
+SCREENER_GAVE_UP_RE = re.compile(
+    r"i'?ll let them know you called|the person you'?re calling is busy"
+    r"|start talking after the tone",
+    re.IGNORECASE,
+)
+
 # Postgres POSIX alternation for the one-shot backfill. Python's (?:...) and
 # (?i) are not POSIX, so the inline flags are dropped and the caller uses the
 # case-insensitive operator instead.
@@ -84,4 +102,67 @@ def looks_like_voicemail(full_text: str | None) -> bool:
     """
     if not full_text:
         return False
-    return bool(VOICEMAIL_RE.search(full_text[:OPENING_CHARS]))
+    if VOICEMAIL_RE.search(full_text[:OPENING_CHARS]):
+        return True
+    if SCREENER_RE.search(full_text[:OPENING_CHARS]):
+        head = full_text[:SCREENER_CHARS]
+        return bool(SCREENER_GAVE_UP_RE.search(head) or VOICEMAIL_RE.search(head))
+    return False
+
+
+# The AI listener skips a call for two reasons: nobody was there (voicemail,
+# screener, no answer) or it wasn't a sales call (Home Depot, a warranty
+# call). Only the first means we never talked to them.
+NOBODY_RE = re.compile(r"voice ?mail|screen|no answer|not answer|didn'?t answer|unanswered|answering machine|no one|nobody|ring(?:s|ing)? out", re.IGNORECASE)
+
+
+def listener_heard_nobody(heard) -> bool:
+    if not isinstance(heard, dict) or not heard.get("skip"):
+        return False
+    return bool(NOBODY_RE.search(f"{heard.get('outcome') or ''} {heard.get('why') or ''}"))
+
+
+_reclassified = False
+
+
+def reclassify_missed(db) -> int:
+    """Once per boot: fix old calls this file used to count as conversations.
+
+    Two kinds: a screener that went to voicemail (the rule above, newer than
+    the transcripts), and any call the AI listener already heard as "a
+    voicemail, call screener or no answer" (call_tones skip). Only flips
+    FALSE to TRUE, so running it again changes nothing."""
+    global _reclassified
+    if _reclassified:
+        return 0
+    _reclassified = True
+    from database import CallRecording, CallTone, CallTranscript
+
+    flipped = 0
+    rows = (
+        db.query(CallRecording, CallTranscript.full_text)
+        .join(CallTranscript, CallTranscript.recording_id == CallRecording.id)
+        .filter(CallRecording.is_voicemail.is_(False), CallTranscript.full_text.ilike("%you're%calling%")
+                | CallTranscript.full_text.ilike("%ai assistant%") | CallTranscript.full_text.ilike("%call screen%")
+                | CallTranscript.full_text.ilike("%google assistant%"))
+        .all()
+    )
+    for rec, text in rows:
+        if looks_like_voicemail(text):
+            rec.is_voicemail = True
+            flipped += 1
+    import json
+
+    skipped = set()
+    for rid, raw in db.query(CallTone.recording_id, CallTone.listen_json).filter(CallTone.listen_json.like('{"skip": true%')).all():
+        try:
+            if listener_heard_nobody(json.loads(raw)):
+                skipped.add(rid)
+        except ValueError:
+            pass
+    if skipped:
+        for rec in db.query(CallRecording).filter(CallRecording.id.in_(skipped), CallRecording.is_voicemail.is_(False)).all():
+            rec.is_voicemail = True
+            flipped += 1
+    db.commit()
+    return flipped

@@ -133,3 +133,29 @@ def test_a_call_back_day_on_the_call_is_the_next_step(db):
     assert find_promise("just call me tomorrow", sat)["day"].isoformat() == "2026-10-18"
     assert find_promise("I'll send it after the call in a few minutes", sat) is None
     assert find_promise("call me next week", sat)["day"].isoformat() == "2026-10-19"
+
+
+def test_never_talked_stays_on_the_discovery_call_even_after_the_estimate(db):
+    lead = _lead(db)
+    _card(db, lead, T0)
+    _talk(db, lead, T0 + timedelta(hours=1), secs=90, voicemail=True)
+    st = _one(db, lead, last_send={lead.id: T0 + timedelta(hours=2)})
+    assert st["key"] == "sent" and st["journey"] == "Discovery call"
+
+
+def test_talked_and_sent_gets_a_follow_up_day(db):
+    from datetime import date
+    from services.next_step import follow_up_day
+    lead = _lead(db)
+    _card(db, lead, T0)
+    _talk(db, lead, T0 + timedelta(hours=1))
+    st = _one(db, lead, last_send={lead.id: T0 + timedelta(hours=1, minutes=5)},
+              now=T0 + timedelta(hours=3))
+    assert st["journey"].startswith("Follow-up call ") and st["follow_up_on"] == "2026-10-03"
+    assert st["tone"] == "cold"
+    # Two days, but never later than two days before the day we're holding,
+    # and a Sunday call moves to Monday.
+    wed = date(2026, 11, 4)
+    assert follow_up_day(wed, None, date(2026, 11, 10), wed) == date(2026, 11, 6)
+    assert follow_up_day(wed, None, date(2026, 11, 6), wed) == date(2026, 11, 5)
+    assert follow_up_day(wed, 4, None, wed) == date(2026, 11, 9)  # Sun 8th -> Mon 9th

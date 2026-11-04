@@ -16,7 +16,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 
 from clock import to_ct
-from database import CallDisposition, CallRecording, CallTranscript, Lead, Message, PayLink, ScheduledJob
+import json
+
+from database import Booking, CallDisposition, CallRecording, CallTone, CallTranscript, Lead, Message, PayLink, ScheduledJob
 from services.callback_promise import find_promise
 from services.followup_status import TALKED_OUTCOMES
 from services.intake import last_intakes
@@ -63,6 +65,30 @@ _JOURNEY = {
     "discovery": "Discovery call",
 }
 _STILL_TO_TALK = {"replied", "viewed", "sent"}
+
+
+# After a real conversation and a sent estimate, when to call back (Alan,
+# 2026-11-04: "put the day we should call him back for a follow-up"). The
+# AI listener's own pick from the call (call_tones follow_up.when_days),
+# else two days: long enough to talk it over at home, short enough that it
+# doesn't go cold. Never later than two days before a day we're holding.
+FOLLOW_UP_DAYS = 2
+HOLD_LEAD_DAYS = 2
+
+
+def follow_up_day(talked_on, when_days, held_on, today):
+    """The calendar day to call. `talked_on`/`held_on`/`today` are dates."""
+    days = when_days if isinstance(when_days, int) and 1 <= when_days <= 14 else FOLLOW_UP_DAYS
+    day = talked_on + timedelta(days=days)
+    if held_on and held_on > talked_on:
+        day = min(day, max(talked_on + timedelta(days=1), held_on - timedelta(days=HOLD_LEAD_DAYS)))
+    if day.weekday() == 6:  # a Sunday call is a Monday call
+        day += timedelta(days=1)
+    return day
+
+
+def _day_label(d) -> str:
+    return f"{d.strftime('%a')} {d.month}/{d.day}"
 
 
 def _journey(key: str, talked: bool) -> str:
@@ -215,4 +241,49 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
         out[lid] = _step("discovery", "New, no answer yet", "Call them. No answer? Price it anyway.", "warm")
     for lid, step in out.items():
         step["journey"] = _journey(step["key"], since_intake(lid, talked.get(lid)))
+
+    # The follow-up call gets its day.
+    due = [lid for lid, st in out.items() if st["journey"] == "Follow-up call"]
+    if due:
+        picks: dict[str, int | None] = {}
+        for lid, raw in (
+            db.query(CallRecording.lead_id, CallTone.listen_json)
+            .join(CallTone, CallTone.recording_id == CallRecording.id)
+            .filter(CallRecording.lead_id.in_(due), CallRecording.is_voicemail.is_(False),
+                    CallTone.listen_json != "")
+            .order_by(CallRecording.created_at.desc()).all()
+        ):
+            if lid in picks:
+                continue
+            try:
+                picks[lid] = ((json.loads(raw) or {}).get("follow_up") or {}).get("when_days")
+            except (ValueError, AttributeError):
+                picks[lid] = None
+        held: dict[str, str] = {}
+        for lid, d in (
+            db.query(Booking.lead_id, Booking.date)
+            .filter(Booking.lead_id.in_(due), Booking.status != "cancelled", Booking.sent_at.isnot(None))
+            .order_by(Booking.created_at.desc()).all()
+        ):
+            held.setdefault(lid, d or "")
+        for lid in due:
+            t = talked.get(lid)
+            if not t:
+                continue
+            try:
+                held_on = datetime.strptime(held[lid], "%Y-%m-%d").date() if held.get(lid) else None
+            except ValueError:
+                held_on = None
+            day = follow_up_day(to_ct(t).date(), picks.get(lid), held_on, today)
+            step = out[lid]
+            step["follow_up_on"] = day.isoformat()
+            label = _day_label(day)
+            step["journey"] = f"Follow-up call {label}"
+            hold = f" We're holding {_day_label(held_on)}." if held_on and held_on >= today else ""
+            if day > today:
+                step["next"], step["tone"] = f"Wait until {label}, then call.{hold}", "cold"
+            elif day == today:
+                step["next"], step["tone"] = f"Call them today.{hold}", "hot"
+            else:
+                step["next"], step["tone"] = f"Late: it was due {label}. Call them now.{hold}", "hot"
     return out

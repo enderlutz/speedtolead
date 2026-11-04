@@ -64,6 +64,11 @@ def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
     try:
         heard = tone.listen(audio or rec.recording_data, text, short=(rec.duration_seconds or 0) < tone.LONG_MIN)
         row.listen_json, row.error, row.model = json.dumps(heard), "", tone.current_model(db)
+        # The listener heard a voicemail or a call screener: it wasn't a
+        # conversation, whatever the transcript's opening looked like.
+        from services.voicemail import listener_heard_nobody
+        if listener_heard_nobody(heard):
+            rec.is_voicemail = True
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
         row.error = str(e)[:900]
