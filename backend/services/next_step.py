@@ -170,6 +170,7 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
         i = intakes.get(lid)
         return t is not None and (i is None or t >= i)
 
+    call_back_on: dict[str, tuple] = {}
     out: dict[str, dict] = {}
     for lid in lead_ids:
         lead = leads.get(lid)
@@ -199,6 +200,7 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
                 and (today - promise["day"]).days <= PROMISE_STALE_DAYS):
             day = promise["day"]
             label = f"{day.strftime('%a')} {day.month}/{day.day}"
+            call_back_on[lid] = (day, label)
             if today < day:
                 out[lid] = _step("callback", f"On the call: {'they will call' if promise['they_call'] else 'call them'} {label}",
                                  f"Wait. {'They said they would call' if promise['they_call'] else 'They asked for a call'} {label}. Don't call before then.",
@@ -241,6 +243,12 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
         out[lid] = _step("discovery", "New, no answer yet", "Call them. No answer? Price it anyway.", "warm")
     for lid, step in out.items():
         step["journey"] = _journey(step["key"], since_intake(lid, talked.get(lid)))
+        if step["key"] == "callback" and lid in call_back_on:
+            # The day goes in the headline (Alan, 2026-11-04, "callback and
+            # then the date that we're supposed to call them back").
+            day, label = call_back_on[lid]
+            step["journey"] = f"Call back {label}"
+            step["follow_up_on"] = day.isoformat()
 
     # The follow-up call gets its day.
     due = [lid for lid, st in out.items() if st["journey"] == "Follow-up call"]

@@ -124,6 +124,7 @@ def test_a_call_back_day_on_the_call_is_the_next_step(db):
     sent = {lead.id: sat + timedelta(minutes=5)}
     s = _one(db, lead, last_send=sent, now=sat + timedelta(hours=2))
     assert s["key"] == "callback" and s["tone"] == "cold" and "Mon 10/19" in s["next"] and "Don't call" in s["next"]
+    assert s["journey"] == "Call back Mon 10/19"
     s = _one(db, lead, last_send=sent, now=datetime(2026, 10, 19, 15, tzinfo=timezone.utc))
     assert s["key"] == "callback" and s["tone"] == "hot" and "Call them" in s["next"]
     # She texts first: answering her wins.
