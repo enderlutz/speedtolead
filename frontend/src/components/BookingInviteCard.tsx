@@ -64,19 +64,16 @@ function shortWhen(iso: string | null | undefined): string {
   return d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function nextDays(n = 14): string[] {
+function nextDays(n = 30): string[] {
   const out: string[] = [];
   const d = new Date();
   for (let i = 1; i <= n; i++) { d.setDate(d.getDate() + 1); out.push(isoOf(d)); }
   return out;
 }
 
-function nextThursday(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", tierOr: "", color: "", notes: "", klarna: false, ownPrice: "", dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
+// No day until someone picks one (Alan, 2026-11-03: a made-up "next
+// Thursday" looked like something was already scheduled).
+const blank = (): Draft => ({ date: "", tier: "signature", tierOr: "", color: "", notes: "", klarna: false, ownPrice: "", dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -360,17 +357,16 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
         <div className="min-w-0 text-sm sm:col-span-2">
-          <p className="font-semibold">Day we're aiming for{draft.date ? <span className="ml-1.5 rounded-md bg-gold/20 px-2 py-0.5 font-bold text-bronze">{longDay(draft.date)}</span> : null}</p>
-          {/* Tap a day: the weekday is on every button. */}
+          <p className="font-semibold">Day we're aiming for{draft.date ? <span className="ml-1.5 rounded-md bg-gold/20 px-2 py-0.5 font-bold text-bronze">{longDay(draft.date)}</span> : <span className="ml-1.5 font-normal text-muted-foreground">· tap a day</span>}</p>
+          {/* Tap a day: the weekday is on every button. Swipe for 30 days. */}
           <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {nextDays().map((iso) => {
               const d = new Date(`${iso}T12:00:00`);
-              const on = draft.date === iso;
-              const weekend = d.getDay() === 0 || d.getDay() === 6;
+              // Every day looks the same (Alan, 2026-11-03: a dark day read as
+              // "today"). The picked day shows in the gold label above.
               return (
-                <button key={iso} type="button" onClick={() => setDraft({ ...draft, date: iso })}
-                  className={cn("flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border text-center leading-tight",
-                    on ? "border-bronze bg-ink text-gold-light" : weekend ? "border-gold/50 bg-gold/10" : "border-input bg-background")}>
+                <button key={iso} type="button" aria-pressed={draft.date === iso} onClick={() => setDraft({ ...draft, date: iso })}
+                  className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-input bg-background text-center leading-tight">
                   <span className="text-[11px] font-bold uppercase">{d.toLocaleDateString("en-US", { weekday: "short" })}</span>
                   <span className="text-lg font-bold tabular-nums">{d.getDate()}</span>
                 </button>
@@ -393,10 +389,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           {/* Still choosing (Alan, 2026-11-02): the cleaner brings the
               samples and recommends the best one for their fence. */}
           <button type="button" onClick={() => setDraft({ ...draft, color: draft.color === COLOR_IN_PERSON ? "" : COLOR_IN_PERSON })}
-            className={cn("mt-2 flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm",
+            className={cn("mt-2 flex min-h-14 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm",
               draft.color === COLOR_IN_PERSON ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
-            <input type="checkbox" readOnly checked={draft.color === COLOR_IN_PERSON} tabIndex={-1} className="h-4 w-4 accent-[#15130F]" />
-            <span>Show colors in person <span className="font-normal text-muted-foreground">· our cleaner brings the samples and recommends one</span></span>
+            <input type="checkbox" readOnly checked={draft.color === COLOR_IN_PERSON} tabIndex={-1} className="h-5 w-5 shrink-0 accent-[#15130F]" />
+            <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold/20 text-2xl">🎨</span>
+            <span className="min-w-0"><span className="block font-semibold">Show colors in person</span>
+              <span className="block font-normal text-muted-foreground">Our cleaner brings the color samples 🪵 and helps them pick</span></span>
           </button>
         </label>}
       </div>
