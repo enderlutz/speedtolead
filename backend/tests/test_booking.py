@@ -364,3 +364,14 @@ def test_the_booking_text_and_email_carry_the_senders_name():
                         total_cents=377244, repairs_json=None, date="2026-11-11")
     html = bk._email_html(lead, b, "https://x/b/1", None, "Lily")
     assert "Lily<br>Sterling Fence Staining" in html and "A note from Lily" in html and "Alan" not in html
+
+
+def test_our_own_price_replaces_the_estimates_with_no_discount_line(db, ghl):
+    """Type the package price on the invite (2026-11-03): the booking is at
+    that price, no discount shown, and blank goes back to the estimate's."""
+    lead, day = _ready(db)
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", color="Pecan", price=1518.5), STAFF)
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    assert b["total"] == 1518.5 and b["price"] == 1518.5 and not b.get("discount")
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", color="Pecan"), STAFF)
+    assert bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["total"] != 1518.5

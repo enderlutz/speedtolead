@@ -695,9 +695,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
                 raise HTTPException(status_code=400, detail="No fence staining: add the services they're booking, with a price, then save the draft.")
             tiers = {SERVICES_ONLY: 0.0}
         else:
-            tiers = _tiers(db, lead, d.get("estimate_id") or "")
-            if not tiers or not tiers.get(d["tier"]):
-                raise HTTPException(status_code=400, detail="This lead has no price for that package yet.")
+            tiers = _tiers(db, lead, d.get("estimate_id") or "") or {}
+            # Our own price for the package wins over the estimate's (2026-11-03).
+            own = float(d.get("price") or 0)
+            if own > 0:
+                tiers = {**tiers, d["tier"]: own}
+            if not tiers.get(d["tier"]):
+                raise HTTPException(status_code=400, detail="This lead has no price for that package yet. Type your price for it.")
         b = _active(db, lead.id)
         if not body.notify and b is None:
             raise HTTPException(status_code=400, detail="Nothing has been sent yet. Send it first.")

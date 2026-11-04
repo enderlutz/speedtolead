@@ -586,6 +586,9 @@ class BookingDraftBody(BaseModel):
     estimate_id: str = ""
     # The second package when they pick on the day (2026-11-02).
     tier_or: str = ""
+    # Our own price for the package (Alan, 2026-11-03: "just write down the
+    # price myself" instead of working out a discount). 0 = the estimate's.
+    price: float = 0
 
 
 def clean_services(raw) -> list[dict]:
@@ -687,6 +690,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             "repairs_discount_label": (body.repairs_discount_label or "").strip()[:60] if rtype else "",
             "services": services,
             "estimate_id": (body.estimate_id or "").strip()[:64],
+            "price": round(float(body.price or 0), 2) if tier and tier != "none" and 0 < float(body.price or 0) < 100000 else 0,
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)

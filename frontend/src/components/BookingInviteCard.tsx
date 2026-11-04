@@ -27,6 +27,8 @@ const PAIRS: { hi: Tier; lo: Tier }[] = [{ lo: "essential", hi: "signature" }, {
 const pkgLabel = (tier: string, or?: string) => (or ? `${tierName(or)} or ${tierName(tier)}` : tierName(tier));
 type Draft = {
   date: string; tier: Pick; tierOr: "" | Tier; color: string; notes: string; klarna: boolean;
+  /** Our own price for the package (2026-11-03); "" = the estimate's. */
+  ownPrice: string;
   /** A discount: dollars or a percent off the package, and why. */
   dtype: "amount" | "percent"; dval: string; dlabel: string;
   /** Repairs agreed on the phone: the proposal's counters, same prices. */
@@ -74,7 +76,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", tierOr: "", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", tierOr: "", color: "", notes: "", klarna: false, ownPrice: "", dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -144,6 +146,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       if (d?.updated_at || s.booking) setOpen(true);
       if (d?.updated_at) setDraft((x) => ({
         date: d.date || x.date, tier: (d.tier || x.tier) as Pick, tierOr: (d.tier_or || "") as "" | Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
+        ownPrice: d.price ? String(d.price) : "",
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
@@ -169,7 +172,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const rawSides = fd.fence_sides;
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
   const noFence = draft.tier === "none";
-  const price = noFence ? 0 : tiers?.[draft.tier] || 0;
+  const own = noFence ? 0 : Math.round((Number(draft.ownPrice) || 0) * 100) / 100;
+  const estPrice = noFence ? 0 : tiers?.[draft.tier] || 0;
+  const price = own > 0 ? own : estPrice;
   const tierOr = noFence ? "" : draft.tierOr;
   const off = noFence ? 0 : discountOff(price, draft);
   const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType);
@@ -196,6 +201,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const saved = st?.draft?.updated_at ? st.draft : null;
   const pickedId = chosenSet && chosenSet.id !== defaultSet?.id ? chosenSet.id : "";
   const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.tier_or || "") !== tierOr || (saved.estimate_id || "") !== pickedId || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
+    || (saved.price || 0) !== own
     || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
     || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
     || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "")
@@ -221,6 +227,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       repairs_discount_label: roff ? draft.rlabel : "",
       services: serviceLines,
       estimate_id: pickedId,
+      price: own,
     });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
@@ -418,7 +425,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <p className="text-sm font-semibold">Package</p>
         <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {TIERS.map((t) => (
-            <button key={t.key} type="button" onClick={() => setDraft({ ...draft, tier: t.key, tierOr: "" })}
+            <button key={t.key} type="button" onClick={() => setDraft({ ...draft, tier: t.key, tierOr: "", ownPrice: draft.tier === t.key ? draft.ownPrice : "" })}
               className={cn("rounded-lg border px-2 py-2 text-left text-sm", draft.tier === t.key && !tierOr ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-input hover:bg-muted")}>
               <span className="block">{t.name}</span>
               <span className="block tabular-nums text-muted-foreground">{tiers?.[t.key] ? formatCurrency(tiers[t.key]) : "No price yet"}</span>
@@ -432,6 +439,21 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             <span className="block text-muted-foreground">Other services only</span>
           </button>
         </div>
+        {/* Our own price (Alan, 2026-11-03: "just write down the price myself"):
+            the customer sees this as the package price, no discount line. */}
+        {noFence ? null : (
+          <label className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-semibold">Your price for {tierName(draft.tier as Tier)}</span>
+            <span className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+              <input inputMode="decimal" value={draft.ownPrice} placeholder={estPrice ? estPrice.toFixed(2) : "0.00"}
+                onChange={(e) => setDraft({ ...draft, ownPrice: e.target.value.replace(/[^0-9.]/g, "") })}
+                className="h-11 w-32 rounded-lg border border-input bg-background pl-6 pr-3 text-base tabular-nums" />
+            </span>
+            <span className="text-muted-foreground">{own > 0 ? (estPrice ? `Estimate was ${formatCurrency(estPrice)}` : "") : "Blank = the estimate's price"}</span>
+            {own > 0 ? <button type="button" onClick={() => setDraft({ ...draft, ownPrice: "" })} className="min-h-11 px-2 font-semibold text-bronze underline">Use the estimate's</button> : null}
+          </label>
+        )}
         {/* Still deciding between two (Alan, 2026-11-02): they pick on the
             day once they see the samples. The $250 and Klarna go by the higher. */}
         {noFence ? null : <>
@@ -440,7 +462,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             {PAIRS.map((pr) => {
               const on = draft.tier === pr.hi && tierOr === pr.lo;
               return (
-                <button key={pr.hi} type="button" onClick={() => setDraft({ ...draft, tier: pr.hi, tierOr: on ? "" : pr.lo })}
+                <button key={pr.hi} type="button" onClick={() => setDraft({ ...draft, tier: pr.hi, tierOr: on ? "" : pr.lo, ownPrice: draft.tier === pr.hi ? draft.ownPrice : "" })}
                   className={cn("min-h-11 rounded-lg border px-3 py-2 text-left text-sm", on ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
                   <span className="block">{tierName(pr.lo)} or {tierName(pr.hi)}</span>
                   <span className="block tabular-nums text-muted-foreground">{tiers?.[pr.lo] && tiers?.[pr.hi] ? `${formatCurrency(tiers[pr.lo])} or ${formatCurrency(tiers[pr.hi])}` : "No price yet"}</span>
