@@ -403,18 +403,6 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
     90-day backfill, well past any HTTP request timeout)."""
     import time
     from datetime import timedelta
-    # Once per boot: old calls the voicemail rule used to miss (services/voicemail.py).
-    try:
-        from services.voicemail import reclassify_missed
-        _db = get_db()
-        try:
-            n = reclassify_missed(_db)
-            if n:
-                logger.info(f"Voicemail: re-marked {n} old calls that never reached a person")
-        finally:
-            _db.close()
-    except Exception as e:  # noqa: BLE001 — never stops the poll
-        logger.warning(f"Voicemail reclassify skipped: {e}")
     settings = get_settings()
     if not settings.ghl_api_key:
         return {"status": "skipped", "reason": "ghl_api_key not set"}
@@ -551,6 +539,18 @@ def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 160) -> d
 
     Returns a per-run summary the caller (poller schedule / admin
     trigger endpoint) can log."""
+    # Once per boot: old calls the voicemail rule used to miss (services/voicemail.py).
+    try:
+        from services.voicemail import reclassify_missed
+        _db = get_db()
+        try:
+            n = reclassify_missed(_db)
+            if n:
+                logger.info(f"Voicemail: re-marked {n} old calls that never reached a person")
+        finally:
+            _db.close()
+    except Exception as e:  # noqa: BLE001 — never stops the poll
+        logger.warning(f"Voicemail reclassify skipped: {e}")
     settings = get_settings()
     if not settings.ghl_api_key:
         return {"status": "skipped", "reason": "ghl_api_key not set"}
