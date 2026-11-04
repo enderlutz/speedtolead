@@ -447,6 +447,13 @@ function ContactFact({
   );
 }
 
+/** "+17135550123" → "(713) 555-0123" so a number is easy to read back on a
+ *  call (Alan, 2026-11-03). Display only; anything not a US number shows as is. */
+function prettyPhone(p: string): string {
+  const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p;
+}
+
 /** A contact fact you edit where it sits: tap it, change it, tick to save
  *  (Alan, 2026-10-08 — no more Edit button for the whole card). Enter saves,
  *  Escape puts it back. */
@@ -947,7 +954,6 @@ export default function LeadDetail() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("08:00");
   const [showScheduleJob, setShowScheduleJob] = useState(false);
-  const [quickSending, setQuickSending] = useState(false);
   const [existingScheduledJob, setExistingScheduledJob] = useState<import("@/lib/api").ScheduledJob | null>(null);
   // Phase 3 (2026-06-08) — Calendar Glimpse precedes the Schedule modal on
   // brand-new jobs. When editing an existing job we skip the glimpse and
@@ -1482,31 +1488,10 @@ export default function LeadDetail() {
               call: everything syncs from GHL on its own now. The resync
               endpoint (api.resyncStageFromGHL) and lib/ghlLink.ts are kept;
               see git history for the buttons. */}
-          {/* Header buttons (Alan, 2026-11-03): "Capture Decline Reasons" and
-              "Schedule Job" are gone from here. Decline reasons still open
+          {/* Header button (Alan, 2026-11-03): only "Booking invite". "Capture
+              Decline Reasons", "Schedule Job" and "Send $250 now" are gone from here. Decline reasons still open
               by themselves when the card moves to Declined; ScheduleJobModal
               stays below for the calendar glimpse path. */}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={quickSending}
-            onClick={async () => {
-              if (!window.confirm(`Text ${lead.contact_name || "them"} the $250 link now?`)) return;
-              setQuickSending(true);
-              try {
-                const out = await api.quickDeposit(lead.id);
-                toast.success(out.note, { duration: 9000 });
-                window.dispatchEvent(new CustomEvent("booking-changed", { detail: { leadId: lead.id } }));
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Couldn't send it");
-              } finally {
-                setQuickSending(false);
-              }
-            }}
-          >
-            {quickSending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CircleDollarSign className="h-3.5 w-3.5 mr-1" />}
-            Send $250 now
-          </Button>
           <Button
             size="sm"
             onClick={() => {
@@ -1691,7 +1676,7 @@ export default function LeadDetail() {
                     <EditableFact icon={UserRound} accent={ACCENT.blue} label="Name"
                       value={lead.contact_name || ""} onSave={(v) => saveContactField("contact_name", v)} />
                     <EditableFact icon={Phone} accent={ACCENT.emerald} label="Phone"
-                      value={lead.contact_phone || ""} inputMode="tel"
+                      value={lead.contact_phone || ""} display={prettyPhone(lead.contact_phone || "")} inputMode="tel"
                       right={lead.contact_phone ? (
                         <a {...(() => { const c = officeCallLink(lead.contact_phone || "", lead.ghl_location_id || "", lead.ghl_contact_id || "");
                               return c.ghl ? { href: c.href, target: "_blank", rel: "noreferrer", title: "Call in GoHighLevel (346-589-7877)" } : { href: c.href, title: "Call" }; })()}
@@ -1720,9 +1705,10 @@ export default function LeadDetail() {
                         onSave={(v) => saveContactField("zip_code", v)} />
                     </div>
                   </div>
-                  {lead.area || addressChase ? (
+                  {/* The area line under the address is gone (Alan, 2026-11-03):
+                      it's already in the header next to the ZIP. */}
+                  {addressChase ? (
                     <div className="space-y-1">
-                      {lead.area && <p className="truncate px-1 text-[11px] text-muted-foreground">{lead.area}</p>}
                       {addressChase ? (
                         <span className={cn("flex items-start gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium leading-snug",
                           addressChase.tone)}>
