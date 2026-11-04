@@ -4,7 +4,7 @@
 // when there's an address. Their page says "held" until the $250 deposit is
 // paid and "confirmed" by itself after.
 import { useEffect, useMemo, useState } from "react";
-import { CalendarCheck, Copy, ExternalLink, Eye, Mail, Save, Send, X } from "lucide-react";
+import { CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Copy, ExternalLink, Eye, Mail, Save, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, type BookingState, type LeadDetail } from "@/lib/api";
 import { Panel } from "@/components/Panel";
@@ -71,6 +71,48 @@ function nextDays(n = 30): string[] {
   return out;
 }
 
+/** Our own month calendar for days past the swipe row (Alan, 2026-11-03:
+ *  the phone's built-in one looked ugly). Past days can't be picked. */
+function DayCalendar({ value, onPick }: { value: string; onPick: (iso: string) => void }) {
+  const today = isoOf(new Date());
+  const start = value ? new Date(`${value}T12:00:00`) : new Date();
+  const [month, setMonth] = useState(() => new Date(start.getFullYear(), start.getMonth(), 1));
+  const first = month.getDay();
+  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells: (string | null)[] = [...Array(first).fill(null),
+    ...Array.from({ length: days }, (_, i) => isoOf(new Date(month.getFullYear(), month.getMonth(), i + 1)))];
+  const atThisMonth = month.getFullYear() === new Date().getFullYear() && month.getMonth() === new Date().getMonth();
+  const step = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+  return (
+    <div className="mt-2 rounded-2xl border border-gold/50 bg-background p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => step(-1)} disabled={atThisMonth} aria-label="Last month"
+          className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted disabled:opacity-30"><ChevronLeft className="h-5 w-5" /></button>
+        <p className="font-serif text-lg font-semibold">{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
+        <button type="button" onClick={() => step(1)} aria-label="Next month"
+          className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
+      </div>
+      <div className="mt-1 grid grid-cols-7 text-center text-[11px] font-bold uppercase text-muted-foreground">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <span key={d} className="py-1">{d}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((iso, i) => {
+          if (!iso) return <span key={`b${i}`} />;
+          const past = iso <= today;
+          const on = iso === value;
+          return (
+            <button key={iso} type="button" disabled={past} onClick={() => onPick(iso)} aria-pressed={on}
+              className={cn("flex h-11 items-center justify-center rounded-xl text-base font-semibold tabular-nums",
+                on ? "bg-gold/25 text-bronze ring-2 ring-gold" : past ? "text-muted-foreground/40" : "hover:bg-gold/10")}>
+              {Number(iso.slice(8))}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // No day until someone picks one (Alan, 2026-11-03: a made-up "next
 // Thursday" looked like something was already scheduled).
 const blank = (): Draft => ({ date: "", tier: "signature", tierOr: "", color: "", notes: "", klarna: false, ownPrice: "", dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
@@ -94,6 +136,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     return !f ? "them" : NOT_A_NAME.has(f.toLowerCase()) ? "there" : f;
   })();
   const [draft, setDraft] = useState<Draft>(blank);
+  const [calOpen, setCalOpen] = useState(false);
   const [st, setSt] = useState<BookingState | null>(null);
   // The quick $250 under Payment links holds a day; this card reloads to show it.
   const [quickTick, setQuickTick] = useState(0);
@@ -373,11 +416,11 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
               );
             })}
           </div>
-          <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            Another day:
-            <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-              className="h-9 rounded-lg border border-input bg-background px-2 text-sm" />
-          </label>
+          <button type="button" onClick={() => setCalOpen(!calOpen)}
+            className="mt-1 inline-flex h-11 items-center gap-2 rounded-xl border border-input bg-background px-3 text-sm font-semibold hover:bg-muted">
+            <CalendarDays className="h-4 w-4 text-bronze" /> {calOpen ? "Close calendar" : "Pick from the calendar"}
+          </button>
+          {calOpen && <DayCalendar value={draft.date} onPick={(iso) => { setDraft({ ...draft, date: iso }); setCalOpen(false); }} />}
         </div>
         {noFence ? null : <label className="block text-sm">
           <span className="font-semibold">Color</span>
