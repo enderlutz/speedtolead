@@ -268,12 +268,9 @@ export function LeaveBar({ leadId, v, job, task, pending, upload, uploading, onL
       </p>
     );
   } else if (todayBefore < v.need) {
-    bar = (
-      <button type="button" onClick={() => document.getElementById("check-in")?.scrollIntoView({ behavior: "smooth", block: "center" })}
-              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gold px-3 text-xl font-black text-ink">
-        <Camera className="h-6 w-6" /> {tr("I'm here")} · {tr("Take 5 before photos first")}
-      </button>
-    );
+    // No "Take 5 before photos first" button (Alan, 2026-11-04): they just
+    // upload into the step they're starting, and that's the arrival time.
+    bar = null;
   } else {
     bar = (
       <button type="button" onClick={() => openFor()}
@@ -282,6 +279,7 @@ export function LeaveBar({ leadId, v, job, task, pending, upload, uploading, onL
       </button>
     );
   }
+  if (!bar && !(!job.completed_at && forgot.length) && !open) return null;
   return (
     <>
       {bar}

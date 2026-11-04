@@ -2026,7 +2026,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {/* Always in reach (Alan, 2026-10-20): the last tap of the day, with
           what's still missing counted above it. Never a lock. */}
       {!manager && !pwMode ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gold/40 bg-ivory/95 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur">
+        // Hidden when it has nothing to tap (no "I'm here" button any more).
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gold/40 bg-ivory/95 p-3 pb-[max(env(safe-area-inset-bottom),12px)] backdrop-blur [&:not(:has(button,p))]:hidden">
           <div className="mx-auto max-w-3xl">
             {visits && visits.family !== "pw" ? (
               // Check-out replaces "I'm finished" (2026-11-02): each worker
