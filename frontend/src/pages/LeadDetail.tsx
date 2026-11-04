@@ -38,7 +38,7 @@ import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, Lightbulb, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
-  Ruler, Camera, History, Rocket, Gem, PhoneCall, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
+  Ruler, Camera, History, Rocket, Gem, PhoneCall, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
   Hammer, Home,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
@@ -641,7 +641,6 @@ export default function LeadDetail() {
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [militaryDiscount, setMilitaryDiscount] = useState(false);
   const [confidenceNote, setConfidenceNote] = useState("");
-  const [includeFinancing, setIncludeFinancing] = useState(true);
   const [askingAddress, setAskingAddress] = useState(false);
   const [askingNewBuild, setAskingNewBuild] = useState(false);
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
@@ -702,7 +701,6 @@ export default function LeadDetail() {
       setAdditionalNotes(fd.additional_notes || "");
       setMilitaryDiscount(Boolean(fd.military_discount));
       setConfidenceNote(fd.confidence_note || "");
-      setIncludeFinancing(String(fd.include_financing ?? "true") !== "false");
 
       // Auto-open the decline-reasons modal once when a lead lands in
       // DECLINED ESTIMATE without any reasons captured yet, unless the VA
@@ -888,7 +886,6 @@ export default function LeadDetail() {
     setAdditionalNotes(String(inputs.additional_notes ?? ""));
     setMilitaryDiscount(Boolean(inputs.military_discount));
     setConfidenceNote(String(inputs.confidence_note ?? ""));
-    setIncludeFinancing(String(inputs.include_financing ?? "true") !== "false");
   }, [estimate, sidesAnswer]);
 
   const handleSaveRecalculate = async () => {
@@ -911,7 +908,7 @@ export default function LeadDetail() {
           additional_notes: additionalNotes,
           military_discount: militaryDiscount,
           confidence_note: confidenceNote,
-          include_financing: includeFinancing,
+          include_financing: true,
         },
         estimate?.id,
       );
@@ -950,6 +947,7 @@ export default function LeadDetail() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("08:00");
   const [showScheduleJob, setShowScheduleJob] = useState(false);
+  const [quickSending, setQuickSending] = useState(false);
   const [existingScheduledJob, setExistingScheduledJob] = useState<import("@/lib/api").ScheduledJob | null>(null);
   // Phase 3 (2026-06-08) — Calendar Glimpse precedes the Schedule modal on
   // brand-new jobs. When editing an existing job we skip the glimpse and
@@ -1445,15 +1443,6 @@ export default function LeadDetail() {
             sentAt={estimate?.sent_at}
             declined={(((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined) || []).length}
           />
-          {/* Where they came from (Alan, 2026-10-16): website leads were
-              being filed as ads. The ad's name rides along for ad leads. */}
-          {lead.source ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground"
-               title={[lead.source.campaign, lead.source.ad_set, lead.source.ad].filter(Boolean).join(" › ")}>
-              From: <span className="font-medium text-foreground">{lead.source.label}</span>
-              {lead.source.ad || lead.source.campaign ? ` · ${lead.source.ad || lead.source.campaign}` : ""}
-            </p>
-          ) : null}
         </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:shrink-0 sm:justify-end">
@@ -1493,39 +1482,40 @@ export default function LeadDetail() {
               call: everything syncs from GHL on its own now. The resync
               endpoint (api.resyncStageFromGHL) and lib/ghlLink.ts are kept;
               see git history for the buttons. */}
+          {/* Header buttons (Alan, 2026-11-03): "Capture Decline Reasons" and
+              "Schedule Job" are gone from here. Decline reasons still open
+              by themselves when the card moves to Declined; ScheduleJobModal
+              stays below for the calendar glimpse path. */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setDeclineModalOpen(true)}
-          >
-            {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? "Edit Decline Reasons" : "Capture Decline Reasons"}
-          </Button>
-          <Button
-            size="sm"
+            disabled={quickSending}
             onClick={async () => {
-              // Phase 3 (2026-06-08) — if there's already a scheduled job for
-              // this lead we're editing it, so go straight to the modal. If
-              // it's a new schedule, open the Calendar Glimpse first so the
-              // user picks a date in full month context.
+              if (!window.confirm(`Text ${lead.contact_name || "them"} the $250 link now?`)) return;
+              setQuickSending(true);
               try {
-                const r = await api.listScheduledJobs({});
-                const existing = r.jobs.find((j) => j.lead_id === lead.id) || null;
-                setExistingScheduledJob(existing);
-                if (existing) {
-                  setGlimpsePickedDate(undefined);
-                  setShowScheduleJob(true);
-                } else {
-                  setShowCalendarGlimpse(true);
-                }
-              } catch {
-                setExistingScheduledJob(null);
-                // Network hiccup → fall back to the old direct-modal path.
-                setShowScheduleJob(true);
+                const out = await api.quickDeposit(lead.id);
+                toast.success(out.note, { duration: 9000 });
+                window.dispatchEvent(new CustomEvent("booking-changed", { detail: { leadId: lead.id } }));
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Couldn't send it");
+              } finally {
+                setQuickSending(false);
               }
             }}
           >
-            <Calendar className="h-3.5 w-3.5 mr-1" />
-            Schedule Job
+            {quickSending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CircleDollarSign className="h-3.5 w-3.5 mr-1" />}
+            Send $250 now
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setActiveTab("estimate");
+              setTimeout(() => document.getElementById("est-booking")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+            }}
+          >
+            <CalendarCheck className="h-3.5 w-3.5 mr-1" />
+            Booking invite
           </Button>
         </div>
       </div>
@@ -1983,15 +1973,8 @@ export default function LeadDetail() {
                 )}
                 <Field label="Options">
                   <div className="flex flex-wrap gap-1.5">
-                    <ToggleChip
-                      on={includeFinancing}
-                      onClick={() => setIncludeFinancing((v) => !v)}
-                      icon={CreditCard}
-                      accent={ACCENT.blue}
-                      title="Show the monthly financing figure on the proposal"
-                    >
-                      Financing
-                    </ToggleChip>
+                    {/* Financing chip removed (Alan, 2026-11-03): financing is
+                        standard on every proposal, always shown. */}
                     <ToggleChip
                       on={militaryDiscount}
                       onClick={() => setMilitaryDiscount((v) => !v)}
@@ -2477,6 +2460,15 @@ export default function LeadDetail() {
               <Fact icon={Calendar} label="Created">{formatDate(lead.created_at)}</Fact>
               <Fact icon={MapPin} label="ZIP">{lead.zip_code || "—"}</Fact>
               <Fact icon={Paintbrush} label="Service">{lead.service_type}</Fact>
+              {/* Where they came from (Alan, 2026-10-16), moved down here from
+                  the header 2026-11-03. The ad's name rides along for ads. */}
+              {lead.source ? (
+                <Fact icon={Rocket} label="Came from">
+                  <span title={[lead.source.campaign, lead.source.ad_set, lead.source.ad].filter(Boolean).join(" › ")}>
+                    {lead.source.label}{lead.source.ad || lead.source.campaign ? ` · ${lead.source.ad || lead.source.campaign}` : ""}
+                  </span>
+                </Fact>
+              ) : null}
               {estimate && (
                 <>
                   <Fact icon={Compass} label="Zone">{String(estimate.inputs?.["_zone"] ?? "—")}</Fact>
