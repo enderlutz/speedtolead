@@ -51,3 +51,22 @@ def test_each_worker_s_week_closes_on_their_pay_day(db, monkeypatch):
     hl.save_my_hours("2026-11-02", hl.HoursIn(start="08:00", end="16:00"), sun)
     with pytest.raises(HTTPException):
         hl.save_my_hours("2026-11-01", hl.HoursIn(start="08:00", end="16:00"), sun)
+
+
+def test_the_office_sees_days_worked_with_no_hours_logged(db, monkeypatch):
+    """A worker with job photos on a day but no hours shows up as missing,
+    with the first and last photo (2026-11-03)."""
+    from database import CompanyCamPhoto, User
+    monkeypatch.setattr(hl, "get_db", lambda: db)
+    monkeypatch.setattr(hl, "today", lambda: "2026-11-03")
+    db.add(User(id="u1", username="jose", display_name="Jose Arthur", password_hash="x", role="worker", permissions="{}", created_at=""))
+    db.add(User(id="u2", username="alanbonner", display_name="Alan", password_hash="x", role="admin", permissions="{}", created_at=""))
+    for i, (who, at) in enumerate((("jose", "2026-11-02T13:10:00+00:00"), ("jose", "2026-11-02T21:40:00+00:00"),
+                                  ("jose", "2026-11-03T14:00:00+00:00"), ("alanbonner", "2026-11-02T15:00:00+00:00"))):
+        db.add(CompanyCamPhoto(id=f"p{i}", lead_id="L", section="stain_before", uploaded_sub=who, taken_at=at, uploaded_at=at))
+    db.commit()
+    hl.save_my_hours("2026-11-03", hl.HoursIn(start="09:00", end="15:00"), W)
+    office = hl.crew_hours("2026-11-01", "2026-11-03", {"role": "admin"})
+    # Nov 2: photos 7:10 AM to 3:40 PM Houston (CST), no hours. Nov 3 is logged. The office's photos don't count.
+    assert office["missing"] == [{"username": "jose", "name": "Jose Arthur", "date": "2026-11-02", "first": "07:10", "last": "15:40"}]
+    assert office["pay_days"] == {"jose": "sat"}

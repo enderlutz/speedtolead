@@ -22,7 +22,7 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, CalendarRange, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import { CalendarDays, CalendarRange, Clock, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
 import GoogleCalendar from "@/pages/Calendar";
 import { api, type CrewDayTask, type FixJob, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -40,11 +40,12 @@ import { JobList } from "@/pages/CompanyCamPage";
 import { DayBanner } from "@/components/schedule/bits";
 import { addDays as plusDays, addMonths, dayList, groupByDay, groupJobs, isDay, monthGrid, parseView, rangeLabel, startOfWeek, whoOf } from "@/components/schedule/dates";
 import { MoveSheet } from "@/components/schedule/MoveSheet";
+import { CrewHours } from "@/components/schedule/CrewHours";
 
 // "google" is the old Job Calendar tab, the mirror of Google Calendar, folded
 // in here (Alan, 2026-10-28: "we never really look at it").
 // "fridays" is the crew's Friday "How did the week go?" answers (Alan, 2026-10-28).
-type Tab = "calendar" | "buy" | "past" | "jobs" | "google" | "fridays";
+type Tab = "calendar" | "buy" | "past" | "jobs" | "google" | "fridays" | "hours";
 type Task = CrewDayTask;
 
 function ctToday(): string {
@@ -123,7 +124,7 @@ export default function PmHq() {
   const raw = params.get("tab");
   // Today was a tab; now it's the calendar's first view, and the page opens
   // on the calendar (Alan, 2026-10-27).
-  const tab: Tab = raw === "past" || raw === "jobs" || ((raw === "buy" || raw === "fridays") && isOffice()) || (raw === "google" && hasPerm("calendar")) ? raw : "calendar";
+  const tab: Tab = raw === "past" || raw === "jobs" || ((raw === "buy" || raw === "fridays" || raw === "hours") && isOffice()) || (raw === "google" && hasPerm("calendar")) ? raw : "calendar";
   const setTab = (k: Tab) => set({ tab: k });
   // Week and Month use the whole screen so seven days have room for names
   // (Alan, 2026-10-21: "I can't see the customer's name" on Week). The other
@@ -142,7 +143,7 @@ export default function PmHq() {
           the page's edges; the page itself never scrolls sideways. */}
       <div className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
         <div className="flex w-max min-w-full snap-x gap-1 rounded-xl bg-muted/50 p-1" role="tablist">
-          {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : []), ...(isOffice() ? [["fridays", "Fridays", MessageSquare] as const] : [])] as const).map(([k, label, Icon]) => (
+          {([["calendar", "Calendar", CalendarDays], ...(isOffice() ? [["buy", "What to buy", ShoppingCart] as const] : []), ["past", "Past jobs", History], ["jobs", "All jobs", Camera], ...(hasPerm("calendar") ? [["google", "Job Calendar", CalendarRange] as const] : []), ...(isOffice() ? [["hours", "Crew hours", Clock] as const, ["fridays", "Fridays", MessageSquare] as const] : [])] as const).map(([k, label, Icon]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
                     className={cn("flex min-h-11 flex-1 shrink-0 snap-start items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 text-[15px] font-semibold transition-colors",
                       tab === k ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted")}>
@@ -156,7 +157,7 @@ export default function PmHq() {
           <p className="text-sm text-muted-foreground">A mirror of Google Calendar: the events the crew gets on their phones. To put a customer on a day and pick who's going, use the Calendar tab.</p>
           <GoogleCalendar embedded />
         </>
-      ) : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : tab === "fridays" ? <FridaysView /> : <PastView />}
+      ) : tab === "calendar" ? <CalendarView /> : tab === "buy" ? <WhatToBuy /> : tab === "jobs" ? <JobList manager /> : tab === "fridays" ? <FridaysView /> : tab === "hours" ? <CrewHours /> : <PastView />}
     </div>
   );
 }

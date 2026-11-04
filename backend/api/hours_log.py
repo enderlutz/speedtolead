@@ -156,7 +156,34 @@ def crew_hours(start: str = "", end: str = "", user: dict = Depends(require_staf
         totals: dict[str, float] = {}
         for x in out:
             totals[x["name"]] = round(totals.get(x["name"], 0) + x["hours"], 2)
+        # Days they worked (job photos) but logged no hours (Alan, 2026-11-03:
+        # the Project Manager tab shows them so nobody's day goes missing).
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/Chicago")
+        logged = {(r.username.lower(), r.work_date) for r in rows}
+        crew = {u.username.lower(): u for u in db.query(User).filter(User.role.notin_(["admin", "va", "social"])).all()}
+        since = (datetime.strptime(start, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        until = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=2)).strftime("%Y-%m-%d")
+        seen: dict[tuple[str, str], dict] = {}
+        for sub, at in (db.query(CompanyCamPhoto.uploaded_sub, CompanyCamPhoto.taken_at)
+                        .filter(CompanyCamPhoto.uploaded_sub != "", CompanyCamPhoto.taken_at >= since,
+                                CompanyCamPhoto.taken_at < until).all()):
+            if (sub or "").lower() not in crew:
+                continue
+            try:
+                d = datetime.fromisoformat((at or "").replace("Z", "+00:00")).astimezone(tz)
+            except ValueError:
+                continue
+            day, hm = d.strftime("%Y-%m-%d"), d.strftime("%H:%M")
+            if not (start <= day <= end) or (sub.lower(), day) in logged:
+                continue
+            x = seen.setdefault((sub.lower(), day), {"username": crew[sub.lower()].username,
+                                                    "name": names.get(sub.lower(), sub), "date": day, "first": hm, "last": hm})
+            x["first"], x["last"] = min(x["first"], hm), max(x["last"], hm)
+        workers = sorted({x["username"] for x in out} | {x["username"] for x in seen.values()}, key=str.lower)
         return {"start": start, "end": end, "entries": out,
-                "totals": [{"name": k, "hours": v} for k, v in sorted(totals.items(), key=lambda kv: -kv[1])]}
+                "totals": [{"name": k, "hours": v} for k, v in sorted(totals.items(), key=lambda kv: -kv[1])],
+                "missing": sorted(seen.values(), key=lambda x: (x["date"], x["name"]), reverse=True),
+                "pay_days": {w: WEEKDAYS[pay_day(db, w)] for w in workers}}
     finally:
         db.close()

@@ -4079,7 +4079,11 @@ export const api = {
   saveMyHours: (day: string, b: { start: string; end: string; note: string }) =>
     request<HoursEntry>(`/api/my-hours/${day}`, { method: "PUT", body: JSON.stringify(b) }),
   getCrewHours: (start = "", end = "") =>
-    request<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[] }>(`/api/crew-hours?start=${start}&end=${end}`),
+    request<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[];
+      /** Days with job photos but no hours logged: first and last photo, Houston "HH:MM". */
+      missing?: { username: string; name: string; date: string; first: string; last: string }[];
+      /** Each worker's pay day: "sat", "sun", "tue"… */
+      pay_days?: Record<string, string> }>(`/api/crew-hours?start=${start}&end=${end}`),
   /** The worker it's on marks a job to fix done (2026-11-02). */
   myFixDone: (fixId: string, leftAt = "") =>
     request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST", body: JSON.stringify({ left_at: leftAt }) }),
