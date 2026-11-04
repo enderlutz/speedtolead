@@ -42,6 +42,11 @@ type Draft = {
 };
 // One tap adds the line; the price is typed (it comes from their estimate).
 const SERVICE_PICKS = ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning", "Gutter cleaning", "Window cleaning", "Roof soft wash"];
+// A picture on every service so it's found by eye (Alan, 2026-11-04).
+const SERVICE_EMOJI: Record<string, string> = {
+  "House soft wash": "🏠", "Driveway, walkways & front porch": "🚗", "Back patio cleaning": "🪑",
+  "Gutter cleaning": "🍂", "Window cleaning": "🪟", "Roof soft wash": "🏚️",
+};
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
   { key: "signature", name: "Signature Finish" },
@@ -236,6 +241,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const setService = (i: number, patch: Partial<{ name: string; price: string; description: string }>) =>
     setDraft((d) => ({ ...d, services: d.services.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const [repairsOpen, setRepairsOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
+  // With no fence staining the services are the whole booking, so always open.
+  const showServices = servicesOpen || noFence;
   const bump = (key: string, by: number) =>
     setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
   const saved = st?.draft?.updated_at ? st.draft : null;
@@ -551,7 +559,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       {noFence ? null : <div className="overflow-hidden rounded-xl border border-input">
         <button type="button" onClick={() => setRepairsOpen((v) => !v)}
           className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm">
-          <span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs - roff)}${roff ? ` (${formatCurrency(roff)} off)` : ""}` : "· any pickets, posts or boards to replace?"}</span></span>
+          <span><span aria-hidden className="mr-1.5 text-lg">🔨</span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs - roff)}${roff ? ` (${formatCurrency(roff)} off)` : ""}` : "· any pickets, posts or boards to replace?"}</span></span>
           <span className="text-xs font-semibold text-muted-foreground">{repairsOpen ? "Close" : lines.length ? "Change" : "Add"}</span>
         </button>
         {repairsOpen ? (
@@ -609,17 +617,24 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       {/* Other services booked with the fence (Alan, 2026-10-16): house wash,
           driveway, patio… Each is its own line on their page and in the
           total, so the deposit, balance and Klarna all include it. */}
-      <div className={cn("space-y-2 rounded-xl border p-3", noFence && !serviceLines.length ? "border-gold ring-1 ring-gold" : "border-input")}>
-        <p className="text-sm">{noFence
-          ? <><span className="font-semibold">Services</span> <span className="text-muted-foreground">· what they're booking, with the price</span></>
-          : <><span className="font-semibold">Other services</span> <span className="text-muted-foreground">· anything else they're booking with the fence</span></>}</p>
+      {/* Folded like Repairs (Alan, 2026-11-04: a drop-down). Open on its
+          own when nothing but services is being booked, or some are added. */}
+      <div className={cn("overflow-hidden rounded-xl border", noFence && !serviceLines.length ? "border-gold ring-1 ring-gold" : "border-input")}>
+        <button type="button" onClick={() => setServicesOpen((v) => !v)}
+          className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm">
+          <span><span aria-hidden className="mr-1.5 text-lg">🧽</span>{noFence
+            ? <><span className="font-semibold">Services</span> <span className="text-muted-foreground">· what they're booking, with the price</span></>
+            : <><span className="font-semibold">Other services</span> <span className="text-muted-foreground">{serviceLines.length ? `· ${serviceLines.length} added · + ${formatCurrency(servicesSum)}` : "· anything else they're booking with the fence"}</span></>}</span>
+          <span className="text-xs font-semibold text-muted-foreground">{showServices ? "Close" : draft.services.length ? "Change" : "Add"}</span>
+        </button>
+        {showServices ? <div className="space-y-2 border-t p-3">
         <div className="flex flex-wrap gap-1.5">
           {SERVICE_PICKS.filter((n) => !draft.services.some((x) => x.name === n)).map((n) => (
             <button key={n} type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: n, price: "", description: "" }] }))}
-              className="min-h-10 rounded-full border border-input bg-background px-3 text-sm font-medium hover:bg-muted">+ {n}</button>
+              className="min-h-10 rounded-full border border-input bg-background px-3 text-sm font-medium hover:bg-muted"><span aria-hidden className="mr-1">{SERVICE_EMOJI[n]}</span>{n}</button>
           ))}
           <button type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: "", price: "", description: "" }] }))}
-            className="min-h-10 rounded-full border border-dashed border-input px-3 text-sm font-medium text-muted-foreground hover:bg-muted">+ Something else</button>
+            className="min-h-10 rounded-full border border-dashed border-input px-3 text-sm font-medium text-muted-foreground hover:bg-muted">➕ Something else</button>
         </div>
         {draft.services.map((x, i) => (
           <div key={i} className="space-y-1.5 rounded-lg bg-muted/40 p-2">
@@ -643,6 +658,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           </div>
         ))}
         {serviceLines.length ? <p className="text-right text-sm font-semibold tabular-nums">+ {formatCurrency(servicesSum)}</p> : null}
+        </div> : null}
       </div>
       {!noFence && (off || repairs || servicesSum) ? (
         <p className="rounded-xl bg-muted/60 px-3 py-2 text-sm">
