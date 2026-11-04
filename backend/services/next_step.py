@@ -43,6 +43,34 @@ def _step(key: str, stage: str, next_: str, tone: str) -> dict:
     return {"key": key, "stage": stage, "next": next_, "tone": tone}
 
 
+# The step of the customer journey, in the lead page's words (Alan,
+# 2026-11-04): "put what part of the customer journey they're in". Anyone we
+# haven't actually talked to on the phone is on the discovery call, sent
+# estimate or not: we keep calling until they pick up.
+_JOURNEY = {
+    "stopped": "Stopped",
+    "done": "Review + referral",
+    "scheduled": "Job booked",
+    "booked": "Schedule the job",
+    "callback": "Call back",
+    "replied": "Heard back",
+    "viewed": "Follow-up call",
+    "sent": "Follow-up call",
+    "overdue": "Sending",
+    "sending": "Sending",
+    "address": "Address",
+    "price": "Price it",
+    "discovery": "Discovery call",
+}
+_STILL_TO_TALK = {"replied", "viewed", "sent"}
+
+
+def _journey(key: str, talked: bool) -> str:
+    if key in _STILL_TO_TALK and not talked:
+        return "Discovery call"
+    return _JOURNEY.get(key, "")
+
+
 def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
                scheduled=frozenset(), overdue=frozenset(), stopped=frozenset(),
                now: datetime | None = None) -> dict[str, dict]:
@@ -111,6 +139,10 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
         .filter(ScheduledJob.lead_id.in_(lead_ids)).order_by(ScheduledJob.job_date.desc()).all()
     ):
         jobs.setdefault(lid, (job_date or "", done))
+
+    def since_intake(lid: str, t: datetime | None) -> bool:
+        i = intakes.get(lid)
+        return t is not None and (i is None or t >= i)
 
     out: dict[str, dict] = {}
     for lid in lead_ids:
@@ -181,4 +213,6 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
             out[lid] = _step("discovery", "Replied, no call yet", "Call them, then price it.", "hot")
             continue
         out[lid] = _step("discovery", "New, no answer yet", "Call them. No answer? Price it anyway.", "warm")
+    for lid, step in out.items():
+        step["journey"] = _journey(step["key"], since_intake(lid, talked.get(lid)))
     return out

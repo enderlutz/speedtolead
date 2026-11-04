@@ -230,12 +230,13 @@ function EstimateBadge({ c }: { c: ContactRow }) {
   if (c.estimate_scheduled) {
     return <Badge variant="outline" className="border-blue-400 text-blue-700" title="Estimate approved and queued — the text goes out shortly">sending</Badge>;
   }
-  if (c.estimate_sent) return <Badge variant="secondary">sent</Badge>;
+  // Yes or no, big (Alan, 2026-11-04): "instead of saying never sent and sent".
+  if (c.estimate_sent) return <span className="text-lg font-extrabold tracking-wide text-emerald-600">YES</span>;
   return (
-    <Badge variant="outline" className="border-amber-400 text-amber-700"
-      title={c.intake_count > 1 ? "They came back and nobody has priced them since" : undefined}>
-      {c.intake_count > 1 ? "none since they came back" : "never sent"}
-    </Badge>
+    <span className="text-lg font-extrabold tracking-wide text-red-600"
+      title={c.intake_count > 1 ? "They came back and nobody has priced them since" : "No estimate sent yet"}>
+      NO
+    </span>
   );
 }
 
@@ -243,10 +244,12 @@ function EstimateBadge({ c }: { c: ContactRow }) {
  *  act now, warm = soon, cold = waiting. */
 function NextStep({ s, big }: { s: ContactRow["next_step"]; big?: boolean }) {
   if (!s) return <span className="text-xs italic text-muted-foreground/70">no lead</span>;
+  // The journey step is the headline (Alan, 2026-11-04): anyone we haven't
+  // talked to on the phone reads "Discovery call" until they pick up.
   return (
     <div className={big ? "" : "min-w-[150px]"}>
-      <div className={`${big ? "text-[15px]" : "text-sm"} font-semibold leading-tight ${toneClass(s.tone)}`}>{s.next}</div>
-      <div className="text-[11px] text-muted-foreground">{s.stage}</div>
+      <div className={`${big ? "text-[15px]" : "text-sm"} font-semibold leading-tight ${toneClass(s.tone)}`}>{s.journey || s.next}</div>
+      <div className="text-xs text-muted-foreground">{s.journey ? `${s.stage}. ${s.next}` : s.stage}</div>
     </div>
   );
 }
@@ -609,7 +612,7 @@ function SterlingContacts() {
             </div>
             <div className="mt-2"><NextStep s={c.next_step} big /></div>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <EstimateBadge c={c} />
+              <span className="inline-flex items-center gap-1">Estimate <EstimateBadge c={c} /></span>
               <span>came in {fmtDate(c.last_intake_at || c.date_added)}</span>
               <TextsChip sent={c.message_count} fromThem={c.inbound_count} />
               <CallsChip dials={c.attempt_count} talked={c.conversation_count} voicemails={c.voicemail_count} />
@@ -628,7 +631,7 @@ function SterlingContacts() {
               <th className="text-left font-medium px-3 py-2">Customer</th>
               <th className="text-left font-medium px-3 py-2">Phone</th>
               <th className="text-left font-medium px-3 py-2">Estimate</th>
-              <th className="text-left font-medium px-3 py-2">Next step</th>
+              <th className="text-left font-medium px-3 py-2">Journey</th>
               <th className="text-left font-medium px-3 py-2">History</th>
               <th className="hidden text-left font-medium px-3 py-2 xl:table-cell">Stage</th>
               <th className="w-12" />
