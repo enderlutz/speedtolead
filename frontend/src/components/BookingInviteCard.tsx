@@ -52,7 +52,8 @@ const TIERS: { key: Tier; name: string }[] = [
   { key: "signature", name: "Signature Finish" },
   { key: "legacy", name: "Legacy Finish" },
 ];
-const COLORS = ["Redwood Naturaltone", "Cedar Naturaltone", "Simply Cedar", "Pecan", "Redwood", "Cottage Gray", "Monticello Tan", "Dark Walnut", "Chocolate Chips"];
+// The Signature colours, Valspar semi-transparent only (Alan, 2026-11-04).
+const COLORS = ["Redwood Naturaltone", "Cedar Naturaltone", "Simply Cedar", "Cowboy Suede", "Cottage Gray", "Monticello Tan", "Reindeer", "Chocolate Chips"];
 const NOTE_HINT = "e.g. The pergola would be about $750 to $950 more. We'd just need a closer look at it on the day.";
 const LINK = "[link]";
 // The day is filled in from the booking as it sends, so the text can never

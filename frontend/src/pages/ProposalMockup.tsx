@@ -401,12 +401,14 @@ const SIGNATURE_PHOTOS = [
   { name: "Cedar Naturaltone", src: "/proposal-mockup/stain-cedar-naturaltone.jpg" },
   // Also a Legacy solid; the note here is the semi-transparent one (Alan, 2026-10-22).
   { name: "Simply Cedar", src: "/proposal-mockup/stain-simply-cedar.jpg", note: "Classic cedar orange-brown with the grain showing through. The colour most people picture when they say \"stained fence\"." },
-  { name: "Pecan", src: "/proposal-mockup/stain-pecan.jpg" },
-  { name: "Redwood", src: "/proposal-mockup/stain-redwood.jpg" },
+  // Signature is Valspar semi-transparent (water-based) only (Alan,
+  // 2026-11-04): the Ready Seal oil colours (Pecan, Redwood, Dark Walnut)
+  // soak up more stain on old wood and look uneven, so they came off.
+  // Cowboy Suede is Alan's job photo; Reindeer is from the Fence Photos library.
+  { name: "Cowboy Suede", src: "/proposal-mockup/stain-cowboy-suede.jpg" },
   { name: "Cottage Gray", src: "/proposal-mockup/stain-cottage-gray.jpg" },
   { name: "Monticello Tan", src: "/proposal-mockup/stain-monticello-tan.jpg" },
-  // Alan's photo of a gate run (2026-10-22) in place of the first one.
-  { name: "Dark Walnut", src: "/proposal-mockup/stain-dark-walnut.jpg", full: "/proposal-mockup/stain-dark-walnut-full.jpg" },
+  { name: "Reindeer", src: "/proposal-mockup/stain-reindeer.jpg" },
   { name: "Chocolate Chips", src: "/proposal-mockup/stain-chocolate-chips.jpg" },
 ];
 // Legacy solid colours: the best photo of each from the dashboard's Fence
@@ -465,6 +467,8 @@ const COLOR_NOTES: Record<string, string> = {
   "Cedar Naturaltone": "Honey cedar, light and natural. Brightens a backyard and hides very little.",
   "Pecan": "Golden brown with a touch of red. Rich without going dark.",
   "Redwood": "Deeper and redder than Naturaltone. Bold on a sunny lot.",
+  "Cowboy Suede": "Rich red-brown with the grain showing. Warm and bold, great with brick.",
+  "Reindeer": "Even medium brown. Calm, hides weathered boards, and goes with any house.",
   "Cottage Gray": "Soft grey that still shows the wood. Calm and modern, and it hides weathering well.",
   "Monticello Tan": "A quiet taupe. Sits well with brick and stone, and stays cool-looking in the sun.",
   "Dark Walnut": "Deep brown, close to black in the shade. Dramatic, and it hides a lot.",

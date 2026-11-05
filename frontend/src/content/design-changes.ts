@@ -10,6 +10,9 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-04", title: "Signature colors are water-based only",
+    what: "Under \"See the colors\", the Signature colors are now all Valspar semi-transparent: Redwood Naturaltone, Cedar Naturaltone, Simply Cedar, Cowboy Suede (new, our own job photo), Cottage Gray, Monticello Tan, Reindeer (new), Chocolate Chips. Pecan, Redwood and Dark Walnut (Ready Seal, oil-based) are gone. Same list on the booking invite. On every proposal, sent ones too.",
+    open: { label: "See it", to: "/new-proposal/mockup" } },
   { date: "2026-11-04", title: "New customers pay 10% more",
     what: "A brand-new person (nobody with their phone or email was ever in our system) gets every price 10% higher: the three packages, the $600 minimum ($660), the zone and small-job surcharges, and the repair prices (pine picket $13.20, cedar $15.40, rot board $55, cap $93.50, rail $82.50, posts $247.50 / $280.50 / $385). Everyone already in the system, and every estimate already sent, keeps today's prices. The office sees a \"New customer pricing (+10%)\" tag on their lead page; both price lists are side by side on the Pricing tab." },
   { date: "2026-11-03", title: "The booking invite is from whoever sends it",
