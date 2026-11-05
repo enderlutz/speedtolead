@@ -158,8 +158,10 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   );
 }
 
-/** Booked this month (Alan, 2026-10-22: "one metric that drives growth"):
- *  the full value of jobs whose customer paid their first dollar this month,
+/** Closed this month (Alan, 2026-10-22: "one metric that drives growth";
+ *  2026-11-05: "closed this month" and "scheduled this month"): the full
+ *  value of jobs whose customer said yes this month (first payment or first
+ *  invoice), and under it the jobs on the calendar this month,
  *  Stripe and QuickBooks, against the month's goal, with the pace and the
  *  close rate behind it. Falls back to the old card if the server hasn't
  *  got it yet. */
@@ -175,7 +177,7 @@ function SidebarRevenueWidget() {
   const onPace = b.pace >= b.goal;
   const editGoal = async () => {
     if (getCurrentUser()?.role !== "admin") return;
-    const v = window.prompt("Monthly booked goal in dollars", String(Math.round(b.goal)));
+    const v = window.prompt("Monthly closed goal in dollars", String(Math.round(b.goal)));
     const n = Number(String(v || "").replace(/[^0-9.]/g, ""));
     if (!n) return;
     try { setB(await api.setBookedGoal(n)); } catch { /* keep the old goal */ }
@@ -184,7 +186,7 @@ function SidebarRevenueWidget() {
     <div className="px-4 py-3 border-t border-sidebar-border">
       <div className="flex items-center gap-1.5 mb-2">
         <TrendingUp className="h-3 w-3 text-sidebar-foreground/50" />
-        <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold">Booked this month</p>
+        <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold">Closed this month</p>
       </div>
       <p className="text-lg font-bold text-sidebar-foreground tabular-nums">{money(b.booked)} <span className="text-sm font-semibold text-sidebar-foreground/60">· {b.jobs} job{b.jobs === 1 ? "" : "s"}</span></p>
       <p className={`text-[11px] mt-0.5 ${onPace ? "text-emerald-400" : "text-sidebar-foreground/60"}`}>
@@ -200,6 +202,12 @@ function SidebarRevenueWidget() {
           <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#B8862F] to-[#E3BE63] rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
         </div>
       </div>
+      {b.scheduled !== undefined ? (
+        <div className="mt-3 border-t border-sidebar-border pt-2">
+          <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold">Scheduled this month</p>
+          <p className="text-sm font-bold text-sidebar-foreground tabular-nums">{money(b.scheduled)} <span className="text-xs font-semibold text-sidebar-foreground/60">· {b.scheduled_jobs} job{b.scheduled_jobs === 1 ? "" : "s"}</span></p>
+        </div>
+      ) : null}
       {b.close_rate !== null ? (
         <p className="text-[11px] mt-2 text-sidebar-foreground/60">
           Close rate <span className={b.close_rate >= b.close_rate_goal ? "text-emerald-400 font-semibold" : "text-sidebar-foreground font-semibold"}>{b.close_rate}%</span> · goal {b.close_rate_goal}%

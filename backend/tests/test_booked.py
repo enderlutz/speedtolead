@@ -43,3 +43,60 @@ def test_first_payment_month_full_value_once(db):
     assert r["goal_set"] is False
     bk.set_goal(db, 45000)
     assert bk.booked_month(db, date(2026, 10, 22))["goal"] == 45000.0
+
+
+def test_closed_month_is_the_deposit_invoice_even_if_quickbooks_shows_it_unpaid(db):
+    """Alan, 2026-11-05: Harold paid his deposit in October (QuickBooks never
+    marked it) and his balance in November: an October close, not November."""
+    db.add(Lead(id="H", contact_name="Harold Test", status="closed", is_test=False))
+    db.add(QuickbooksInvoice(id="qh", qb_invoice_id="9", lead_id="H", customer_name="Harold Test", total_amount=250,
+                             amount_paid=0, status="unpaid", txn_date="2026-10-11"))
+    db.add(PayLink(token="th", lead_id="H", kind="balance", amount_cents=79212, status="paid",
+                   paid_at="2026-11-04T23:38:00+00:00", job_total_cents=104212))
+    db.commit()
+    assert bk.booked_month(db, date(2026, 11, 5))["jobs"] == 0
+    oct_ = bk.booked_month(db, date(2026, 10, 31))
+    assert oct_["jobs"] == 1 and oct_["booked"] == 1042.12
+
+
+def test_an_unpaid_invoice_alone_is_not_a_customer(db):
+    db.add(QuickbooksInvoice(id="qx", qb_invoice_id="10", customer_name="Never Paid", total_amount=900,
+                             amount_paid=0, status="unpaid", txn_date="2026-11-02"))
+    db.commit()
+    assert bk.booked_month(db, date(2026, 11, 5))["jobs"] == 0
+
+
+def test_scheduled_this_month_is_the_calendar_day_not_the_close(db):
+    from database import CompanyCamJob
+    import json as _j
+    db.add_all([Lead(id="X", contact_name="Oct Close", status="closed", is_test=False),
+                Lead(id="Y", contact_name="Nov Close", status="closed", is_test=False),
+                Lead(id="Z", contact_name="Unpaid Hold", status="new", is_test=False)])
+    # X closed in October, crew is on it Nov 6.
+    db.add(PayLink(token="tx", lead_id="X", kind="deposit", amount_cents=25000, status="paid",
+                   paid_at="2026-10-20T15:00:00+00:00", job_total_cents=150000))
+    db.add(CompanyCamJob(id="cx", lead_id="X", crew_json=_j.dumps([{"username": "a", "date": "2026-11-06", "task": "staining"}])))
+    # Y closed in November, held day is in December.
+    db.add(PayLink(token="ty", lead_id="Y", kind="deposit", amount_cents=25000, status="paid",
+                   paid_at="2026-11-02T15:00:00+00:00", job_total_cents=90000))
+    db.add(Booking(token="by", lead_id="Y", date="2026-12-03", tier="signature", total_cents=90000, status="held"))
+    # Z: a held day in November but never paid: not scheduled money.
+    db.add(Booking(token="bz", lead_id="Z", date="2026-11-10", tier="signature", total_cents=70000, status="held"))
+    db.commit()
+    r = bk.booked_month(db, date(2026, 11, 5))
+    assert r["jobs"] == 1 and r["booked"] == 900.0
+    assert r["scheduled_jobs"] == 1 and r["scheduled"] == 1500.0
+
+
+def test_a_crew_scheduled_job_with_no_deposit_counts_as_scheduled(db):
+    """Alan, 2026-11-05: Lucas Naquin was booked on the phone with no deposit
+    and pays at the end; with a crew on him he's scheduled money."""
+    from database import CompanyCamJob
+    import json as _j
+    db.add(Lead(id="L", contact_name="No Deposit", status="new", is_test=False))
+    db.add(CompanyCamJob(id="cl", lead_id="L", final_price_cents=65000,
+                         crew_json=_j.dumps([{"username": "j", "date": "2026-11-05", "task": "staining"}])))
+    db.commit()
+    r = bk.booked_month(db, date(2026, 11, 5))
+    assert r["jobs"] == 0                      # not a close: no money yet
+    assert r["scheduled_jobs"] == 1 and r["scheduled"] == 650.0

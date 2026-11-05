@@ -6742,6 +6742,8 @@ export interface BookedMonth {
   last_month: number; last_month_jobs: number; estimates_sent: number;
   close_rate: number | null; close_rate_goal: number;
   customers: { key: string; name: string; lead_id: string; first_paid: string; value: number }[];
+  /** On the calendar this month: closed customers whose job day is this month. */
+  scheduled?: number; scheduled_jobs?: number;
 }
 
 /** Follow-Up Engine (2026-10-24): who has a card on both GHL boards. */
