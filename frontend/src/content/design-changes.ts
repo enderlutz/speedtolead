@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-05", title: "Lily's photo on her booking invites",
+    what: "A booking invite Gioconda sends now shows Lily's picture and name at the top, the same way Alan's and Amy's do. The ones she already sent show it too." },
   { date: "2026-11-04", title: "Signature colors are water-based only",
     what: "Under \"See the colors\", the Signature colors are now all Valspar semi-transparent: Redwood Naturaltone, Cedar Naturaltone, Simply Cedar, Cowboy Suede (new, our own job photo), Cottage Gray, Monticello Tan, Reindeer (new), Chocolate Chips. Pecan, Redwood and Dark Walnut (Ready Seal, oil-based) are gone. Same list on the booking invite. On every proposal, sent ones too.",
     open: { label: "See it", to: "/new-proposal/mockup" } },

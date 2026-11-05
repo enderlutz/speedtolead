@@ -841,8 +841,9 @@ def _public_booking(db, token: str) -> tuple[Booking, Lead]:
 SENDERS = {
     "alan": {"name": "Alan Bonner", "role": "Project Manager, Sterling Fence Staining", "photo": "/team/alan.jpg"},
     "olga": {"name": "Amy", "role": "Sterling Fence Staining", "photo": "/team/amy.jpg"},
-    # Gioconda texts as Lily (2026-11-03); no photo yet.
-    "geoconda": {"name": "Lily", "role": "Sterling Fence Staining", "photo": ""},
+    # Gioconda texts as Lily (2026-11-03); her photo since 2026-11-05.
+    "geoconda": {"name": "Lily", "role": "Sterling Fence Staining", "photo": "/team/lily.jpg"},
+    "gioconda": {"name": "Lily", "role": "Sterling Fence Staining", "photo": "/team/lily.jpg"},
 }
 
 
