@@ -238,6 +238,10 @@ class InvoiceItem(BaseModel):
 CreateLinkBody.model_rebuild()
 
 
+# A flat price with no package, named on its own (Alan, 2026-11-05).
+FLAT_FENCE_LINES = {"fence staining", "fence staining - flat price", "fence staining (flat price)"}
+
+
 def _invoice_lines(items: list["InvoiceItem"], credit: float | None) -> tuple[str, int, float]:
     """Checks an itemized invoice and returns (lines as stored, what they
     already paid in cents, the amount due in dollars). Shared by making an
@@ -268,7 +272,11 @@ def _invoice_lines(items: list["InvoiceItem"], credit: float | None) -> tuple[st
     # "no invoice can be sent out unless it has a package"). Washing and
     # repairs lines don't need one.
     names = " ".join(i["name"] for i in lines).lower()
-    if "fence stain" in names and not any(t in names for t in ("essential", "signature", "legacy")):
+    # A flat price with no package (Alan, 2026-11-05: a flat $650 job)
+    # goes on a line called just "Fence staining".
+    fence = [i["name"].strip().lower().rstrip(".") for i in lines if "fence stain" in i["name"].lower()]
+    flat = bool(fence) and all(n in FLAT_FENCE_LINES for n in fence)
+    if "fence stain" in names and not flat and not any(t in names for t in ("essential", "signature", "legacy")):
         raise HTTPException(status_code=400, detail="Name the package on the fence staining line, like \"Signature Finish- Fence Staining\"")
     credit_cents = max(0, int(round((credit or 0) * 100)))
     items_total = sum(i["amount_cents"] - i.get("discount_cents", 0) for i in lines)
