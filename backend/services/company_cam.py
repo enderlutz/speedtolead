@@ -758,20 +758,38 @@ REPAIR_PRICE_CENTS = {"pine": 1200, "cedar": 1400, "rotboard": 5000, "cap": 8500
 POST_LABELS = {"post6": "6 ft fence", "post7": "7 ft fence", "post8": "8 ft fence"}
 
 
-def list_cents(key: str, picket_type: str = "pine", post_type: str = "post6") -> int:
-    """The price list for one repair, by its count key."""
+def list_cents(key: str, picket_type: str = "pine", post_type: str = "post6", m: float = 1.0) -> int:
+    """The price list for one repair, by its count key. `m` is the lead's
+    new-customer pricing (services/new_pricing.multiplier): 1.10 = +10%."""
     if key == "pickets":
-        return REPAIR_PRICE_CENTS.get(picket_type, 1200)
-    if key == "posts":
-        return REPAIR_PRICE_CENTS.get(post_type, 22500)
-    return REPAIR_PRICE_CENTS.get(key, 0)
+        base = REPAIR_PRICE_CENTS.get(picket_type, 1200)
+    elif key == "posts":
+        base = REPAIR_PRICE_CENTS.get(post_type, 22500)
+    else:
+        base = REPAIR_PRICE_CENTS.get(key, 0)
+    return int(round(base * (m or 1.0)))
 
 
-def repair_lines(counts: dict, picket_type: str, post_type: str, prices: dict | None = None) -> list[dict]:
+def job_multiplier(job) -> float:
+    """The job's customer's new-customer pricing, 1.0 for today's prices."""
+    try:
+        from sqlalchemy.orm import object_session
+        from database import Lead
+        from services.new_pricing import multiplier
+        sess = object_session(job)
+        if sess is None or not getattr(job, "lead_id", ""):
+            return 1.0
+        return multiplier(sess.query(Lead).filter(Lead.id == job.lead_id).first())
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
+def repair_lines(counts: dict, picket_type: str, post_type: str, prices: dict | None = None, m: float = 1.0) -> list[dict]:
     """[{"name": "Picket replacement (Pine)", "qty": 5, "unit_cents": 1200, "key": "pickets"}, ...]
-    `prices` (dollars each, by key) is what was agreed; the list otherwise."""
+    `prices` (dollars each, by key) is what was agreed; the list (times the
+    customer's new-customer pricing `m`) otherwise."""
     prices = prices or {}
-    each = lambda k: int(round(float(prices[k]) * 100)) if prices.get(k) else list_cents(k, picket_type, post_type)  # noqa: E731
+    each = lambda k: int(round(float(prices[k]) * 100)) if prices.get(k) else list_cents(k, picket_type, post_type, m)  # noqa: E731
     out = []
     if counts.get("pickets"):
         out.append({"name": f"Picket replacement ({picket_type.title()})", "qty": int(counts["pickets"]),
@@ -797,7 +815,8 @@ def planned_repairs(job) -> dict:
     """What the office agreed with the customer on the phone: lines at the
     agreed price each, and the total. Already in the job's price."""
     v = _load(getattr(job, "repairs_json", "") or "")
-    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6", v.get("prices"))
+    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6", v.get("prices"),
+                         job_multiplier(job))
     return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines)}
 
 
@@ -816,13 +835,14 @@ def site_extras(job) -> dict:
         return {"lines": [], "total_cents": 0, "confirmed_at": ""}
     v = _load(job.extras_json or "")
     pt, po = v.get("picket_type") or "pine", v.get("post_type") or "post6"
-    lines = repair_lines(v.get("counts") or {}, pt, po, v.get("prices"))
+    jm = job_multiplier(job)
+    lines = repair_lines(v.get("counts") or {}, pt, po, v.get("prices"), jm)
     if v.get("mode") != "final":
         return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}
     plan = planned_repairs(job)
     final_cents = sum(l["qty"] * l["unit_cents"] for l in lines)
     agreed = {l["key"]: l["unit_cents"] for l in plan["lines"]}
-    below = [l["name"] for l in lines if l["unit_cents"] < agreed.get(l["key"], list_cents(l["key"], pt, po))]
+    below = [l["name"] for l in lines if l["unit_cents"] < agreed.get(l["key"], list_cents(l["key"], pt, po, jm))]
     out = list(lines)
     if plan["total_cents"]:
         out.append({"name": "Repairs agreed before (already in your price)", "qty": 1, "unit_cents": -plan["total_cents"], "key": "plan"})

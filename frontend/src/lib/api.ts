@@ -373,6 +373,8 @@ export interface LeadMapData {
 
 
 export interface Lead {
+  /** New-customer pricing: every price for this lead is this percent higher (0 = today's prices). */
+  price_uplift_pct?: number;
   id: string;
   ghl_contact_id: string;
   ghl_location_id: string;
@@ -2245,6 +2247,13 @@ export const api = {
     request<{ markup_percent: number }>("/api/settings/promotion", {
       method: "PUT",
       body: JSON.stringify({ markup_percent }),
+    }),
+  getNewCustomerPricing: () =>
+    request<{ percent: number; leads_on_new_pricing: number }>("/api/settings/new-customer-pricing"),
+  setNewCustomerPricing: (percent: number) =>
+    request<{ percent: number }>("/api/settings/new-customer-pricing", {
+      method: "PUT",
+      body: JSON.stringify({ percent }),
     }),
   getStats: () => request<{ total_leads: number; total_estimates: number; sent_estimates: number }>("/api/settings/stats"),
 
@@ -4262,6 +4271,8 @@ export interface ColorPlanRow {
 }
 
 export interface CompanyCamJob {
+  /** The customer's new-customer pricing, for the repair price list. */
+  price_uplift_pct?: number;
   lead_id: string;
   /** Brand-new or already clean fence: no cleaning step (Alan, 2026-10-18). */
   no_cleaning?: boolean;

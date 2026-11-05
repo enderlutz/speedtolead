@@ -10,6 +10,8 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-04", title: "New customers pay 10% more",
+    what: "A brand-new person (nobody with their phone or email was ever in our system) gets every price 10% higher: the three packages, the $600 minimum ($660), the zone and small-job surcharges, and the repair prices (pine picket $13.20, cedar $15.40, rot board $55, cap $93.50, rail $82.50, posts $247.50 / $280.50 / $385). Everyone already in the system, and every estimate already sent, keeps today's prices. The office sees a \"New customer pricing (+10%)\" tag on their lead page; both price lists are side by side on the Pricing tab." },
   { date: "2026-11-03", title: "The booking invite is from whoever sends it",
     what: "The booking text opens \"Hi (name), it's (sender) with Sterling Fence Staining\" with the name of the person sending it instead of always Alan: Olga's say Amy, Gioconda's say Lily, Alan's say Alan. The email signs off with that name too, and a note on the booking says \"A note from (sender)\". A name box answered \"No\" or \"Yes\" becomes \"Hi there\"." },
   { date: "2026-11-01", title: "Packages say less; repairs are a price list",

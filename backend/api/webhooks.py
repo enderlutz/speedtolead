@@ -82,8 +82,10 @@ def _process_lead(lead_id: str, lead_data: dict):
                 if lead:
                     lead.zip_code = zip_code
 
+        from services.new_pricing import multiplier
+        _lead = db.query(Lead).filter(Lead.id == lead_id).first()
         low, high, breakdown, meta = calculate_estimate(
-            lead_data["service_type"], form_data, zip_code
+            lead_data["service_type"], form_data, zip_code, multiplier(_lead)
         )
         priority = meta.get("priority") or parse_priority(str(form_data.get("service_timeline", "")))
         approval_status = meta.get("approval_status", "red")

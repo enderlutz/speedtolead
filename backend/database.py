@@ -90,6 +90,12 @@ class Lead(Base):
     ghl_opportunity_id = Column(Text, default="")
     ghl_pipeline_stage_id = Column(Text, default="")
     is_test = Column(Boolean, default=False)
+    # New-customer pricing (Alan, 2026-11-04: "10% more on everything" for a
+    # brand-new person; anyone already in the system keeps today's prices).
+    # The percent every price for this lead goes up by, set once when the
+    # lead is first created (services/new_pricing.py) and never after. 0 =
+    # today's prices, which is every lead that existed before this shipped.
+    price_uplift_pct = Column(Float, default=0.0)
     # Internal-only estimator routing — NOT a GHL stage. "" (none) |
     # "needed" (admin dropped it in the Estimator Needed column, awaiting a
     # scheduled visit) | "scheduled" (an EstimatorVisit now exists). Lives
@@ -290,6 +296,7 @@ class Lead(Base):
             "address": self.address,
             "zip_code": self.zip_code,
             "service_type": self.service_type,
+            "price_uplift_pct": float(self.price_uplift_pct or 0),
             "status": self.status,
             "kanban_column": self.kanban_column,
             "priority": self.priority,
@@ -4885,6 +4892,12 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN pipeline_version TEXT NOT NULL DEFAULT 'v1'"))
         logger.info("Migration: added leads.pipeline_version (backfilled all rows to 'v1')")
 
+    if "price_uplift_pct" not in existing:
+        # Every lead that exists today keeps today's prices (0).
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN price_uplift_pct DOUBLE PRECISION DEFAULT 0"))
+        logger.info("Migration: added leads.price_uplift_pct (existing leads = 0, today's prices)")
+
     if "starred" not in existing:
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN starred BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -5893,6 +5906,25 @@ def _stamp_employee(mapper, connection, target) -> None:
 for _model, _fn in ((Lead, _stamp_lead), (Employee, _stamp_employee)):
     _sa_event.listen(_model, "before_insert", _fn)
     _sa_event.listen(_model, "before_update", _fn)
+
+
+def _stamp_new_pricing(mapper, connection, target) -> None:
+    """New-customer pricing is decided once, when the lead row is first
+    written: every path that creates a lead (webhook, poller, contact mirror,
+    a lead added by hand) goes through here. See services/new_pricing.py."""
+    del mapper
+    if target.price_uplift_pct:
+        return
+    try:
+        from services.new_pricing import uplift_for_new_lead
+        target.price_uplift_pct = uplift_for_new_lead(connection, target)
+    except Exception as e:  # noqa: BLE001 — a lead must never fail to save over pricing
+        logger.warning(f"New-customer pricing check skipped: {e}")
+        target.price_uplift_pct = 0.0
+
+
+# After _stamp_lead, so phone_key is already set.
+_sa_event.listen(Lead, "before_insert", _stamp_new_pricing)
 
 
 def _backfill_call_intent_call_at() -> None:

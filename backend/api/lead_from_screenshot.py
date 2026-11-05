@@ -194,7 +194,8 @@ def create_manual_lead(body: ManualLead, user: dict = Depends(require_staff)):
 
         # The same auto-estimate every new lead gets, from what we know.
         try:
-            low, high, breakdown, meta = calculate_estimate("fence_staining", form, zip_code)
+            from services.new_pricing import multiplier
+            low, high, breakdown, meta = calculate_estimate("fence_staining", form, zip_code, multiplier(lead))
             db.add(Estimate(
                 id=str(uuid.uuid4()), lead_id=lead.id, service_type="fence_staining", status="pending",
                 inputs=json.dumps({**form, **{f"_{k}": v for k, v in meta.items()}}),

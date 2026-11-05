@@ -43,7 +43,7 @@ import { ACCENT, type Accent } from "@/lib/accents";
 import { Panel, Field, StatTile, ProgressPill, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
-import { PARTS, PICKETS, POSTS } from "@/lib/repairs";
+import { PARTS, PICKETS, POSTS, withUplift } from "@/lib/repairs";
 import { sidesLabel } from "@/lib/fenceSides";
 import { tr, isSpanish } from "@/lib/i18n";
 import { enqueue, onQueue, pending as queuedPhotos, type PendingPhoto } from "@/lib/photoQueue";
@@ -2641,7 +2641,11 @@ function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
   );
 }
 
-type Repairs = { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
+type Repairs = { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string;
+  /** New-customer pricing on the price list (screen only, never saved). */
+  uplift_pct?: number };
+/** What gets saved: the repairs without the screen-only percent. */
+const toSave = ({ uplift_pct: _u, ...rest }: Repairs): Repairs => rest;
 const NO_REPAIRS: Repairs = { counts: {}, picket_type: "pine", post_type: "post6" };
 const REPAIR_KEYS = ["pickets", "rotboard", "cap", "rail", "posts"] as const;
 
@@ -2651,9 +2655,10 @@ function hasRepairs(job: CompanyCamJob) {
 
 /** The price list for one repair, by its count key. */
 function listPrice(key: string, r: Repairs): number {
-  if (key === "pickets") return (PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).price;
-  if (key === "posts") return (POSTS.find((p) => p.key === r.post_type) || POSTS[0]).price;
-  return PARTS.find((p) => p.key === key)?.price ?? 0;
+  const base = key === "pickets" ? (PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).price
+    : key === "posts" ? (POSTS.find((p) => p.key === r.post_type) || POSTS[0]).price
+    : PARTS.find((p) => p.key === key)?.price ?? 0;
+  return withUplift(base, r.uplift_pct);
 }
 /** The price each that was agreed, or the list. */
 const priceOf = (key: string, r: Repairs) => r.prices?.[key] || listPrice(key, r);
@@ -2786,9 +2791,9 @@ function RepairsPanel({ job, manager, onPatch, fold }: {
   job: CompanyCamJob; manager: boolean; fold?: { collapsed: boolean; onToggle: () => void };
   onPatch: (p: Partial<CompanyCamJob> & { pickets_marked?: boolean; extras_confirmed?: boolean }) => void;
 }) {
-  const r = job.repairs || NO_REPAIRS;
+  const r: Repairs = { ...(job.repairs || NO_REPAIRS), uplift_pct: job.price_uplift_pct || 0 };
   const planned = hasRepairs(job);
-  const set = (patch: Partial<Repairs>) => onPatch({ repairs: { ...r, ...patch, counts: { ...r.counts, ...(patch.counts || {}) } } });
+  const set = (patch: Partial<Repairs>) => onPatch({ repairs: toSave({ ...r, ...patch, counts: { ...r.counts, ...(patch.counts || {}) } }) });
   const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (r.counts[key] || 0) + d) } });
   const setPrice = (key: string, p: number) => set({ prices: { ...(r.prices || {}), [key]: p } });
   const agreed = priceLines(r);
@@ -2884,16 +2889,17 @@ function SiteCount({ job, onPatch }: {
   job: CompanyCamJob;
   onPatch: (p: Partial<CompanyCamJob> & { extras_confirmed?: boolean }) => void;
 }) {
-  const plan = job.repairs || NO_REPAIRS;
+  const up = job.price_uplift_pct || 0;
+  const plan: Repairs = { ...(job.repairs || NO_REPAIRS), uplift_pct: up };
   const planLines = priceLines(plan);
   const planTotal = linesTotal(planLines);
   const confirmed = !!job.extras_confirmed_at;
-  const stored = job.extras || NO_REPAIRS;
+  const stored: Repairs = { ...(job.extras || NO_REPAIRS), uplift_pct: up };
   const isFinal = stored.mode === "final";
   // A new count starts at zero, with the plan's wood, post height and prices.
-  const start: Repairs = { counts: {}, picket_type: plan.picket_type, post_type: plan.post_type, prices: { ...(plan.prices || {}) }, mode: "final" };
+  const start: Repairs = { counts: {}, picket_type: plan.picket_type, post_type: plan.post_type, prices: { ...(plan.prices || {}) }, mode: "final", uplift_pct: up };
   const e: Repairs = isFinal ? stored : start;
-  const save = (next: Repairs) => onPatch({ extras: { ...next, mode: "final" } });
+  const save = (next: Repairs) => onPatch({ extras: toSave({ ...next, mode: "final" }) });
   const set = (patch: Partial<Repairs>) => save({ ...e, ...patch, counts: { ...e.counts, ...(patch.counts || {}) } });
   const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (e.counts[key] || 0) + d) } });
   const setPrice = (key: string, p: number) => set({ prices: { ...(e.prices || {}), [key]: p } });

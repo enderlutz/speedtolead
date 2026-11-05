@@ -284,11 +284,18 @@ def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str
 def calculate_fence_staining(
     form_data: dict[str, Any],
     zip_code: str = "",
+    uplift: float = 1.0,
 ) -> tuple[float, float, list[dict], dict[str, Any]]:
     """
     Returns (estimate_low, estimate_high, breakdown, meta).
     Signature tier is the primary estimate.
+
+    `uplift` is new-customer pricing (services/new_pricing.py): 1.10 puts
+    every rate, surcharge and the minimum job up 10%, so the breakdown lines
+    carry the higher numbers too and a VA's edit can't drop back to the old
+    price. 1.0 is today's prices.
     """
+    m = float(uplift or 1.0) if float(uplift or 1.0) > 0 else 1.0
     linear_feet = float(form_data.get("linear_feet") or 0)
     height = parse_fence_height(str(form_data.get("fence_height", "6ft standard")))
     age_bracket = parse_age_bracket(str(form_data.get("fence_age", "1-6 years")))
@@ -303,12 +310,13 @@ def calculate_fence_staining(
 
     zip_str = str(zip_code or form_data.get("zip_code", "") or "").strip()
     zone = get_zone(zip_str)
-    zone_surcharge_rate = ZONE_SURCHARGES.get(zone) or 0.0
+    zone_surcharge_rate = round((ZONE_SURCHARGES.get(zone) or 0.0) * m, 4)
 
     sqft = round(linear_feet * height, 2)
 
     tier_rates = _get_tier_rates()
     size_tiers, min_job = _get_size_config()
+    min_job = round(min_job * m, 2)
 
     if sqft == 0:
         approval_status, approval_reason = "red", "Missing linear feet"
@@ -341,7 +349,9 @@ def calculate_fence_staining(
         return 0.0, 0.0, [], meta
 
     taper = min((r["essential"] for r in tier_rates.values() if r), default=rates["essential"])
-    size_dollars = size_surcharge_dollars(sqft, size_tiers, taper)
+    size_dollars = round(size_surcharge_dollars(sqft, size_tiers, taper) * m, 2)
+    if m != 1.0:
+        rates = {k: round(v * m, 4) for k, v in rates.items()}
     size_surcharge_applied = size_dollars > 0
 
     def calc_tier(base_rate: float) -> float:
@@ -407,6 +417,7 @@ def calculate_fence_staining(
         "size_surcharge_applied": size_surcharge_applied,
         "size_surcharge": size_dollars,
         "min_job_topup": min_topup,
+        "price_uplift_pct": round((m - 1.0) * 100, 2),
     }
 
     return mid, mid, breakdown, meta
@@ -480,6 +491,7 @@ def calculate_estimate(
     service_type: str,
     form_data: dict[str, Any],
     zip_code: str = "",
+    uplift: float = 1.0,
 ) -> tuple[float, float, list[dict], dict[str, Any]]:
-    """Top-level dispatcher."""
-    return calculate_fence_staining(form_data, zip_code)
+    """Top-level dispatcher. `uplift`: services.new_pricing.multiplier(lead)."""
+    return calculate_fence_staining(form_data, zip_code, uplift)

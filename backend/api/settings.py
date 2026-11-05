@@ -576,3 +576,42 @@ def get_stats():
         }
     finally:
         db.close()
+
+
+# --- New-customer pricing (Alan, 2026-11-04) ---
+# A brand-new person pays this percent more on every price (packages and the
+# repair list); anyone already in the system keeps today's prices. Decided
+# once per lead when it's created: services/new_pricing.py.
+
+class NewCustomerPricingUpdate(BaseModel):
+    percent: float
+
+
+@router.get("/settings/new-customer-pricing")
+def get_new_customer_pricing(user: dict = Depends(get_current_user)):
+    """The percent, plus how many leads are on it, for the Pricing page."""
+    del user
+    from database import Lead
+    from services.new_pricing import percent_setting
+    db = get_db()
+    try:
+        on = db.query(Lead).filter(Lead.price_uplift_pct > 0).count()
+        return {"percent": percent_setting(db), "leads_on_new_pricing": on}
+    finally:
+        db.close()
+
+
+@router.put("/settings/new-customer-pricing")
+def update_new_customer_pricing(body: NewCustomerPricingUpdate, user: dict = Depends(require_admin)):
+    """Admin only. 0 turns it off for leads that come in from now on; leads
+    already priced keep the percent they came in with."""
+    del user
+    from services.new_pricing import SETTING_KEY, percent_setting
+    if body.percent < 0 or body.percent > 50:
+        raise HTTPException(400, "Pick a percent between 0 and 50")
+    db = get_db()
+    try:
+        SystemConfig.set(db, SETTING_KEY, f"{body.percent:g}")
+        return {"percent": percent_setting(db)}
+    finally:
+        db.close()

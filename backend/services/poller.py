@@ -520,6 +520,18 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A,
                     lead_id = shadow.id if shadow is not None else str(uuid.uuid4())
                     now = _now()
 
+                    # New-customer pricing (services/new_pricing.py): the
+                    # placeholder already decided it when the mirror made it;
+                    # otherwise decide it now, before the estimate is priced.
+                    from types import SimpleNamespace
+                    from services.new_pricing import uplift_for_new_lead
+                    if shadow is not None:
+                        uplift_pct = float(shadow.price_uplift_pct or 0)
+                    else:
+                        uplift_pct = uplift_for_new_lead(db.connection(), SimpleNamespace(
+                            id=lead_id, phone_key="", contact_phone=phone, contact_email=email,
+                            ghl_contact_id=contact_id, ghl_created_at=ghl_created))
+
                     if cfg.division == "brick":
                         # Brick leads skip the fence auto-estimate — brick pricing
                         # is a separate later phase. They land on New Lead with no
@@ -531,7 +543,8 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A,
                         kanban_col = "new_lead"
                     else:
                         service_type = "fence_staining"
-                        low, high, breakdown, meta = calculate_estimate("fence_staining", form_data, postal)
+                        low, high, breakdown, meta = calculate_estimate(
+                            "fence_staining", form_data, postal, 1.0 + uplift_pct / 100.0)
                         est_priority = meta.get("priority") or priority
                         approval_status = meta.get("approval_status", "red")
                         approval_reason = meta.get("approval_reason", "")
@@ -573,7 +586,7 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A,
                             setattr(shadow, k, v)
                         lead = shadow
                     else:
-                        lead = Lead(id=lead_id, created_at=ghl_created, **fields)
+                        lead = Lead(id=lead_id, created_at=ghl_created, price_uplift_pct=uplift_pct, **fields)
                         db.add(lead)
 
                     estimate = Estimate(

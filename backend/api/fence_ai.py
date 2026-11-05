@@ -137,7 +137,8 @@ def apply_measurement(lead_id: str, body: ApplyRequest, user: dict = Depends(req
 
         # Recalculate estimate
         zip_code = lead.zip_code or ""
-        low, high, breakdown, meta = calculate_estimate("fence_staining", fd, zip_code)
+        from services.new_pricing import multiplier
+        low, high, breakdown, meta = calculate_estimate("fence_staining", fd, zip_code, multiplier(lead))
 
         # Update the draft estimate only. A sent estimate keeps the prices the
         # customer was quoted (Alan, 2026-10-16: price changes are "from now

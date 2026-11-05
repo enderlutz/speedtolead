@@ -16,17 +16,24 @@ export const POSTS = [
 ];
 
 
+/** A list price with the customer's new-customer pricing on it (Alan,
+ *  2026-11-04: +10% for a brand-new person; 0 = today's prices). Matches
+ *  services/company_cam.list_cents on the server. */
+export function withUplift(price: number, pct?: number): number {
+  return pct && pct > 0 ? Math.round(price * (1 + pct / 100) * 100) / 100 : price;
+}
+
 export type RepairCounts = Record<string, number>;
 export interface RepairLine { key: string; name: string; qty: number; unit_price: number }
 
 /** Each counted repair as its own line: "Pickets (Cedar) × 13 @ $14". */
-export function repairLines(counts: RepairCounts, picketType: string, postType: string): RepairLine[] {
+export function repairLines(counts: RepairCounts, picketType: string, postType: string, upliftPct = 0): RepairLine[] {
   const out: RepairLine[] = [];
   const picket = PICKETS.find((p) => p.key === picketType) || PICKETS[0];
   const post = POSTS.find((p) => p.key === postType) || POSTS[0];
-  if (counts.pickets) out.push({ key: `picket-${picket.key}`, name: `Picket replacement (${picket.label})`, qty: counts.pickets, unit_price: picket.price });
-  for (const part of PARTS) if (counts[part.key]) out.push({ key: part.key, name: `${part.label} replacement`, qty: counts[part.key], unit_price: part.price });
-  if (counts.posts) out.push({ key: `post-${post.key}`, name: `Post replacement (${post.label})`, qty: counts.posts, unit_price: post.price });
+  if (counts.pickets) out.push({ key: `picket-${picket.key}`, name: `Picket replacement (${picket.label})`, qty: counts.pickets, unit_price: withUplift(picket.price, upliftPct) });
+  for (const part of PARTS) if (counts[part.key]) out.push({ key: part.key, name: `${part.label} replacement`, qty: counts[part.key], unit_price: withUplift(part.price, upliftPct) });
+  if (counts.posts) out.push({ key: `post-${post.key}`, name: `Post replacement (${post.label})`, qty: counts.posts, unit_price: withUplift(post.price, upliftPct) });
   return out;
 }
 

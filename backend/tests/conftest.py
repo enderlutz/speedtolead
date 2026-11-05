@@ -35,6 +35,10 @@ def db():
     database.Base.metadata.create_all(bind=database._engine)
 
     session = database._SessionLocal()
+    # New-customer pricing off by default, so the suite's leads keep today's
+    # prices; tests/test_new_pricing.py turns it on (services/new_pricing.py).
+    session.add(database.SystemConfig(key="new_customer_uplift_percent", value="0", updated_at=""))
+    session.commit()
     try:
         yield session
     finally:

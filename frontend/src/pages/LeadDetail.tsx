@@ -1435,6 +1435,14 @@ export default function LeadDetail() {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="font-heading text-lg sm:text-2xl font-bold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
+          {/* New-customer pricing (Alan, 2026-11-04): so nobody quotes the
+              old number on the phone. The estimate already includes it. */}
+          {(lead.price_uplift_pct || 0) > 0 ? (
+            <span className="mt-0.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
+              title="Brand-new customer: every price is higher, and their estimate already includes it">
+              New customer pricing (+{lead.price_uplift_pct}%)
+            </span>
+          ) : null}
           {/* One quiet line (Alan, 2026-10-08: "all we need to know is how
               many times they viewed, when they last viewed, and when the
               estimate was sent"). Status, Responded, the follow-up flag and

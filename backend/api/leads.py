@@ -1296,7 +1296,8 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
         zip_code = body.form_data.get("zip_code") or lead.zip_code or ""
 
         # Recalculate estimate
-        low, high, breakdown, meta = calculate_estimate(lead.service_type, merged, zip_code)
+        from services.new_pricing import multiplier
+        low, high, breakdown, meta = calculate_estimate(lead.service_type, merged, zip_code, multiplier(lead))
         priority = meta.get("priority") or parse_priority(str(merged.get("service_timeline", "")))
         approval_status = meta.get("approval_status", "red")
         approval_reason = meta.get("approval_reason", "")

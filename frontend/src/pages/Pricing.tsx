@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Save, Plus, X, DollarSign, Ruler, Search } from "lucide-react";
+import { NewCustomerPricingCard } from "@/components/NewCustomerPricingCard";
 
 interface TierRates {
   essential: number;
@@ -119,6 +120,8 @@ export default function Pricing() {
           {saving ? "Saving..." : "Save Changes"}
         </Button>
       </div>
+
+      <NewCustomerPricingCard tierRates={config.tier_rates} minJob={config.min_job_price} />
 
       {/* Tier Rates */}
       <Card>

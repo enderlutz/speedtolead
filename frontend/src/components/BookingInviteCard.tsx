@@ -13,7 +13,7 @@ import { sidesInWords } from "@/lib/fenceSides";
 import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite, COLOR_IN_PERSON } from "@/components/proposal/BookingInvite";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
-import { PICKETS, PARTS, POSTS, repairLines, repairsTotal } from "@/lib/repairs";
+import { PICKETS, PARTS, POSTS, repairLines, repairsTotal, withUplift } from "@/lib/repairs";
 
 type Tier = "essential" | "signature" | "legacy";
 /** "none": no fence staining, only other services (Alan, 2026-10-21, Teila). */
@@ -141,6 +141,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     return !f ? "them" : NOT_A_NAME.has(f.toLowerCase()) ? "there" : f;
   })();
   const [draft, setDraft] = useState<Draft>(blank);
+  // New-customer pricing on the repair list (services/new_pricing.py).
+  const up = lead.price_uplift_pct || 0;
   const [calOpen, setCalOpen] = useState(false);
   const [st, setSt] = useState<BookingState | null>(null);
   // The quick $250 under Payment links holds a day; this card reloads to show it.
@@ -222,7 +224,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const price = own > 0 ? own : estPrice;
   const tierOr = noFence ? "" : draft.tierOr;
   const off = noFence ? 0 : discountOff(price, draft);
-  const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType);
+  const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType, up);
   const repairs = repairsTotal(lines);
   // The repairs discount, the same rule as the server: up to all of the repairs.
   const roff = (() => {
@@ -565,15 +567,15 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         {repairsOpen ? (
           <div className="space-y-2.5 border-t bg-white p-3 text-[#15130F]">
             <Counter stack label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />}
-              price={PICKETS.find((p) => p.key === draft.picketType)!.price} n={draft.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+              price={withUplift(PICKETS.find((p) => p.key === draft.picketType)!.price, up)} n={draft.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
               <Chips options={PICKETS} value={draft.picketType} onChange={(k) => setDraft({ ...draft, picketType: k })} />
             </Counter>
             {PARTS.map((part) => (
               <Counter stack key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />}
-                price={part.price} n={draft.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+                price={withUplift(part.price, up)} n={draft.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
             <Counter stack label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />}
-              price={POSTS.find((p) => p.key === draft.postType)!.price} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
+              price={withUplift(POSTS.find((p) => p.key === draft.postType)!.price, up)} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={draft.postType} onChange={(k) => setDraft({ ...draft, postType: k })} />
             </Counter>
             {/* A discount on the repairs alone (Alan, 2026-10-15). */}
