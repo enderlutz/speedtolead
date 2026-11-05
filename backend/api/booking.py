@@ -96,6 +96,8 @@ def _day(iso: str) -> Date:
 
 
 def _long(iso: str) -> str:
+    if not iso:
+        return ""
     d = _day(iso)
     return f"{d.strftime('%A, %B')} {d.day}"
 
@@ -144,6 +146,8 @@ def default_message(lead: Lead, iso: str, paid: PayLink | None = None, b: Bookin
                     draft: dict | None = None, sender: str = "Alan") -> str:
     what = _what(lead, b, draft)
     no_fence = what != "your fence"
+    if not iso:
+        return quote_message(lead, what, paid, sender)
     if paid is not None and no_fence:
         return (f"Hi {_first(lead)}, it's {sender} with Sterling. Your payment is in, so you're booked for {DAY} "
                 f"for {what}. Here's your booking and what's left to pay: {LINK}")
@@ -161,6 +165,57 @@ def default_message(lead: Lead, iso: str, paid: PayLink | None = None, b: Bookin
             f"for your fence. Here's your booking, and the $250 deposit locks it in: {LINK}")
 
 
+# ── No date, just getting quotes (Alan + Olga, 2026-11-05) ─────────────────
+# For the customer who's shopping around and would hate being booked (a
+# customer, Nov 3: "if you guys show up at the property, that's an instant
+# way that I won't hire you"). Same booking, no day: their page is the price,
+# our Google reviews and what we talked about, with the $250 there for
+# whenever they're ready. Nothing on it says "booking" or names a day, and
+# it never goes on the calendar. The call-back is ours alone: it's set to
+# next week, same time, the moment it sends (so it's never forgotten and the
+# call isn't slowed down), and changed after the call if they said a day.
+
+QUOTE_CALLBACK_DAYS = 7
+QUOTE_CALLBACK_NOTE = "Getting quotes. Ask how the other quotes look."
+
+
+def quote_message(lead: Lead, what: str = "your fence", paid: PayLink | None = None, sender: str = "Alan") -> str:
+    if paid is not None:
+        return (f"Hi {_first(lead)}, it's {sender} with Sterling. Your payment is in. "
+                f"Here's your price and what's left to pay, and we'll call you to pick the day: {LINK}")
+    if what != "your fence":
+        return (f"Hi {_first(lead)}, it's {sender} with Sterling. Here's your price for {what.removeprefix('your ')} "
+                f"and what our customers say about us, so you have it next to your other quotes: {LINK}")
+    return (f"Hi {_first(lead)}, it's {sender} with Sterling Fence Staining. Here's your price and what our "
+            f"customers say about us, so you have it next to your other quotes: {LINK}")
+
+
+def _callback(lead: Lead) -> dict | None:
+    if not (lead.callback_at or "").strip():
+        return None
+    return {"at": lead.callback_at, "note": lead.callback_note or "", "owner": lead.callback_owner or "",
+            "source": lead.callback_source or ""}
+
+
+def set_quote_callback(lead: Lead, owner: str, at: datetime | None = None) -> None:
+    """Book our call-back. Without a time: next week, same time, unless a
+    call-back is already coming up (that one was said on a call)."""
+    now = _now()
+    if at is None:
+        try:
+            upcoming = (lead.callback_at or "") and datetime.fromisoformat(lead.callback_at.replace("Z", "+00:00")) > now
+        except ValueError:
+            upcoming = False
+        if upcoming:
+            return
+        at = now + timedelta(days=QUOTE_CALLBACK_DAYS)
+    lead.callback_at = at.astimezone(timezone.utc).isoformat()
+    lead.callback_note = QUOTE_CALLBACK_NOTE
+    lead.callback_source = "quote_page"
+    lead.callback_owner = owner
+    lead.callback_alerted_at = ""
+
+
 def _active(db, lead_id: str) -> Booking | None:
     return (db.query(Booking).filter(Booking.lead_id == lead_id, Booking.status != "cancelled")
             .order_by(Booking.created_at.desc()).first())
@@ -173,6 +228,8 @@ def _confirmed(db, lead: Lead) -> PayLink | None:
 def _hold_until(b: Booking) -> str:
     """Seven days from the send, never past the day before the job."""
     sent = datetime.fromisoformat(b.sent_at).date() if b.sent_at else _now().date()
+    if not b.date:
+        return (sent + timedelta(days=HOLD_DAYS)).isoformat()
     end = min(sent + timedelta(days=HOLD_DAYS), _day(b.date) - timedelta(days=1))
     return max(end, sent).isoformat()
 
@@ -209,7 +266,7 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         return None
     paid = _confirmed(db, lead)
     return {
-        "token": b.token, "url": booking_url(b.token), "date": b.date, "tier": b.tier, "tier_or": b.tier_or or "",
+        "token": b.token, "url": booking_url(b.token), "date": b.date, "no_date": not b.date, "tier": b.tier, "tier_or": b.tier_or or "",
         "color": b.color or "", "notes": b.notes or "", "total": (b.total_cents or 0) / 100,
         "total_or": (b.total_or_cents or 0) / 100 if b.tier_or else 0,
         "status": "confirmed" if paid else b.status, "sent_at": b.sent_at, "sent_by": b.sent_by or "",
@@ -262,6 +319,9 @@ def _state(db, lead: Lead, user: dict | None = None) -> dict:
                          "paid_at": paid.paid_at} if paid else None,
         "has_email": bool((lead.contact_email or "").strip()),
         "has_phone": bool((lead.contact_phone or "").strip()),
+        # Our call-back (never on their page): booked by the no-date send.
+        "callback": _callback(lead),
+        "quote_message": quote_message(lead, _what(lead, None, draft), paid, sender),
     }
 
 
@@ -421,7 +481,18 @@ def sync_calendar(db, lead: Lead, b: Booking) -> str:
     with the office's notes while it's only held; once paid (Alan,
     2026-10-27) it turns yellow, reads in plain English, and the customer
     is put on it so Google sends them the invite (when we have their
-    email). Returns the event's link, or "" when Google didn't take it."""
+    email). Returns the event's link, or "" when Google didn't take it.
+    No day (just getting quotes): never on the calendar; an old event from
+    when it had a day comes off."""
+    if not b.date:
+        if b.google_event_id:
+            try:
+                gcal.delete_event(db, b.google_event_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("booking calendar delete failed for %s: %s", lead.id, e)
+            b.google_event_id = ""
+            db.commit()
+        return ""
     try:
         paid = _confirmed(db, lead)
         if paid is not None:
@@ -474,7 +545,16 @@ def on_deposit_paid(lead_id: str) -> None:
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         b = _active(db, lead_id) if lead else None
-        if b is not None:
+        if b is not None and not b.date:
+            # Paid off the no-date price page: nobody's picked a day yet.
+            hooks.alert_alan(f"{lead.contact_name or 'A customer'} paid the $250 from their price page (no day yet). "
+                             "Call them to pick the day, then send the booking invite with it.")
+            lead.callback_at = _now().isoformat()
+            lead.callback_note = "Paid the $250. Call to pick the day."
+            lead.callback_source = "quote_page_paid"
+            lead.callback_alerted_at = ""
+            db.commit()
+        elif b is not None:
             # The invite says what the call and texts settled.
             from services import invite_from_call as icf
             icf.build(db, lead, b.date)
@@ -639,6 +719,8 @@ class SendBody(BaseModel):
     # False: update their page and the calendar only, no text or email
     # (Alan, 2026-10-15: "I put the 24th, I meant the 17th").
     notify: bool = True
+    # No date, just getting quotes (2026-11-05): their price page, no day.
+    no_date: bool = False
 
 
 def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None, sender: str = "Alan") -> str:
@@ -648,6 +730,19 @@ def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None, s
     job = _job_title(b).lower() if no_fence else "fence staining"
     where = html.escape(lead.address or "your home")
     dep = hooks.money(deposit_cents(b) / 100)
+    if not b.date:
+        body_lines = (f"<p>Here's your price for your {html.escape(job)} at {where}, and what our customers say about us, "
+                      f"so you have it next to your other quotes.</p>"
+                      f"<p>Whenever you're ready, the {dep} deposit locks in your spot. It comes off your total, "
+                      f"and we pick the day together.</p>")
+        return (
+            f"<div style=\"font-family:Arial,sans-serif;font-size:16px;line-height:1.5;color:#15130F;max-width:520px\">"
+            f"<p>Hi {html.escape(_first(lead))},</p>{body_lines}"
+            f"<p><a href=\"{url}\" style=\"background:#C9972F;color:#15130F;font-weight:bold;padding:12px 20px;"
+            f"text-decoration:none;border-radius:8px;display:inline-block\">See my price</a></p>{note}"
+            f"<p>Questions? Call or text 346-589-7877.</p>"
+            f"<p>{html.escape(sender)}<br>Sterling Fence Staining</p></div>"
+        )
     if paid is not None:
         body_lines = (f"<p>Your {'payment' if paid.kind == 'full' else dep + ' deposit'} is in, so you're booked for "
                       f"<b>{_long(b.date)}</b> for your {html.escape(job)} at {where}.</p>"
@@ -683,12 +778,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
         d = _booking_draft(lead)
-        if not d.get("date"):
+        no_date = bool(body.no_date)
+        if not no_date and not d.get("date"):
             raise HTTPException(status_code=400, detail="Pick the day first, then save the draft.")
         no_fence = services_only(d.get("tier") or "")
         if d.get("tier") not in TIERS and not no_fence:
             raise HTTPException(status_code=400, detail="Pick a package first, then save the draft.")
-        if _day(d["date"]) < _now().date():
+        if not no_date and _day(d["date"]) < _now().date():
             raise HTTPException(status_code=400, detail="That day has already passed.")
         if no_fence:
             if not [sv for sv in (d.get("services") or []) if isinstance(sv, dict) and sv.get("name")]:
@@ -712,7 +808,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         if b is None:
             b = Booking(token=secrets.token_urlsafe(16), lead_id=lead.id, created_at=_now().isoformat(), status="held")
             db.add(b)
-        b.date, b.tier = d["date"], d["tier"]
+        b.date, b.tier = ("" if no_date else d["date"]), d["tier"]
         b.color, b.notes = ("" if no_fence else d.get("color") or ""), d.get("notes") or ""
         b.klarna = 1 if d.get("klarna") else None
         price_cents = int(round(float(tiers[d["tier"]]) * 100))
@@ -755,7 +851,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             by = user.get("name") or user.get("sub") or ""
             db.commit()
             cal = sync_calendar(db, lead, b)
-            log_event(lead.id, "booking_updated", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}, not texted")
+            log_event(lead.id, "booking_updated", f"{b.date or 'no date'} {b.tier} {b.total_cents / 100:.2f} by {by}, not texted")
             return {**_state(db, lead, user), "emailed": False, "calendar": bool(cal), "calendar_link": cal, "texted": False}
 
         sender = texting_name(user)
@@ -764,6 +860,8 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             raise HTTPException(status_code=400, detail="The text is empty.")
         if LINK not in msg and url not in msg:
             raise HTTPException(status_code=400, detail="Keep [link] in the text so they can open their booking.")
+        if no_date and DAY in msg:
+            raise HTTPException(status_code=400, detail="This one has no day. Take [day] out of the text.")
         msg = msg.replace(LINK, url).replace(DAY, _long(b.date))
         if len(msg) > 1500:
             raise HTTPException(status_code=400, detail="That text is too long. Keep it under 1,500 characters.")
@@ -781,7 +879,8 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         if body.email and (lead.contact_email or "").strip():
             try:
                 emailed = bool(ghl.send_email(contact_id=lead.ghl_contact_id,
-                                              subject=(f"You're booked: {_job_title(b)} on {_long(b.date)}" if paid_now
+                                              subject=("Your price from Sterling Fence Staining" if no_date
+                                                       else f"You're booked: {_job_title(b)} on {_long(b.date)}" if paid_now
                                                        else f"Your date is held: {_job_title(b)} on {_long(b.date)}"),
                                               html_body=_email_html(lead, b, url, paid_now, sender),
                                               location_id=lead.ghl_location_id or None))
@@ -791,10 +890,47 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         b.sent_at = _now().isoformat()
         b.sent_by = by
         b.sent_count = (b.sent_count or 0) + 1
+        if no_date:
+            set_quote_callback(lead, user.get("sub") or by)
         db.commit()
         cal = sync_calendar(db, lead, b)
-        log_event(lead.id, "booking_sent", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}" + (" +email" if emailed else ""))
+        log_event(lead.id, "booking_sent", f"{b.date or 'no date, getting quotes'} {b.tier} {b.total_cents / 100:.2f} by {by}" + (" +email" if emailed else ""))
         return {**_state(db, lead, user), "emailed": emailed, "calendar": bool(cal), "calendar_link": cal}
+    finally:
+        db.close()
+
+
+class CallbackBody(BaseModel):
+    at: str = ""        # ISO; "" = no call-back
+
+
+@router.post("/leads/{lead_id}/booking/callback")
+def book_callback(lead_id: str, body: CallbackBody, user: dict = Depends(require_staff)):
+    """After the call: when we call them back about their other quotes.
+    Ours alone; nothing goes to the customer."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        by = user.get("sub") or user.get("name") or ""
+        if not body.at:
+            lead.callback_at, lead.callback_note, lead.callback_source, lead.callback_alerted_at = "", "", "", ""
+            db.commit()
+            log_event(lead.id, "callback_cleared", f"by {by}")
+            return _state(db, lead, user)
+        try:
+            at = datetime.fromisoformat(body.at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="That isn't a time.")
+        if at.tzinfo is None:
+            raise HTTPException(status_code=400, detail="That isn't a time.")
+        if at < _now() - timedelta(minutes=5):
+            raise HTTPException(status_code=400, detail="That time has already passed.")
+        set_quote_callback(lead, by, at)
+        db.commit()
+        log_event(lead.id, "callback_booked", f"{lead.callback_at} by {by}")
+        return _state(db, lead, user)
     finally:
         db.close()
 
@@ -861,7 +997,7 @@ def booking_page(token: str, request: Request, preview: int = 0):
             b.view_count = (b.view_count or 0) + 1
             db.commit()
             if first:
-                log_event(lead.id, "booking_opened", b.date)
+                log_event(lead.id, "booking_opened", b.date or "no date")
         paid = _confirmed(db, lead)
         try:
             fd = json.loads(lead.form_data or "{}")
@@ -875,7 +1011,8 @@ def booking_page(token: str, request: Request, preview: int = 0):
         return {
             "status": "cancelled" if b.status == "cancelled" else ("confirmed" if paid else "held"),
             "first_name": _first(lead), "address": lead.address or "",
-            "date": b.date, "tier": b.tier, "package": "" if services_only(b) else NAMES.get(b.tier, b.tier),
+            "date": b.date, "no_date": not b.date,
+            "tier": b.tier, "package": "" if services_only(b) else NAMES.get(b.tier, b.tier),
             # The other package when they pick on the day, and the job at it.
             "package_or": NAMES.get(b.tier_or or "", "") if not services_only(b) else "",
             "total_or": (b.total_or_cents or 0) / 100 if b.tier_or else 0,
@@ -922,7 +1059,7 @@ def booking_pay(token: str, request: Request):
         link.amount_cents = deposit_cents(b)
         link.job_tier = b.tier
         link.job_total_cents = b.total_cents
-        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, reserved on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, reserved on the booking invite for {_long(b.date) or 'a day to pick'}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_pay_opened", b.date)
@@ -957,7 +1094,7 @@ def booking_finance(token: str, request: Request):
         link.job_total_cents = b.total_cents
         link.door = "finance"
         link.no_financing = None
-        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, financed on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else package_label(b.tier, b.tier_or or '')}, financed on the booking invite for {_long(b.date) or 'a day to pick'}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_klarna_opened", b.date)
@@ -978,7 +1115,7 @@ def invite_from_call_preview(lead_id: str, send: int = 0, user: dict = Depends(r
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         b = _active(db, lead_id) if lead else None
-        if b is None:
+        if b is None or not b.date:
             raise HTTPException(status_code=404, detail="No booked day for this customer")
         facts = icf.build(db, lead, b.date)
         paid = _confirmed(db, lead)

@@ -5,12 +5,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { BookingInvite, type BookingTrust } from "@/components/proposal/BookingInvite";
+import { QuotePage } from "@/components/proposal/QuotePage";
 
 import { API_BASE as BASE } from "@/lib/apiBase";
 
 type Booking = {
   status: "held" | "confirmed" | "cancelled";
   first_name: string; address: string; date: string; tier: string; package: string;
+  /** No date, just getting quotes (2026-11-05): their price page instead. */
+  no_date?: boolean;
   /** The other package when they pick on the day, and the job at it. */
   package_or?: string; total_or?: number;
   color: string; notes: string; sides: string[]; feet: number; total: number; deposit: number;
@@ -50,7 +53,7 @@ export default function BookingPage() {
 
   useEffect(() => {
     let alive = true;
-    document.title = "Your booking · Sterling Fence Staining";
+    document.title = "Sterling Fence Staining";
     // ?preview=1: staff looking, never counted as the customer's visit.
     const qs = params.get("preview") === "1" ? "?preview=1" : "";
     fetch(`${BASE}/api/public/booking/${encodeURIComponent(token || "")}${qs}`)
@@ -102,6 +105,38 @@ export default function BookingPage() {
       quote: quote ? { author: quote.author.split(" ")[0], text: quote.text } : undefined,
     } : undefined,
   } : undefined;
+
+  // No day picked: their price and our reviews, nothing about booking.
+  if (b.no_date && b.status !== "cancelled") {
+    const fives = (reviews?.reviews || []).filter((x) => x.rating === 5 && x.text && x.text.length <= 170)
+      .sort((x, y) => y.text.length - x.text.length).slice(0, 3);
+    return (
+      <QuotePage
+        page
+        firstName={b.first_name}
+        address={b.address}
+        pkgName={b.package_or ? `${b.package_or} or ${b.package}` : b.package}
+        pkgOr={b.package_or && b.total_or ? { name: b.package_or, total: b.total_or } : undefined}
+        color={b.color}
+        sides={b.sides}
+        feet={b.feet}
+        total={b.total}
+        deposit={b.deposit}
+        notes={b.notes}
+        sender={b.sender || null}
+        reviews={reviews ? { rating: reviews.rating, total: reviews.total, url: reviews.url,
+          quotes: fives.map((x) => ({ author: x.author.split(" ")[0], text: x.text })) } : null}
+        repairs={b.repairs || []}
+        services={b.services || []}
+        discount={b.discount || 0}
+        discountLabel={b.discount_label || ""}
+        servicesOnly={!!b.services_only}
+        proposalHref={b.proposal_url || undefined}
+        paidAmount={b.paid}
+        onPay={pay}
+      />
+    );
+  }
 
   return (
     <BookingInvite

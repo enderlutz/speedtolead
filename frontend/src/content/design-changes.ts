@@ -10,6 +10,9 @@ export type DesignChange = {
 };
 
 export const DESIGN_CHANGES: DesignChange[] = [
+  { date: "2026-11-05", title: "No date (just getting quotes)",
+    what: "For a customer who's shopping around: the booking invite can go out with no day. Their text says \"Here's your price and what our customers say about us, so you have it next to your other quotes.\" Their page shows who they talked to, our Google reviews, their price, three things to ask when they compare quotes, and the $250 at the bottom for whenever they're ready. No date, never the word \"booking\", and our call-back day is never shown to them.",
+    open: { label: "See it", to: "/design-lab?tab=screens&view=nodate" } },
   { date: "2026-11-05", title: "Lily's photo on her booking invites",
     what: "A booking invite Gioconda sends now shows Lily's picture and name at the top, the same way Alan's and Amy's do. The ones she already sent show it too." },
   { date: "2026-11-04", title: "Signature colors are water-based only",

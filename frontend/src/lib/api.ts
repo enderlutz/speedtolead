@@ -593,7 +593,10 @@ export interface BookingDraft {
 export interface BookingService { name: string; price: number; description?: string }
 
 export interface BookingSent {
-  token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
+  token: string; url: string; date: string;
+  /** Sent with no day, just getting quotes (2026-11-05): their price page. */
+  no_date?: boolean;
+  tier: string; color: string; notes: string; total: number;
   /** The other package when they pick on the day, and the job at it. */
   tier_or?: string; total_or?: number;
   status: "held" | "confirmed" | "cancelled"; sent_at: string | null; sent_by: string; sent_count: number;
@@ -622,6 +625,10 @@ export interface BookingState {
   deposit_paid?: { amount: number; kind: string; paid_at: string | null } | null;
   /** Who the text is from: the person sending it (Olga = Amy, Gioconda = Lily). */
   sender_name?: string;
+  /** The no-date text: their price and our reviews, no day (2026-11-05). */
+  quote_message?: string;
+  /** Our call-back, never on their page. */
+  callback?: { at: string; note: string; owner: string; source: string } | null;
 }
 
 export interface LeadDetail extends Lead {
@@ -2356,11 +2363,14 @@ export const api = {
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),
-  sendBooking: (leadId: string, message: string, email: boolean) =>
-    request<BookingState & { emailed: boolean; calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email }) }),
+  sendBooking: (leadId: string, message: string, email: boolean, noDate = false) =>
+    request<BookingState & { emailed: boolean; calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email, no_date: noDate }) }),
+  /** After the call: when we call them back about their other quotes. "" clears it. */
+  bookCallback: (leadId: string, at: string) =>
+    request<BookingState>(`/api/leads/${leadId}/booking/callback`, { method: "POST", body: JSON.stringify({ at }) }),
   /** Change a sent booking (the date, a price) without texting or emailing them. */
-  updateBooking: (leadId: string) =>
-    request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
+  updateBooking: (leadId: string, noDate = false) =>
+    request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false, no_date: noDate }) }),
   /** The invite as the calls and texts say (2026-10-30); send=true also updates the calendar. */
   inviteFromCall: (leadId: string, send = false) =>
     request<{ summary: string; text: string; sent: boolean; to_customer: boolean }>(`/api/leads/${leadId}/booking/from-call?send=${send ? 1 : 0}`, { method: "POST" }),

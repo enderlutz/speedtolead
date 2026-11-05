@@ -15,13 +15,15 @@
 // and the second row is always there (Alan, 2026-10-27: "I want everything
 // to stay the same size"), so nothing jumps when you move around. Nothing on
 // this page sends anything.
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FlaskConical, History, Lightbulb, Maximize2, NotebookPen, Repeat, ShieldAlert, Smartphone } from "lucide-react";
 import ProposalMockup from "@/pages/ProposalMockup";
 import QuoteMockup from "@/pages/QuoteMockup";
+import { QuotePage, type QuoteReviews } from "@/components/proposal/QuotePage";
+import { API_BASE } from "@/lib/apiBase";
 import FollowUpEngine from "@/pages/FollowUpEngine";
 import { FOLLOWUP_VIEWS, type FollowUpView } from "@/pages/followUpViews";
 import { DESIGN_CHANGES } from "@/content/design-changes";
@@ -43,6 +45,7 @@ const TABS: { key: Tab; label: string; icon: React.ElementType; hint: string }[]
 const SCREEN_VIEWS = [
   { key: "proposal", label: "Proposal", hint: "The interactive proposal and the pay page, as the customer taps through them" },
   { key: "quote", label: "Quote generator", hint: "Get my price: the self-serve quote, as a mock" },
+  { key: "nodate", label: "No date price page", hint: "What a quote-shopper gets from \"No date (just getting quotes)\" on the booking invite" },
 ];
 // The save-for-later folder, bundled in at build time so it reads here
 // without a server. Each file's first heading is its title.
@@ -121,7 +124,7 @@ export default function DesignLab() {
     }
     return out;
   }, []);
-  const fullScreen = tab === "screens" ? (view === "quote" ? "/quote-mockup" : "/new-proposal/mockup") : "";
+  const fullScreen = tab === "screens" && view !== "nodate" ? (view === "quote" ? "/quote-mockup" : "/new-proposal/mockup") : "";
   const count = (k: Tab) => (k === "changes" ? DESIGN_CHANGES.length : k === "ideas" ? IDEAS.length : 0);
 
   return (
@@ -143,6 +146,8 @@ export default function DesignLab() {
       ) : null}
 
       {tab === "screens" && view === "quote" ? <QuoteMockup embedded /> : null}
+
+      {tab === "screens" && view === "nodate" ? <NoDateMock /> : null}
 
       {tab === "followups" ? <FollowUpEngine embedded view={view as FollowUpView} /> : null}
 
@@ -188,6 +193,30 @@ export default function DesignLab() {
           </Panel>
         </>
       ) : null}
+    </div>
+  );
+}
+
+/** The no-date price page with made-up numbers and our real Google reviews
+ *  (2026-11-05). The live one is the same component on /b/{token}. */
+function NoDateMock() {
+  const [reviews, setReviews] = useState<QuoteReviews | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/public/reviews`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!alive || !d) return;
+      const fives = (d.reviews || []).filter((x: { rating: number; text: string }) => x.rating === 5 && x.text && x.text.length <= 170)
+        .sort((x: { text: string }, y: { text: string }) => y.text.length - x.text.length).slice(0, 3);
+      setReviews({ rating: d.rating, total: d.total, url: d.url, quotes: fives.map((x: { author: string; text: string }) => ({ author: x.author.split(" ")[0], text: x.text })) });
+    }).catch(() => { /* reviews box shows without numbers */ });
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div className="mx-auto max-w-md overflow-hidden rounded-3xl ring-1 ring-ink/10">
+      <QuotePage page firstName="Sam" address="123 Example St, Houston, TX" pkgName="Legacy Finish" color="Chocolate Chips"
+        sides={["Inside back", "Inside left", "Inside right"]} feet={180} total={2432}
+        sender={{ name: "Amy", role: "Sterling Fence Staining", photo: "/team/amy.jpg" }} reviews={reviews}
+        proposalHref="#" onPay={() => { window.alert("On the real page this opens the $250 checkout."); }} />
     </div>
   );
 }
