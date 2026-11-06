@@ -134,10 +134,14 @@ def progress(job: CompanyCamJob, cleaned: bool = False, pw_sections: set[str] | 
         pct = max(pct, 90)
     if (job.completed_at or "").strip():
         pct = 100
+    # The job is done only when Alan taps "Job done" (Alan, 2026-11-06: the
+    # HOA job had its staining finished but still had all the posts left).
+    # Every box ticked, or "almost done" sent, without that tap is the crew
+    # finished and waiting on him, which is what the 90% means.
     if pct >= 100:
         stage = "Done"
-    elif (job.almost_done_sent_at or "").strip():
-        stage = "Almost done"
+    elif (c_of and c_done == c_of and s_of and s_done == s_of) or (job.almost_done_sent_at or "").strip():
+        stage = "Crew finished, waiting on your OK"
     elif s_done:
         stage = "Staining"
     elif c_done == c_of and c_of:

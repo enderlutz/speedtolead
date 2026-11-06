@@ -170,11 +170,12 @@ def notify_new_lead(lead: dict, board_label: str = "Sterling Leads A"):
         f"Fence Age: {fence_age}"
     )
 
-    # Alan - SMS. GHL already announces the lead with its details, so Alan's
-    # text is just the profile link and the push (Alan, 2026-10-11). Olga and
+    # Alan - SMS. GHL already announces the lead with its details, and Alan
+    # calls from the GHL contact, so his text is one line with no link
+    # (Alan, 2026-11-06; was the profile link since 2026-10-11). Olga and
     # Fragne keep the full breakdown.
     if settings.owner_ghl_contact_id:
-        alan_msg = f"Attached is the customer profile for new lead {name}. Call and sell ASAP!\n{link}"
+        alan_msg = f"New lead {name}. Customer profile has been added to the dashboard ❗"
         ok = send_sms(settings.owner_ghl_contact_id, alan_msg)
         _log_notification(lead_id, "ghl_sms", "alan", "new_lead", alan_msg if ok else f"FAILED: {alan_msg}")
 

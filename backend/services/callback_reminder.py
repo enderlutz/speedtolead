@@ -1,0 +1,232 @@
+"""Stella's calls: after every real call, review it and text Alan a call-back reminder.
+
+Alan (2026-11-06): "can you automatically review any calls that happened and
+automatically schedule a call back for me to do?" Callbacks are Alan's to
+close, so every conversation with a customer who hasn't paid gets read in
+full (this call, the calls before it, the texts, the estimate, the held
+day), and if a call back is owed, a "📞 CALL NOW ❗❗❗" text is scheduled in
+GHL to Alan's phone for the right time: the day agreed on the call if there
+was one, never after a held day, always inside Alan's own phone hours.
+
+A VA's call also gets a short review in Alan's call order, sent right away,
+so he can coach the same day.
+
+Best effort from end to end. Nothing here ever stops the transcript or the
+analysis, and the off switch is system_config callback_reminders_on = "0".
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+
+from clock import now_ct, to_ct
+
+logger = logging.getLogger(__name__)
+
+MODEL = "claude-sonnet-5-5"
+SWITCH_KEY = "callback_reminders_on"
+DONE_KEY = "callback_reminders"  # in lead.form_data: recording ids already handled
+
+# Alan's own phone hours, every day (On call roles): 8-10, 12-2:30, 5-8.
+WINDOWS = ((8 * 60, 10 * 60), (12 * 60, 14 * 60 + 30), (17 * 60, 20 * 60))
+MIN_SECONDS = 60
+SKIP_STATUSES = {"closed", "archived"}
+
+
+def pick_slot(want: datetime, now: datetime) -> datetime:
+    """The first moment at or after `want` (and at least 20 minutes from now)
+    that falls inside one of Alan's phone windows. Both times are Houston."""
+    t = max(want, now + timedelta(minutes=20)).replace(second=0, microsecond=0)
+    for _ in range(14):
+        mins = t.hour * 60 + t.minute
+        for start, end in WINDOWS:
+            if mins < start:
+                return t.replace(hour=start // 60, minute=start % 60)
+            if start <= mins < end:
+                return t
+        t = (t + timedelta(days=1)).replace(hour=0, minute=0)
+    return t
+
+
+def worth_reviewing(duration: int | None, is_voicemail: bool, lead_status: str | None) -> bool:
+    """A real conversation with someone who isn't a finished customer."""
+    if is_voicemail or (duration or 0) < MIN_SECONDS:
+        return False
+    return (lead_status or "") not in SKIP_STATUSES
+
+
+PROMPT = """You work for Alan, the owner of Sterling Fence Staining in Houston. A phone call with a customer just ended. You get the WHOLE file: this call, earlier calls, the texts, the estimate, any held day. Read all of it before deciding anything.
+
+Decide whether Alan owes this customer a call back. Callbacks are Alan's to close. A call back is owed when the customer has not paid and the deal is still alive: they want to think, are getting another quote, want to talk to a spouse, asked for a call on a certain day, didn't pick a day, or the call ended without the $250. NOT owed: they said a clear no, it was spam or a sales call, it was a wrong number, or they already paid / booked and paid.
+
+Pick when. If a day or time was agreed on the call, use it. If a day is held for them, call before that day. If they are getting another quote, give them a day or two. Otherwise the next business day. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
+
+Write the reminder text Alan will get on his phone. Plain words, short lines, no markdown, exactly these sections:
+📞 CALL NOW ❗❗❗
+
+👤 <customer name>
+
+📋 WHAT IT'S ABOUT
+<2-4 short lines: who talked to them and when, what they want, what's stopping them. Exact sides if it matters.>
+
+💰 PRICE
+<the package and price they were quoted, tax included>
+
+📅 DAY
+<held day or what day they want; real dates, never blanks>
+
+🗣️ SAY
+1️⃣ "<word-for-word opener from Alan: 'Hi, it's Alan with Sterling Fence Staining...'>"
+2️⃣ "<the main point, answering what's stopping them>"
+3️⃣ "<the ask: a real day and the $250 to lock it in, rest when we finish>"
+
+⚠️ IF THEY SAY
+"<likely objection>" → "<answer>"
+(2-3 of these)
+
+📩 VOICEMAIL
+"<short voicemail from Alan with a real day and 346-589-7877>"
+
+Keep the whole reminder under 1,000 characters (GHL refuses texts over 1,600 and emojis count double): short lines, at most 2 objections. No phone number and no links anywhere in the reminder: Alan calls from the customer's GHL contact.
+
+Rules for the words: sound like Alan, a friendly local guy. Never use "20% off" or a "normal price"; the real deal is the free second coat through Thanksgiving. Never offer a discount without a real reason. Never ask for photos or board counts; repairs are counted on cleaning day (picket $14, rot board $50, cap $85, rail $75). Signature = semi-transparent (lasts 4-5 yrs), Legacy = solid (lasts the LONGEST, 5-8 yrs). Redwood Naturaltone is a Signature color. Price is the same cash or card. "Sir"/"ma'am" must match the customer. Point out anything in the file that doesn't match (sides on the call vs sides on the estimate, color vs package, a held day they said not to hold) inside WHAT IT'S ABOUT, starting with ⚠️.
+
+If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
+
+Reply with JSON only:
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>"}"""
+
+
+def _clip(s: str, n: int) -> str:
+    s = s or ""
+    return s if len(s) <= n else s[:n] + " …"
+
+
+def build_file(db, lead, recording, transcript_text: str, caller: str) -> str:
+    """Everything known about this customer, as one block of text."""
+    from database import Booking, CallRecording, CallTranscript, Estimate, Message
+
+    fd = {}
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:  # noqa: BLE001
+        pass
+    fd.pop("booking_draft", None)
+    fd.pop("invite_from_call", None)
+    fd.pop(DONE_KEY, None)
+    est = (db.query(Estimate).filter(Estimate.lead_id == lead.id)
+           .order_by(Estimate.created_at.desc()).first())
+    tiers = {}
+    if est is not None:
+        try:
+            tiers = json.loads(est.tiers or "{}")
+        except Exception:  # noqa: BLE001
+            tiers = {}
+    bk = db.query(Booking).filter(Booking.lead_id == lead.id).first()
+    called = to_ct(recording.created_at)
+    lines = [
+        f"TODAY (Houston): {now_ct():%A %Y-%m-%d %I:%M %p}",
+        f"THIS CALL: {called:%A %Y-%m-%d %I:%M %p} · {recording.call_direction} · {recording.duration_seconds}s · CALLER: {caller}",
+        f"CUSTOMER: {lead.contact_name} · {lead.contact_phone} · {lead.address} {lead.zip_code or ''}",
+        f"LEAD STATUS: {lead.status}",
+        f"FORM / NOTES: {_clip(json.dumps(fd), 2500)}",
+        f"ESTIMATE PRICES (tax incl.): {tiers}",
+    ]
+    if bk is not None:
+        lines.append(f"BOOKING: day {bk.date} · {bk.tier} · color {bk.color} · total ${(bk.total_cents or 0) / 100:,.2f} "
+                     f"· status {bk.status} · paid {'yes' if (bk.sent_by or '') == 'paid' else 'no'}")
+    msgs = (db.query(Message).filter(Message.lead_id == lead.id)
+            .order_by(Message.created_at.desc()).limit(20).all())
+    lines.append("TEXTS (oldest first):")
+    for m in reversed(msgs):
+        body = (m.body or "").strip()
+        if body and body not in ("Opportunity created", "Opportunity updated"):
+            lines.append(f"  {m.created_at[:16]} {m.direction}: {_clip(body, 400)}")
+    earlier = (db.query(CallRecording.created_at, CallTranscript.full_text)
+               .join(CallTranscript, CallTranscript.recording_id == CallRecording.id)
+               .filter(CallRecording.lead_id == lead.id, CallRecording.id != recording.id,
+                       CallRecording.is_voicemail.isnot(True))
+               .order_by(CallRecording.created_at.desc()).limit(3).all())
+    for at, text in reversed(earlier):
+        lines.append(f"EARLIER CALL {str(at)[:16]}: {_clip(text, 3000)}")
+    lines.append(f"THIS CALL'S TRANSCRIPT:\n{_clip(transcript_text, 14000)}")
+    return "\n".join(lines)
+
+
+def _ask(db, file_text: str) -> dict | None:
+    """Stella reads the call with everything Alan has taught her."""
+    from services.stella import ask
+    return ask(db, PROMPT, file_text, max_tokens=2000)
+
+
+def _caller_name(db, recorded_by: str) -> str:
+    from database import User
+    if recorded_by:
+        u = db.query(User).filter(User.ghl_user_id == recorded_by).first()
+        if u:
+            return (u.display_name or u.username or "").strip() or "Unknown"
+    return "Unknown"
+
+
+def _paid(db, lead_id: str) -> bool:
+    from database import Booking, PayLink
+    if db.query(PayLink.token).filter(PayLink.lead_id == lead_id, PayLink.status == "paid").first():
+        return True
+    bk = db.query(Booking).filter(Booking.lead_id == lead_id).first()
+    return bk is not None and (bk.sent_by or "") == "paid"
+
+
+def run_for_recording(db, recording, transcript_text: str) -> dict:
+    """Review one finished call and schedule Alan's reminder. Returns what it did."""
+    from config import get_settings
+    from database import Lead, SystemConfig
+    from services import ghl
+
+    from services.stella import on as stella_on
+    if SystemConfig.get(db, SWITCH_KEY, "1") == "0" or not stella_on(db):
+        return {"skipped": "switched off"}
+    if not recording.lead_id:
+        return {"skipped": "no lead"}
+    lead = db.query(Lead).filter(Lead.id == recording.lead_id).first()
+    if lead is None or not worth_reviewing(recording.duration_seconds, bool(recording.is_voicemail), lead.status):
+        return {"skipped": "not a live conversation"}
+    if _paid(db, lead.id):
+        return {"skipped": "already paid"}
+    fd = {}
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:  # noqa: BLE001
+        fd = {}
+    done = fd.get(DONE_KEY) or []
+    if any(d.get("recording_id") == recording.id for d in done):
+        return {"skipped": "already handled"}
+    owner = (get_settings().owner_ghl_contact_id or "").strip()
+    if not owner:
+        return {"skipped": "no owner contact"}
+
+    caller = _caller_name(db, recording.recorded_by or "")
+    out = _ask(db, build_file(db, lead, recording, transcript_text, caller))
+    if not out:
+        return {"skipped": "no model"}
+
+    record = {"recording_id": recording.id, "at": datetime.now(timezone.utc).isoformat(),
+              "owed": bool(out.get("owed")), "why": (out.get("why") or "")[:300]}
+    review = (out.get("review") or "").strip()
+    if review and caller.lower() != "alan":
+        ghl.send_sms(owner, review[:1100])
+        record["review_sent"] = True
+    if out.get("owed") and (out.get("reminder") or "").strip():
+        try:
+            want = datetime.strptime(out.get("when") or "", "%Y-%m-%dT%H:%M")
+        except ValueError:
+            want = now_ct().replace(tzinfo=None) + timedelta(days=1)
+        now = now_ct()
+        slot = pick_slot(want.replace(tzinfo=now.tzinfo), now)
+        ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
+        record.update({"when": slot.isoformat(), "scheduled": bool(ok)})
+    fd[DONE_KEY] = (done + [record])[-20:]
+    lead.form_data = json.dumps(fd)
+    db.commit()
+    logger.info("Callback reminder for lead %s: %s", lead.id, record)
+    return record

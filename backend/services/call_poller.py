@@ -931,6 +931,15 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
         db.commit()
         logger.info(f"Analysis saved for recording {recording_id} | score={analysis_result['call_score']}/10")
 
+        # Review the call and text Alan a call-back reminder when one is owed
+        # (Alan, 2026-11-06). Best effort; never undoes the analysis.
+        try:
+            from services.callback_reminder import run_for_recording
+            run_for_recording(db, recording, labeled_text)
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            logger.warning(f"Callback reminder skipped for {recording_id}: {e}")
+
     except Exception as e:
         db.rollback()
         logger.error(f"Recording pipeline error for {recording_id}: {e}")

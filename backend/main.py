@@ -620,6 +620,26 @@ async def _on_call_loop():
         await asyncio.sleep(60)
 
 
+async def _stella_loop():
+    """Stella, the AI Sales Manager: every 2 minutes she reads new customer
+    texts into their profiles and, at 5:30 PM, checks every new lead has a
+    price. Her call reviews run inside the call pipeline. See services/stella.py."""
+    from database import get_db as _gdb
+    from services import stella
+    await asyncio.sleep(90)
+    while True:
+        db = _gdb()
+        try:
+            r = await asyncio.to_thread(stella.tick, db)
+            if r and any(v for v in r.values() if v and v != {"texts": 0}):
+                logger.info(f"[stella] {r}")
+        except Exception as e:
+            logger.error(f"Stella tick error: {e}")
+        finally:
+            db.close()
+        await asyncio.sleep(120)
+
+
 async def _fast_sync_loop():
     """Every minute: who had a call or text since the last look (one GHL
     search), call-backs coming up, call-back times read from new calls and
@@ -839,6 +859,7 @@ async def lifespan(app: FastAPI):
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
+    stella_task = asyncio.create_task(_stella_loop())
     followup_learning = asyncio.create_task(_followup_learning_loop())
     followup_backfill = asyncio.create_task(_followup_backfill_loop())
     map_geocoder = asyncio.create_task(_map_geocode_loop())
@@ -870,6 +891,7 @@ async def lifespan(app: FastAPI):
     correction_escalator.cancel()
     delay_detector.cancel()
     followup_engine.cancel()
+    stella_task.cancel()
     followup_learning.cancel()
     followup_backfill.cancel()
     map_geocoder.cancel()
