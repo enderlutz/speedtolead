@@ -939,6 +939,8 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
         except Exception as e:  # noqa: BLE001
             db.rollback()
             logger.warning(f"Callback reminder skipped for {recording_id}: {e}")
+            from services.stella import note_error
+            note_error(db, f"call {recording_id}: {type(e).__name__}: {e}")
 
     except Exception as e:
         db.rollback()

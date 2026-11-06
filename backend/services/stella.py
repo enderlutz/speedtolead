@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 NAME = "Stella"
 MODEL = "claude-sonnet-5-5"
+# The model the rest of the app already runs on; used if MODEL is refused.
+FALLBACK_MODEL = "claude-sonnet-4-6"
+ERROR_KEY = "stella_last_error"
+LIVE_SINCE = "2026-11-06T21:30:00+00:00"  # first deploy
 SWITCH_KEY = "stella_on"
 PLAYBOOK_KEY = "stella_playbook"
 TEXTS_SEEN_KEY = "stella_texts_seen_at"
@@ -99,16 +103,33 @@ def ask(db, task: str, file_text: str, max_tokens: int = 1500) -> dict | None:
         return None
     import anthropic
     client = anthropic.Anthropic(api_key=key)
-    resp = client.messages.create(
-        model=MODEL, max_tokens=max_tokens,
-        system=[{"type": "text", "text": f"You are {NAME}, the Sales Manager at Sterling Fence Staining.\n\n{playbook(db)}"},
-                {"type": "text", "text": task, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": file_text}],
-    )
+    kw = dict(max_tokens=max_tokens,
+              system=[{"type": "text", "text": f"You are {NAME}, the Sales Manager at Sterling Fence Staining.\n\n{playbook(db)}"},
+                      {"type": "text", "text": task, "cache_control": {"type": "ephemeral"}}],
+              messages=[{"role": "user", "content": file_text}])
+    try:
+        resp = client.messages.create(model=MODEL, **kw)
+    except (anthropic.NotFoundError, anthropic.BadRequestError, anthropic.PermissionDeniedError) as e:
+        note_error(db, f"{MODEL} refused, using {FALLBACK_MODEL}: {e}")
+        resp = client.messages.create(model=FALLBACK_MODEL, **kw)
     text = (resp.content[0].text if resp.content else "").strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
     return json.loads(text)
+
+
+def note_error(db, what: str) -> None:
+    """Keep Stella's last problem where anyone can read it (system_config
+    stella_last_error), so a failure is never silent. Never raises."""
+    try:
+        from database import SystemConfig
+        SystemConfig.set(db, ERROR_KEY, f"{datetime.now(timezone.utc).isoformat()} | {what}"[:900])
+        db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def text_alan(message: str, scheduled_at: int | None = None) -> bool:
@@ -303,9 +324,52 @@ def tick(db) -> dict:
     except Exception as e:  # noqa: BLE001
         db.rollback()
         logger.warning("Stella texts pass failed: %s", e)
+        note_error(db, f"texts: {type(e).__name__}: {e}")
     try:
         out["prices"] = no_price_check(db)
     except Exception as e:  # noqa: BLE001
         db.rollback()
         logger.warning("Stella price check failed: %s", e)
+        note_error(db, f"prices: {type(e).__name__}: {e}")
+    try:
+        out["calls"] = catch_up_calls(db)
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Stella call catch-up failed: %s", e)
+        note_error(db, f"call catch-up: {type(e).__name__}: {e}")
     return out
+
+
+def catch_up_calls(db, hours: int = 12, limit: int = 3) -> dict:
+    """Any real call from the last `hours` that she hasn't reviewed yet (the
+    first try failed, or the app restarted mid-way) gets reviewed now."""
+    from database import CallRecording, CallTranscript, Lead
+    from services.callback_reminder import DONE_KEY, MIN_SECONDS, run_for_recording
+    if not on(db):
+        return {"skipped": "off"}
+    # Never earlier than the day she went live, so calls Alan already had
+    # reminders for by hand don't get a second one.
+    since = max((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(), LIVE_SINCE)
+    recs = (db.query(CallRecording).filter(CallRecording.status == "analyzed", CallRecording.analyzed_at >= since,
+                                           CallRecording.lead_id.isnot(None), CallRecording.is_voicemail.isnot(True),
+                                           CallRecording.duration_seconds >= MIN_SECONDS)
+            .order_by(CallRecording.created_at.asc()).all())
+    done = 0
+    for rec in recs:
+        lead = db.query(Lead).filter(Lead.id == rec.lead_id).first()
+        if lead is None:
+            continue
+        try:
+            handled = json.loads(lead.form_data or "{}").get(DONE_KEY) or []
+        except Exception:  # noqa: BLE001
+            handled = []
+        if any(h.get("recording_id") == rec.id for h in handled):
+            continue
+        tx = db.query(CallTranscript).filter(CallTranscript.recording_id == rec.id).first()
+        if tx is None or not (tx.full_text or "").strip():
+            continue
+        run_for_recording(db, rec, tx.full_text)
+        done += 1
+        if done >= limit:
+            break
+    return {"reviewed": done}
