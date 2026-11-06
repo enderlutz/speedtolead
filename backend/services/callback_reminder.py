@@ -216,6 +216,17 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])
         record["review_sent"] = True
+        # The VA gets the same review on WhatsApp (Alan, 2026-11-06). WhatsApp
+        # only delivers if she messaged the Sterling WhatsApp in the last 24 h.
+        try:
+            from database import User
+            from services.on_call import message_person
+            va = db.query(User).filter(User.ghl_user_id == (recording.recorded_by or "")).first()
+            if va is not None and (va.role or "") == "va" and not va.disabled:
+                record["review_to_va"] = bool(message_person(db, va, review[:1100]))
+                db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Review to VA failed for %s: %s", recording.id, e)
     if out.get("owed") and (out.get("reminder") or "").strip():
         try:
             want = datetime.strptime(out.get("when") or "", "%Y-%m-%dT%H:%M")
