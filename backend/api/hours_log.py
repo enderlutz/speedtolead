@@ -140,6 +140,45 @@ def save_my_hours(day: str, body: HoursIn, user: dict = Depends(get_current_user
         db.close()
 
 
+def _crew_rows(db, start: str, end: str):
+    """(lead name, crew entry) for every crew-list entry dated in the range."""
+    import json
+    from database import CompanyCamJob, Lead
+    jobs = db.query(CompanyCamJob.lead_id, CompanyCamJob.crew_json).filter(CompanyCamJob.crew_json.like("%-%")).all()
+    names = {}
+    for lead_id, raw in jobs:
+        try:
+            crew = json.loads(raw or "[]")
+        except ValueError:
+            continue
+        for c in crew if isinstance(crew, list) else []:
+            if isinstance(c, dict) and start <= str(c.get("date") or "") <= end and c.get("username"):
+                if lead_id not in names:
+                    lead = db.query(Lead.contact_name).filter(Lead.id == lead_id).first()
+                    names[lead_id] = ((lead[0] if lead else "") or "a job").strip()
+                yield names[lead_id], c
+
+
+def flat_pays(db, start: str, end: str, names: dict) -> dict:
+    """{(username, day): {username, name, date, total, lines: [{job, task, pay}]}}
+    for the flat-pay jobs on the crew list."""
+    out: dict = {}
+    for job, c in _crew_rows(db, start, end):
+        if (c.get("pay_type") or "") != "flat" or not float(c.get("pay") or 0):
+            continue
+        u = str(c["username"])
+        x = out.setdefault((u.lower(), c["date"]), {"username": u, "name": names.get(u.lower(), u), "date": c["date"], "total": 0.0, "lines": []})
+        x["lines"].append({"job": job, "task": c.get("task") or "", "pay": round(float(c["pay"]), 2)})
+        x["total"] = round(x["total"] + float(c["pay"]), 2)
+    return out
+
+
+def hourly_crew_days(db, start: str, end: str) -> set:
+    """(username, day) where the crew list has any job that isn't flat pay."""
+    return {(str(c["username"]).lower(), c["date"]) for _, c in _crew_rows(db, start, end)
+            if (c.get("pay_type") or "") != "flat"}
+
+
 @router.get("/crew-hours")
 def crew_hours(start: str = "", end: str = "", user: dict = Depends(require_staff)):
     """Every worker's logged hours in the range (default the last 7 days)."""
@@ -180,10 +219,20 @@ def crew_hours(start: str = "", end: str = "", user: dict = Depends(require_staf
             x = seen.setdefault((sub.lower(), day), {"username": crew[sub.lower()].username,
                                                     "name": names.get(sub.lower(), sub), "date": day, "first": hm, "last": hm})
             x["first"], x["last"] = min(x["first"], hm), max(x["last"], hm)
-        workers = sorted({x["username"] for x in out} | {x["username"] for x in seen.values()}, key=str.lower)
+        # Flat pays on the crew list, per worker per day (Alan, 2026-11-05:
+        # Chris cleaned two houses on flat pay Monday and logged no hours).
+        # A day paid only in flats isn't missing; it shows what it paid.
+        flat = flat_pays(db, start, end, names)
+        hourly_days = hourly_crew_days(db, start, end)
+        for k, f in flat.items():
+            if k in seen and k not in hourly_days:
+                del seen[k]
+        workers = sorted({x["username"] for x in out} | {x["username"] for x in seen.values()}
+                         | {f["username"] for f in flat.values()}, key=str.lower)
         return {"start": start, "end": end, "entries": out,
                 "totals": [{"name": k, "hours": v} for k, v in sorted(totals.items(), key=lambda kv: -kv[1])],
                 "missing": sorted(seen.values(), key=lambda x: (x["date"], x["name"]), reverse=True),
+                "flat": sorted(flat.values(), key=lambda x: (x["date"], x["name"]), reverse=True),
                 "pay_days": {w: WEEKDAYS[pay_day(db, w)] for w in workers}}
     finally:
         db.close()

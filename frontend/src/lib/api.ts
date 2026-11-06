@@ -4101,6 +4101,8 @@ export const api = {
     request<{ start: string; end: string; entries: HoursEntry[]; totals: { name: string; hours: number }[];
       /** Days with job photos but no hours logged: first and last photo, Houston "HH:MM". */
       missing?: { username: string; name: string; date: string; first: string; last: string }[];
+      /** Flat pays on the crew list, per worker per day (2026-11-05). */
+      flat?: { username: string; name: string; date: string; total: number; lines: { job: string; task: string; pay: number }[] }[];
       /** Each worker's pay day: "sat", "sun", "tue"… */
       pay_days?: Record<string, string> }>(`/api/crew-hours?start=${start}&end=${end}`),
   /** The worker it's on marks a job to fix done (2026-11-02). */

@@ -206,7 +206,9 @@ def test_no_fence_staining_invoice_without_a_package():
     from fastapi import HTTPException
     from api.stripe_pay import InvoiceItem, _invoice_lines
     with pytest.raises(HTTPException):
-        _invoice_lines([InvoiceItem(name="Fence staining", amount=1280)], None)
+        _invoice_lines([InvoiceItem(name="Fence staining outside", amount=1280)], None)
+    # Just "Fence staining" is a flat price with no package (2026-11-05).
+    _invoice_lines([InvoiceItem(name="Fence staining", amount=1280)], None)
     _invoice_lines([InvoiceItem(name="Signature Finish- Fence Staining", amount=1280)], None)
     _invoice_lines([InvoiceItem(name="House soft wash", amount=590)], 250)
 
