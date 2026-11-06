@@ -93,3 +93,24 @@ def test_leads_without_a_sent_price():
     db.add(Estimate(id="x", lead_id="b", status="sent"))
     db.commit()
     assert [l.id for l in stella.leads_without_price(db, "2026-11-06T00:00:00+00:00")] == ["a"]
+
+
+def test_ask_reads_text_after_a_thinking_block(monkeypatch):
+    import types
+    import anthropic
+
+    class FakeMessages:
+        def create(self, **kw):
+            return types.SimpleNamespace(content=[
+                types.SimpleNamespace(type="thinking", thinking="hmm"),
+                types.SimpleNamespace(type="text", text='Here you go: {"owed": false, "why": "said no"}'),
+            ])
+
+    class FakeClient:
+        def __init__(self, **kw):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    from config import get_settings
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test", raising=False)
+    assert stella.ask(_db(), "task", "file") == {"owed": False, "why": "said no"}

@@ -32,7 +32,7 @@ MODEL = "claude-sonnet-5-5"
 # The model the rest of the app already runs on; used if MODEL is refused.
 FALLBACK_MODEL = "claude-sonnet-4-6"
 ERROR_KEY = "stella_last_error"
-LIVE_SINCE = "2026-11-06T21:30:00+00:00"  # first deploy
+LIVE_SINCE = "2026-11-06T06:00:00+00:00"  # her first day (Alan: review every call from today)
 SWITCH_KEY = "stella_on"
 PLAYBOOK_KEY = "stella_playbook"
 TEXTS_SEEN_KEY = "stella_texts_seen_at"
@@ -112,9 +112,12 @@ def ask(db, task: str, file_text: str, max_tokens: int = 1500) -> dict | None:
     except (anthropic.NotFoundError, anthropic.BadRequestError, anthropic.PermissionDeniedError) as e:
         note_error(db, f"{MODEL} refused, using {FALLBACK_MODEL}: {e}")
         resp = client.messages.create(model=FALLBACK_MODEL, **kw)
-    text = (resp.content[0].text if resp.content else "").strip()
+    # Newer models can answer with a thinking block first; read the text parts only.
+    text = "".join(getattr(b, "text", "") for b in (resp.content or []) if getattr(b, "type", "") == "text").strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    if not text.startswith("{") and "{" in text:
+        text = text[text.index("{"):text.rindex("}") + 1]
     return json.loads(text)
 
 
