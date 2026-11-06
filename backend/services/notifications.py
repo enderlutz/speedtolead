@@ -12,6 +12,11 @@ from services.ghl import send_sms, send_whatsapp, add_contact_note
 logger = logging.getLogger(__name__)
 
 
+
+# Olga gets only the new-lead WhatsApp (Alan, 2026-11-06: "literally just tell
+# her when a new lead comes in"). Her other alerts stay off while this is True.
+OLGA_NEW_LEADS_ONLY = True
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -179,10 +184,16 @@ def notify_new_lead(lead: dict, board_label: str = "Sterling Leads A"):
         ok = send_sms(settings.owner_ghl_contact_id, alan_msg)
         _log_notification(lead_id, "ghl_sms", "alan", "new_lead", alan_msg if ok else f"FAILED: {alan_msg}")
 
-    # Olga - WhatsApp
+    # Olga - WhatsApp. Just the new lead and who it is, nothing else
+    # (Alan, 2026-11-06): no link, no board label, no other alerts.
     if settings.olga_ghl_contact_id:
-        ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
-        _log_notification(lead_id, "ghl_whatsapp", "olga", "new_lead", msg if ok else f"FAILED: {msg}")
+        olga_msg = "\n".join(x for x in (
+            "New lead ❗", name, phone, address,
+            f"Fence: {', '.join(v for v in (fence_height, fence_age) if v)}" if (fence_height or fence_age) else "",
+            f"When: {timeframe}" if timeframe else "",
+        ) if x)
+        ok = send_whatsapp(settings.olga_ghl_contact_id, olga_msg)
+        _log_notification(lead_id, "ghl_whatsapp", "olga", "new_lead", olga_msg if ok else f"FAILED: {olga_msg}")
 
     # Fragne - SMS
     if settings.fragne_ghl_contact_id:
@@ -218,7 +229,7 @@ def notify_estimate_sent(lead: dict, tiers: dict, sender_name: str = ""):
         ok = send_sms(settings.owner_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "alan", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_whatsapp", "olga", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
@@ -239,7 +250,7 @@ def notify_video_submitted(lead: dict, submission: dict):
     if settings.owner_ghl_contact_id:
         ok = send_sms(settings.owner_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "alan", "video_submitted", msg if ok else f"FAILED: {msg}")
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_whatsapp", "olga", "video_submitted", msg if ok else f"FAILED: {msg}")
 
@@ -257,7 +268,7 @@ def notify_custom_proposal_sent(lead: dict, proposal_url: str):
         ok = send_sms(settings.owner_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "alan", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_whatsapp", "olga", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
@@ -265,7 +276,7 @@ def notify_custom_proposal_sent(lead: dict, proposal_url: str):
 def notify_call_review(lead_id: str, lead_name: str, reviewer_name: str, snippet: str):
     """SMS Olga that a new coaching review is waiting on one of her calls."""
     settings = get_settings()
-    if not settings.olga_ghl_contact_id:
+    if not settings.olga_ghl_contact_id or OLGA_NEW_LEADS_ONLY:
         logger.warning("notify_call_review: OLGA_GHL_CONTACT_ID not set, skipping SMS")
         return
     snip = snippet[:120] + ("..." if len(snippet) > 120 else "")
@@ -317,7 +328,7 @@ def notify_correction_requested(lead: dict, request_text: str):
         ok = send_sms(settings.owner_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "alan", "correction_requested", msg if ok else f"FAILED: {msg}")
 
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_whatsapp", "olga", "correction_requested", msg if ok else f"FAILED: {msg}")
 

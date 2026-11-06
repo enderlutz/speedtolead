@@ -129,9 +129,17 @@ def ensure_contact(db, user) -> str:
     return cid or ""
 
 
+# People who get only the plain new-lead WhatsApp from notify_new_lead and
+# none of the on-call messages (5-minute alarms, "not yours", shift
+# reminders). Alan, 2026-11-06, for Olga.
+NEW_LEAD_ONLY_USERS = {"olga"}
+
+
 def message_person(db, user, text: str) -> bool:
     """WhatsApp or text one team member."""
     from services import ghl
+    if (user.username or "").lower() in NEW_LEAD_ONLY_USERS:
+        return True  # handled: she gets the plain new-lead message instead
     cid = ensure_contact(db, user)
     if not cid:
         logger.warning("on call: %s has no phone / GHL contact to alert", user.username)
