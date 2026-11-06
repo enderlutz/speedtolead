@@ -222,7 +222,10 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             from database import User
             from services.on_call import message_person
             va = db.query(User).filter(User.ghl_user_id == (recording.recorded_by or "")).first()
-            if va is not None and (va.role or "") == "va" and not va.disabled:
+            # Off until Alan has checked Stella's reviews (system_config
+            # stella_reviews_to_va = "1" turns it on), so no VA gets a bad tip.
+            to_va = SystemConfig.get(db, "stella_reviews_to_va", "0") == "1"
+            if to_va and va is not None and (va.role or "") == "va" and not va.disabled:
                 record["review_to_va"] = bool(message_person(db, va, review[:1100]))
                 db.commit()
         except Exception as e:  # noqa: BLE001
