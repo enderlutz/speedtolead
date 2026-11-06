@@ -239,6 +239,11 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         slot = pick_slot(want.replace(tzinfo=now.tzinfo), now)
         ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
         record.update({"when": slot.isoformat(), "scheduled": bool(ok)})
+        # Tell Alan right away that it's handled (Alan, 2026-11-06: he
+        # couldn't see a reminder that only arrives on the call-back day).
+        if ok:
+            when_txt = slot.strftime("%a %-m/%-d %-I:%M %p")
+            ghl.send_sms(owner, f"✅ Stella: {lead.contact_name} call-back set for {when_txt}. {(out.get('why') or '').strip()}"[:600])
     fd[DONE_KEY] = (done + [record])[-20:]
     lead.form_data = json.dumps(fd)
     db.commit()
