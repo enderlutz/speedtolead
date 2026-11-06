@@ -103,7 +103,8 @@ def ask(db, task: str, file_text: str, max_tokens: int = 1500) -> dict | None:
         return None
     import anthropic
     client = anthropic.Anthropic(api_key=key)
-    kw = dict(max_tokens=max_tokens,
+    # Room for the model to think before it answers (it shares this budget).
+    kw = dict(max_tokens=max(max_tokens * 4, 8000),
               system=[{"type": "text", "text": f"You are {NAME}, the Sales Manager at Sterling Fence Staining.\n\n{playbook(db)}"},
                       {"type": "text", "text": task, "cache_control": {"type": "ephemeral"}}],
               messages=[{"role": "user", "content": file_text}])
@@ -113,7 +114,12 @@ def ask(db, task: str, file_text: str, max_tokens: int = 1500) -> dict | None:
         note_error(db, f"{MODEL} refused, using {FALLBACK_MODEL}: {e}")
         resp = client.messages.create(model=FALLBACK_MODEL, **kw)
     # Newer models can answer with a thinking block first; read the text parts only.
-    text = "".join(getattr(b, "text", "") for b in (resp.content or []) if getattr(b, "type", "") == "text").strip()
+    def _text(r) -> str:
+        return "".join(getattr(b, "text", "") for b in (r.content or []) if getattr(b, "type", "") == "text").strip()
+    text = _text(resp)
+    if not text:
+        note_error(db, f"{MODEL} gave no answer text (stop: {getattr(resp, 'stop_reason', '')}), using {FALLBACK_MODEL}")
+        text = _text(client.messages.create(model=FALLBACK_MODEL, **kw))
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
     if not text.startswith("{") and "{" in text:

@@ -114,3 +114,26 @@ def test_ask_reads_text_after_a_thinking_block(monkeypatch):
     from config import get_settings
     monkeypatch.setattr(get_settings(), "anthropic_api_key", "test", raising=False)
     assert stella.ask(_db(), "task", "file") == {"owed": False, "why": "said no"}
+
+
+def test_ask_falls_back_when_the_model_gives_no_text(monkeypatch):
+    import types
+    import anthropic
+    calls = []
+
+    class FakeMessages:
+        def create(self, **kw):
+            calls.append(kw["model"])
+            if kw["model"] == stella.MODEL:
+                return types.SimpleNamespace(stop_reason="max_tokens", content=[types.SimpleNamespace(type="thinking", thinking="...")])
+            return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text='{"owed": true}')])
+
+    class FakeClient:
+        def __init__(self, **kw):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    from config import get_settings
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test", raising=False)
+    assert stella.ask(_db(), "task", "file") == {"owed": True}
+    assert calls == [stella.MODEL, stella.FALLBACK_MODEL]
