@@ -222,6 +222,7 @@ function AppLayout() {
     location.pathname.startsWith("/pay/") ||
     location.pathname.startsWith("/after/") ||
     location.pathname.startsWith("/b/") ||
+    location.pathname === "/colors" ||
     location.pathname.startsWith("/r/") ||
     location.pathname.startsWith("/receipt/") ||
     location.pathname.startsWith("/legal/");
