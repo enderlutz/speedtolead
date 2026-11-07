@@ -218,3 +218,15 @@ def test_sweep_cancels_only_closed_deals(monkeypatch):
     assert out["cancelled"] == 1
     still = db.query(Lead).filter(Lead.id == "open").first()
     assert len(cr.pending_reminders(still)) == 1
+
+
+def test_confirmation_text_says_the_year_when_it_is_not_this_year():
+    """Alan read "Mon 1/4" as this coming Monday; it was January 2027."""
+    from services.callback_reminder import now_ct
+    now = now_ct()
+    far = now.replace(year=now.year + 1, month=1, day=4, hour=12, minute=30)
+    near = now.replace(hour=9, minute=0)
+    fmt = lambda slot: (slot.strftime("%a %b %-d, %Y %-I:%M %p") if slot.year != now.year
+                        else slot.strftime("%a %-m/%-d %-I:%M %p"))
+    assert str(now.year + 1) in fmt(far) and "Jan 4" in fmt(far)
+    assert str(now.year) not in fmt(near)

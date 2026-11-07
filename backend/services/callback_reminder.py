@@ -243,7 +243,10 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         # Tell Alan right away that it's handled (Alan, 2026-11-06: he
         # couldn't see a reminder that only arrives on the call-back day).
         if ok:
-            when_txt = slot.strftime("%a %-m/%-d %-I:%M %p")
+            # "Mon 1/4" read as this Monday when it meant January 2027
+            # (Alan, 2026-11-07), so a date outside this year says the year.
+            when_txt = (slot.strftime("%a %b %-d, %Y %-I:%M %p") if slot.year != now.year
+                        else slot.strftime("%a %-m/%-d %-I:%M %p"))
             ghl.send_sms(owner, f"✅ Stella: {lead.contact_name} call-back set for {when_txt}. {(out.get('why') or '').strip()}"[:600])
     fd[DONE_KEY] = (done + [record])[-20:]
     lead.form_data = json.dumps(fd)
