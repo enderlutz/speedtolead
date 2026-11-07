@@ -1990,7 +1990,7 @@ def _notify_job_completed(job: ScheduledJob, worker_name: str) -> None:
             ghl.send_sms(settings.owner_ghl_contact_id, msg)
         except Exception as e:
             logger.warning(f"job_completed SMS to Alan failed (non-fatal): {e}")
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not notifications.OLGA_NEW_LEADS_ONLY:
         try:
             ghl.send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:

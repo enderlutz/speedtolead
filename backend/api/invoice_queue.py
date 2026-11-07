@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from api.permissions import require_perm
 from database import get_db, Booking, CompanyCamJob, CustomerPayment, Lead, PayLink
 from services import after_pay_hooks as hooks
+from services.notifications import OLGA_NEW_LEADS_ONLY
 from services.activity_log import log_event
 from services import google_review
 from services.pay_reminders import needs_reminder
@@ -352,7 +353,8 @@ def alert_ready(lead_id: str, note: str = "", what: str = "fence", db=None) -> N
         if own:
             db.close()
     hooks.alert_alan(msg)
-    olga = (get_settings().olga_ghl_contact_id or "").strip()
+    # Olga gets only the plain new-lead text for now (Alan, 2026-11-07).
+    olga = "" if OLGA_NEW_LEADS_ONLY else (get_settings().olga_ghl_contact_id or "").strip()
     if olga:
         try:
             send_whatsapp(olga, msg)

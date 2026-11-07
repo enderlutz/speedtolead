@@ -39,7 +39,7 @@ def sent(monkeypatch):
 
 def _user(db, name):
     u = User(id=str(uuid.uuid4()), username=name, display_name=name.title(), password_hash="x", role="va",
-             phone="+50495976304", ghl_user_id=f"ghl-{name}", created_at="2026-10-01T00:00:00Z")
+             phone="+15550100001", ghl_user_id=f"ghl-{name}", created_at="2026-10-01T00:00:00Z")
     db.add(u)
     db.commit()
     return u
@@ -394,3 +394,25 @@ def test_copying_an_empty_week_changes_nothing(db):
     db.expire_all()
     assert [(s.date, s.start_min) for s in db.query(OnCallShift).filter(OnCallShift.date >= "2026-10-27")
             .order_by(OnCallShift.date).all()] == [("2026-10-27", 480), ("2026-10-28", 720)]
+
+
+def test_geoconda_gets_nothing_for_now(db, monkeypatch):
+    """Alan (2026-11-07): "I don't want Geo getting anything at the moment yet."
+    message_person swallows everything for her; system_config
+    alerts_off_users = "none" turns the quiet list off again."""
+    from database import SystemConfig
+    from services import ghl
+    out = []
+    monkeypatch.setattr(ghl, "send_whatsapp", lambda cid, text, **k: out.append(text) or True)
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, text, **k: out.append(text) or True)
+    monkeypatch.setattr(oc, "_check_whatsapp", lambda *a, **k: "ok")
+    gio = User(id=str(uuid.uuid4()), username="Geoconda", display_name="Geoconda", password_hash="x", role="va",
+               phone="+15550100001", ghl_contact_id="c-gio", created_at="2026-10-01T00:00:00Z")
+    db.add(gio)
+    db.commit()
+    assert oc.message_person(db, gio, "CALL-BACK NOW: someone") is True
+    assert out == []
+    db.add(SystemConfig(key=oc.ALERTS_OFF_KEY, value="none", updated_at=""))
+    db.commit()
+    assert oc.message_person(db, gio, "hello") is True
+    assert out == ["hello"]

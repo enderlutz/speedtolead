@@ -134,6 +134,23 @@ def ensure_contact(db, user) -> str:
 # reminders). Alan, 2026-11-06, for Olga.
 NEW_LEAD_ONLY_USERS = {"olga"}
 
+# People who get nothing automated at all, not even new leads: everything
+# comes to Alan instead. Alan, 2026-11-07, after a CALL-BACK NOW reached
+# Gioconda on WhatsApp: "I don't want Geo getting anything at the moment
+# yet." system_config alerts_off_users = "name,name" replaces this list;
+# "none" turns it off for everyone.
+ALERTS_OFF_USERS = {"geoconda"}
+ALERTS_OFF_KEY = "alerts_off_users"
+
+
+def alerts_off(db, user) -> bool:
+    from database import SystemConfig
+    raw = (SystemConfig.get(db, ALERTS_OFF_KEY, "") or "").strip().lower()
+    if raw == "none":
+        return False
+    names = {n.strip() for n in raw.split(",") if n.strip()} or ALERTS_OFF_USERS
+    return (user.username or "").lower() in names
+
 
 VA_ALARMS_KEY = "va_alarms"
 
@@ -155,6 +172,9 @@ def message_person(db, user, text: str) -> bool:
     from services import ghl
     if (user.username or "").lower() in NEW_LEAD_ONLY_USERS:
         return True  # handled: she gets the plain new-lead message instead
+    if alerts_off(db, user):
+        logger.info("on call: %s gets no automated messages right now (alerts_off_users)", user.username)
+        return True  # handled: Alan hears about it through his own alerts
     cid = ensure_contact(db, user)
     if not cid:
         logger.warning("on call: %s has no phone / GHL contact to alert", user.username)

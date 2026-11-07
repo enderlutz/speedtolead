@@ -37,6 +37,7 @@ from services.followup_engine import (
     EXTERNAL_WORKFLOW_P06_REPLY_NAME,
 )
 from config import get_settings
+from services.notifications import OLGA_NEW_LEADS_ONLY
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,7 @@ def _notify_address_replied(lead: Lead, body: str) -> None:
         f"replied to address — {name} replied to the address request. "
         f"They said: \"{snippet}\". Route from there.\n{link}"
     )
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         try:
             send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:
@@ -374,7 +375,7 @@ def _notify_estimate_replied(lead: Lead, body: str) -> None:
             send_sms(settings.owner_ghl_contact_id, msg)
         except Exception as e:
             logger.warning(f"Alan estimate-replied SMS failed: {e}")
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         try:
             send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:
@@ -400,7 +401,7 @@ def _notify_ltn_replied(lead: Lead, body: str) -> None:
             send_sms(settings.owner_ghl_contact_id, msg)
         except Exception as e:
             logger.warning(f"Alan LTN-replied SMS failed: {e}")
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         try:
             send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:
@@ -416,7 +417,7 @@ def _notify_intake_converted(lead: Lead, body: str) -> None:
         f"🔥 {name} replied to intake — moved to HOT LEAD. "
         f"They said: \"{snippet}\".\n{link}"
     )
-    if settings.olga_ghl_contact_id:
+    if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
         try:
             send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:

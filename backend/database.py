@@ -750,7 +750,7 @@ class User(Base):
     disabled = Column(Boolean, default=False)
     # On call (Alan, 2026-10-19): where this person gets new-lead alerts.
     # The VAs have Honduran numbers, so WhatsApp, not SMS/iMessage.
-    phone = Column(Text, default="")               # E.164, e.g. +50495976304
+    phone = Column(Text, default="")               # E.164, e.g. +15550100001
     alert_channel = Column(Text, default="whatsapp")   # whatsapp | sms
     ghl_user_id = Column(Text, default="")         # GHL user: leads get assigned to them in GHL
     ghl_contact_id = Column(Text, default="")      # their own GHL contact, used to message them

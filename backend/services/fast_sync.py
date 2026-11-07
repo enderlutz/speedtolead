@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timezone
 
 from config import get_settings
-from database import Lead, get_db
+from database import Lead, SystemConfig, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -333,24 +333,31 @@ def update_callbacks(db, lead_ids=None, hours: int = 36) -> int:
     return n
 
 
+CALLBACKS_TO_VAS_KEY = "callbacks_to_vas"
+
+
 def alert_due_callbacks(db) -> int:
-    """At the promised time, text whoever is on call (Alan when nobody is).
-    Once per promise. The caller commits."""
+    """At the promised time, text Alan. Once per promise. The caller commits.
+
+    Alan (2026-11-07), after one of these reached a VA on WhatsApp: "I only
+    want them coming to me" for now, so nobody else gets it. system_config
+    callbacks_to_vas = "1" brings back the old routing (the person who
+    promised the call, or whoever is on call). Name and what was promised
+    only: no phone, no link, like every other 📞 text."""
     from datetime import timedelta
     from services import on_call as oc
     now = datetime.now(timezone.utc)
     rows = db.query(Lead).filter(Lead.callback_at != "", Lead.callback_at <= now.isoformat(),
                                  Lead.callback_at >= (now - timedelta(hours=2)).isoformat(),
                                  Lead.callback_alerted_at == "").all()
+    to_vas = SystemConfig.get(db, CALLBACKS_TO_VAS_KEY, "0") == "1"
     for lead in rows:
-        link = f"{get_settings().frontend_url}/leads/{lead.id}"
-        text = (f"CALL-BACK NOW: {lead.contact_name or 'A customer'} {lead.callback_note}. "
-                f"{lead.contact_phone or ''}\n{link}")
-        # The person who promised it makes it; whoever is on call if we
-        # can't tell who that was.
-        from database import User
-        owner = db.query(User).filter(User.username == lead.callback_owner).first() if lead.callback_owner else None
-        people = [owner] if owner and (owner.phone or owner.ghl_contact_id) else oc.on_call_now(db, now)
+        text = f"📞 CALL NOW ❗❗❗ {lead.contact_name or 'A customer'} {lead.callback_note}."
+        people = []
+        if to_vas:
+            from database import User
+            owner = db.query(User).filter(User.username == lead.callback_owner).first() if lead.callback_owner else None
+            people = [owner] if owner and (owner.phone or owner.ghl_contact_id) else oc.on_call_now(db, now)
         if people:
             for u in people:
                 oc.message_person(db, u, text)

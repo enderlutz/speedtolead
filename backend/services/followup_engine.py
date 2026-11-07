@@ -38,6 +38,7 @@ except ImportError:  # pragma: no cover — Python <3.9 fallback
 
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent, Estimate
 from services.ghl import send_via_provider, send_sms, add_contact_tag, update_opportunity_stage
+from services.notifications import OLGA_NEW_LEADS_ONLY
 from services.followup_ai import personalize, render_template, _build_vars
 from services.ai_thought_bus import publish as publish_thought
 
@@ -549,7 +550,7 @@ def _advance_run(db, run: FollowUpRun) -> None:
                         pinged.append("alan")
                 except Exception as e:
                     logger.warning(f"notify_internal Alan SMS failed: {e}")
-            if settings.olga_ghl_contact_id:
+            if settings.olga_ghl_contact_id and not OLGA_NEW_LEADS_ONLY:
                 try:
                     if send_whatsapp(settings.olga_ghl_contact_id, body):
                         pinged.append("olga")

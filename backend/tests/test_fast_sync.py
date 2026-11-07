@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from database import CallRecording, CallTranscript, Lead, OnCallShift, User  # noqa: E402
+from database import CallRecording, CallTranscript, Lead, OnCallShift, SystemConfig, User  # noqa: E402
 from services import fast_sync as fs  # noqa: E402
 from services import on_call as oc  # noqa: E402
 from services.callback_promise import find_callback_time  # noqa: E402
@@ -71,22 +71,40 @@ def test_same_time_tomorrow():
     assert r["at"].strftime("%a %H:%M") == "Tue 17:15"
 
 
-def test_due_callback_texts_whoever_is_on(db, monkeypatch):
-    sent, alan = [], []
-    monkeypatch.setattr(oc, "message_person", lambda db, u, t: sent.append((u.username, t)) or True)
-    monkeypatch.setattr(oc, "_alan", lambda t: alan.append(t))
+def _due_lead(db, owner="olga"):
     lead = _lead(db)
     lead.callback_at = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     lead.callback_note = "asked for a call at 5 PM"
+    lead.callback_owner = owner
     db.add(User(id=str(uuid.uuid4()), username="olga", display_name="Olga", password_hash="x", role="va",
-                phone="+50492013819", created_at="2026-10-01T00:00:00Z"))
+                phone="+15550100002", created_at="2026-10-01T00:00:00Z"))
     local = datetime.now(oc.HOUSTON)
     db.add(OnCallShift(id=str(uuid.uuid4()), username="olga", date=local.strftime("%Y-%m-%d"), start_min=0, end_min=24 * 60))
     db.commit()
+    return lead
+
+
+def test_due_callback_texts_alan_only(db, monkeypatch):
+    """Alan (2026-11-07): one of these reached a VA on WhatsApp. For now every
+    call-back alert comes to him, name and promise only, no phone, no link."""
+    sent, alan = [], []
+    monkeypatch.setattr(oc, "message_person", lambda db, u, t: sent.append((u.username, t)) or True)
+    monkeypatch.setattr(oc, "_alan", lambda t: alan.append(t))
+    _due_lead(db)
     assert fs.alert_due_callbacks(db) == 1
     db.commit()
-    assert sent and sent[0][0] == "olga" and "CALL-BACK NOW: Marie" in sent[0][1] and not alan
+    assert not sent and alan == ["📞 CALL NOW ❗❗❗ Marie asked for a call at 5 PM."]
     assert fs.alert_due_callbacks(db) == 0                   # once
+
+
+def test_due_callback_back_to_the_va_when_switched_on(db, monkeypatch):
+    sent, alan = [], []
+    monkeypatch.setattr(oc, "message_person", lambda db, u, t: sent.append((u.username, t)) or True)
+    monkeypatch.setattr(oc, "_alan", lambda t: alan.append(t))
+    db.add(SystemConfig(key=fs.CALLBACKS_TO_VAS_KEY, value="1", updated_at=""))
+    _due_lead(db)
+    assert fs.alert_due_callbacks(db) == 1
+    assert sent and sent[0][0] == "olga" and sent[0][1].startswith("📞 CALL NOW ❗❗❗ Marie") and not alan
 
 
 def test_queue_pulls_when_due(monkeypatch):
