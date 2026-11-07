@@ -40,6 +40,7 @@ DAYS_OFF_KEY = "pm_days_off"      # JSON override of DAYS_OFF
 CHECK_HOUR = 21                   # 9 PM Houston
 LOOK_AHEAD = 3                    # today + the next 2 days
 TEXT_LIMIT = 1000                 # GHL rejects over 1,600 and emojis count double
+LATE_START = "08:30"              # first photo after this on the first job of the day = late
 
 # username (lowercase) -> {"never": [weekdays], "ask": [weekdays]}, Monday = 0.
 # Alan, 2026-11-06: "Brent always has Mondays off", "I usually don't work
@@ -100,10 +101,27 @@ def split_texts(header: str, sections: list[str], limit: int = TEXT_LIMIT) -> li
     """Pack sections into as few texts as fit under the limit, each with the header."""
     out: list[str] = []
     cur = header
+    room = limit - len(header) - 2
+    pieces: list[str] = []
     for s in sections:
         s = s.strip()
         if not s:
             continue
+        if len(s) <= room:
+            pieces.append(s)
+            continue
+        # A section too long for one text goes out line by line, so nothing
+        # gets cut off mid-word (the P4P fills ran past 1,000 on 2026-11-06).
+        chunk = ""
+        for line in s.split("\n"):
+            if chunk and len(chunk) + 1 + len(line) > room:
+                pieces.append(chunk)
+                chunk = line
+            else:
+                chunk = (chunk + "\n" + line) if chunk else line
+        if chunk:
+            pieces.append(chunk)
+    for s in pieces:
         if len(cur) + 2 + len(s) > limit and cur != header:
             out.append(cur)
             cur = header
@@ -212,10 +230,26 @@ def today_check(db, today: str) -> tuple[list[str], list[str]]:
         sec = AFTER_SECTION.get(r["task"])
         if sec and not r["helper"] and not any(p[0] == sec for p in todays):
             missing.append("after photos")
+        # Time on the job (Alan, 2026-11-06: "an important thing for the
+        # project manager is time"): first photo in to check-out, and a late
+        # start when the first photo lands after LATE_START.
+        times = sorted(to_ct(p[2] or p[3]) for p in mine if to_ct(p[2] or p[3]))
+        visit = (db.query(JobVisit).filter(JobVisit.lead_id == r["lead_id"], JobVisit.username == user,
+                                            JobVisit.work_date == today).first())
+        out_t = to_ct(visit.left_at) if visit and visit.left_at else None
+        clock = ""
+        if times:
+            first = times[0]
+            clock = f" · in {first.strftime('%-I:%M')}"
+            if out_t:
+                hrs = (out_t - first).total_seconds() / 3600
+                clock += f" → out {out_t.strftime('%-I:%M')} ({hrs:.1f}h)"
+            if first.strftime("%H:%M") > LATE_START and r["order"] in (None, 0, 1):
+                clock += " ⏰ late start"
         if missing:
-            problems.append(f"⚠️ {who} at {cust} ({r['task'] or 'job'}): no {', no '.join(missing)}")
+            problems.append(f"⚠️ {who} at {cust} ({r['task'] or 'job'}): no {', no '.join(missing)}{clock}")
         else:
-            done.append(f"{who} {cust}")
+            done.append(f"{who} {cust}{clock}")
     return problems, done
 
 
@@ -234,7 +268,7 @@ def waiting_on_ok(db) -> list[str]:
             for i in open_ids][:8]
 
 
-THANKS = re.compile(r"^\W*(thank(s| you)?( so much)?|ok(ay)?|great|perfect|sounds good|awesome|👍|🙏)+\W*$", re.I)
+THANKS = re.compile(r"^(\W*(thank(s| you)?( so much)?|ok(ay)?|great|perfect|sounds good|awesome|will do|👍|🙏)\W*)+$", re.I)
 
 
 def unanswered_customers(db, today: str) -> list[str]:
@@ -272,6 +306,129 @@ def unanswered_customers(db, today: str) -> list[str]:
     return out
 
 
+# ── P4P: every number pay-for-performance needs, on every finished job ──
+# (Alan, 2026-11-06: "make sure he is getting everything so that we can get
+# the workers on P4P" and "even for the guys on flat we still want to see
+# how long it takes them".) What the system already knows, David fills in.
+# What only a person knows, he lists for Alan.
+
+P4P_DAYS = 7
+
+
+def p4p_missing(price_cents, sqft, gallons_used, color, stain_id, wood_type, previously_stained,
+                has_after, has_before, crew, hours_logged, is_pw=False) -> list[str]:
+    """What's still missing on one finished job. crew: [{username, person,
+    date, pay}]; hours_logged: {(username, date)}. A washing job skips the
+    stain fields."""
+    out = []
+    if not price_cents:
+        out.append("price")
+    if not is_pw:
+        if not sqft:
+            out.append("sq ft")
+        if not gallons_used:
+            out.append("gallons used")
+        if not (color or "").strip():
+            out.append("color")
+        elif not stain_id:
+            out.append("stain row")
+        if not wood_type:
+            out.append("wood type")
+        if not previously_stained:
+            out.append("stained before?")
+    if not has_after:
+        out.append("after photos")
+    if not has_before:
+        out.append("before photos")
+    for e in crew:
+        who = _short(e.get("person") or e.get("username") or "")
+        d = e.get("date") or ""
+        if not d:
+            out.append(f"day for {who}")
+            continue
+        md = d[5:].replace("-", "/")
+        if (e.get("username"), d) not in hours_logged:
+            out.append(f"hours {who} {md}")
+        if not (e.get("pay") or 0):
+            out.append(f"pay {who} {md}")
+    return out
+
+
+def p4p_fill(db, job, lead) -> list[str]:
+    """Fill what the app already knows: the price off the paid link, the
+    booking or the closed estimate; stained-before off the form; the stain
+    row off the colour. Returns what got filled. Nothing is committed here."""
+    from sqlalchemy import func
+    from database import Booking, Estimate, PayLink
+    filled = []
+    if not job.final_price_cents:
+        cents = db.query(func.max(PayLink.job_total_cents)).filter(PayLink.lead_id == job.lead_id).scalar() or 0
+        if not cents:
+            b = (db.query(Booking).filter(Booking.lead_id == job.lead_id, Booking.status != "cancelled")
+                 .order_by(Booking.created_at.desc()).first())
+            cents = (b.total_cents or 0) if b else 0
+        if not cents:
+            e = (db.query(Estimate).filter(Estimate.lead_id == job.lead_id, Estimate.closed_price.isnot(None))
+                 .order_by(Estimate.created_at.desc()).first())
+            cents = int(round(float(e.closed_price) * 100)) if e and e.closed_price else 0
+        if cents:
+            job.final_price_cents = int(cents)
+            filled.append(f"price ${cents / 100:,.0f}")
+    if not (job.previously_stained or "").strip():
+        try:
+            fd = json.loads(lead.form_data or "{}")
+        except ValueError:
+            fd = {}
+        v = str(fd.get("previously_stained") or "").strip().lower()
+        if v in ("yes", "no"):
+            job.previously_stained = v
+            filled.append(f"stained before: {v} (form)")
+    if not (job.final_stain_id or "").strip() and (job.final_color or job.color or "").strip():
+        s = match_stock(job.final_color or job.color, _stock(db))
+        if s:
+            job.final_stain_id = s["id"]
+            filled.append(f"stain row: {s['color_name']}")
+    return filled
+
+
+def p4p_check(db, today: str) -> tuple[list[str], list[str]]:
+    """(what's missing per job, what David filled) for jobs finished in the
+    last P4P_DAYS. Fills are committed."""
+    from api.company_cam import _crew_entries
+    from api.pm_calendar import _names
+    from database import CompanyCamJob, CompanyCamPhoto, HoursLog, Lead
+    from clock import add_days_iso
+    since = add_days_iso(today, -P4P_DAYS)
+    jobs = db.query(CompanyCamJob).filter(CompanyCamJob.completed_at >= since).all()
+    if not jobs:
+        return [], []
+    names = _names(db)
+    logged = {(u, d) for u, d in db.query(HoursLog.username, HoursLog.work_date)
+              .filter(HoursLog.work_date >= add_days_iso(today, -40)).all()}
+    lines, fills = [], []
+    for j in sorted(jobs, key=lambda x: x.completed_at or ""):
+        lead = db.get(Lead, j.lead_id)
+        if not lead:
+            continue
+        f = p4p_fill(db, j, lead)
+        if f:
+            fills.append(f"{_customer(lead.contact_name)}: " + ", ".join(f))
+        crew = [dict(e, person=names.get((e.get("username") or "").lower(), e.get("username"))) for e in _crew_entries(j)]
+        secs = {s for (s,) in db.query(CompanyCamPhoto.section).filter(CompanyCamPhoto.lead_id == j.lead_id).distinct()}
+        pw = any(s.startswith("pw_") for s in secs) and not ({"stain_after", "clean_after"} & secs)
+        has_after = "stain_after" in secs or any(s.startswith("pw_") and s.endswith("_after") for s in secs)
+        has_before = bool({"stain_before", "clean_before", "fence_scope"} & secs) or any(s.startswith("pw_") and s.endswith("_before") for s in secs)
+        miss = p4p_missing(j.final_price_cents, j.actual_sqft or j.sqft, j.stain_gallons_used,
+                           j.final_color or j.color, j.final_stain_id, j.wood_type, j.previously_stained,
+                           has_after, has_before, crew, logged, is_pw=pw)
+        if miss:
+            done = (j.completed_at or "")[5:10].replace("-", "/")
+            lines.append(f"{_customer(lead.contact_name)} ({done}): " + ", ".join(miss))
+    if fills:
+        db.commit()
+    return lines[:8], fills
+
+
 # ── The nightly text ─────────────────────────────────────────────────────
 
 def nightly_report(db, today: str | None = None) -> list[str]:
@@ -283,7 +440,7 @@ def nightly_report(db, today: str | None = None) -> list[str]:
     if problems or done:
         t = "🧰 TODAY\n" + "\n".join(problems)
         if done:
-            t += ("\n" if problems else "") + "All in: " + ", ".join(done)
+            t += ("\n" if problems else "") + "All in:\n" + "\n".join(done)
         sections.append(t)
     ok = waiting_on_ok(db)
     if ok:
@@ -291,6 +448,12 @@ def nightly_report(db, today: str | None = None) -> list[str]:
     msgs = unanswered_customers(db, today)
     if msgs:
         sections.append("📲 CUSTOMERS\n" + "\n".join(msgs))
+    gaps, fills = p4p_check(db, today)
+    if gaps or fills:
+        t = "📊 P4P DATA" + ("\nMissing:\n" + "\n".join(gaps) if gaps else "\nEvery finished job has its numbers")
+        if fills:
+            t += "\nI filled in:\n" + "\n".join(fills)
+        sections.append(t)
     header = f"🗂️ DAVID · 9 PM JOB CHECK ({weekday_label(today, short=True)} {today[5:].replace('-', '/')})"
     return split_texts(header, sections)
 
