@@ -32,6 +32,7 @@ import { Panel } from "@/components/Panel";
 import { HubHeader } from "@/components/HubHeader";
 import { ACCENT } from "@/lib/accents";
 import { cn } from "@/lib/utils";
+import ColorsLink from "@/pages/ColorsLink";
 
 type Tab = "screens" | "followups" | "ideas" | "changes" | "notes";
 const TABS: { key: Tab; label: string; icon: React.ElementType; hint: string }[] = [
@@ -46,6 +47,7 @@ const SCREEN_VIEWS = [
   { key: "proposal", label: "Proposal", hint: "The interactive proposal and the pay page, as the customer taps through them" },
   { key: "quote", label: "Quote generator", hint: "Get my price: the self-serve quote, as a mock" },
   { key: "nodate", label: "No date price page", hint: "What a quote-shopper gets from \"No date (just getting quotes)\" on the booking invite" },
+  { key: "colors", label: "Colors link", hint: "The colour board we text contractors who get one price and only pick a colour: every colour labelled semi-transparent or solid, no packages, no prices. Public at /colors." },
 ];
 // The save-for-later folder, bundled in at build time so it reads here
 // without a server. Each file's first heading is its title.
@@ -124,7 +126,8 @@ export default function DesignLab() {
     }
     return out;
   }, []);
-  const fullScreen = tab === "screens" && view !== "nodate" ? (view === "quote" ? "/quote-mockup" : "/new-proposal/mockup") : "";
+  const fullScreen = tab === "screens" && view !== "nodate"
+    ? (view === "quote" ? "/quote-mockup" : view === "colors" ? "/colors" : "/new-proposal/mockup") : "";
   const count = (k: Tab) => (k === "changes" ? DESIGN_CHANGES.length : k === "ideas" ? IDEAS.length : 0);
 
   return (
@@ -148,6 +151,12 @@ export default function DesignLab() {
       {tab === "screens" && view === "quote" ? <QuoteMockup embedded /> : null}
 
       {tab === "screens" && view === "nodate" ? <NoDateMock /> : null}
+
+      {tab === "screens" && view === "colors" ? (
+        <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">
+          <ColorsLink embedded />
+        </div>
+      ) : null}
 
       {tab === "followups" ? <FollowUpEngine embedded view={view as FollowUpView} /> : null}
 

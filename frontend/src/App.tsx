@@ -84,6 +84,7 @@ const PayLink = lazy(() => import("@/pages/PayLink"));
 const PayGo = lazy(() => import("@/pages/PayGo"));
 const AfterPayPage = lazy(() => import("@/pages/AfterPayPage"));
 const BookingPage = lazy(() => import("@/pages/BookingPage"));
+const ColorsLink = lazy(() => import("@/pages/ColorsLink"));
 const ReferralPage = lazy(() => import("@/pages/ReferralPage"));
 const ReceiptPage = lazy(() => import("@/pages/ReceiptPage"));
 const MapTab = lazy(() => import("@/map/MapTab"));
@@ -250,6 +251,8 @@ function AppLayout() {
         <Route path="/pay/:token" element={<PayLink />} />
         <Route path="/after/:token" element={<AfterPayPage />} />
         <Route path="/b/:token" element={<BookingPage />} />
+        {/* The colours board we text contractors (Alan, 2026-11-07). No login. */}
+        <Route path="/colors" element={<ColorsLink />} />
         <Route path="/r/:code" element={<ReferralPage />} />
         <Route path="/receipt/:token" element={<ReceiptPage />} />
         <Route path="/legal/eula" element={<Eula />} />
