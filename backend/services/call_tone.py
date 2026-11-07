@@ -115,6 +115,7 @@ LISTEN_PROMPT = """You are listening to a recorded sales phone call for Sterling
 
 Return ONLY a JSON object with these keys:
 {
+  "customer_voice": one of "a man", "a woman", "can't tell": how the CUSTOMER sounds, from the voice alone, never from the name; say "can't tell" whenever you are not sure, when more than one person is on their side, or when anything does not add up,
   "customer_mood": one of "excited", "interested", "unsure", "flat", "annoyed", "rushed",
   "customer_mood_why": one short sentence in plain words a 10-year-old can read,
   "buying_temperature": integer 1-10 (10 = ready to pay today), judged from their voice as much as their words,
@@ -145,6 +146,7 @@ Return ONLY a JSON object:
 {
   "outcome": one of "voicemail", "call screener", "no answer", "live person",
   "customer_spoke": true if a live customer (not a greeting or machine) said anything,
+  "customer_voice": one of "a man", "a woman", "can't tell": how the CUSTOMER sounds, from the voice alone, never from the name; say "can't tell" whenever you are not sure, when more than one person is on their side, or when anything does not add up (only when a live customer spoke),
   "customer_mood": one of "excited", "interested", "unsure", "flat", "annoyed", "rushed" (only when a live customer spoke),
   "customer_mood_why": one short sentence in plain words,
   "opening": OPENING (only when a live customer spoke),

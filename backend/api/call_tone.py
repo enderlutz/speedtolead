@@ -17,8 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import get_current_user, require_admin
-from database import CallRecording, CallTone, CallTranscript, get_db
+from database import CallRecording, CallTone, CallTranscript, Lead, get_db
 from services import call_tone as tone
+from services import greeting
 from services.call_transcriber import format_transcript_for_display
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,10 @@ def listen_to(db, rec: CallRecording, audio: bytes | None = None) -> dict:
         from services.voicemail import listener_heard_nobody
         if listener_heard_nobody(heard):
             rec.is_voicemail = True
+        # How the customer sounds goes on the lead, so the bill can say
+        # Mr. or Mrs. without anyone guessing from the name (Alan, 2026-11-06).
+        if rec.lead_id:
+            greeting.heard_voice(db.query(Lead).filter(Lead.id == rec.lead_id).first(), heard)
     except Exception as e:  # noqa: BLE001 — saved and shown on the call
         logger.warning("call tone failed for %s: %s", rec.id, e)
         row.error = str(e)[:900]

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest  # noqa: E402
 
 from services import after_pay_hooks as hooks  # noqa: E402
+from services import greeting  # noqa: E402
 
 
 @pytest.fixture
@@ -101,7 +102,7 @@ def test_the_text_carries_the_link_and_respects_do_not_contact(db, ghl_log):
     sent, reason = hooks.send_link(db, link, lead)
     assert sent and reason == ""
     msg = [m for k, cid, m in ghl_log if k == "sms" and cid == lead.ghl_contact_id][0]
-    assert f"https://estimate.test/pay/{link.token}" in msg and "$250 deposit" in msg and msg.startswith("Hi Pat,")
+    assert f"https://estimate.test/pay/{link.token}" in msg and "$250 deposit" in msg and msg.startswith(f"{greeting.time_greeting()} Pat,")
     db.refresh(link)
     assert link.sent_at
 

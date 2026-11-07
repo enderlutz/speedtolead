@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import stripe_pay as sp  # noqa: E402
+from services import greeting  # noqa: E402
 
 STAFF = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
 
@@ -454,7 +455,7 @@ def test_a_link_can_be_texted_to_the_husband_only_if_he_is_a_contact(db, monkeyp
     assert r["sent_to"] == "Sam" and r["sent_at"]
     cid, msg, loc = sent[0]
     assert cid == "c-sam" and loc == "LOC"
-    assert msg.startswith("Hi Sam, it's Sterling Fence Staining. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")
+    assert msg.startswith(f"{greeting.time_greeting()} Sam, it's Sterling Fence Staining. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")
 
 
 def test_search_a_contact_or_create_one_then_send(db, monkeypatch):
@@ -472,7 +473,7 @@ def test_search_a_contact_or_create_one_then_send(db, monkeypatch):
     hits = sp.pay_link_contact_search("sam", STAFF)
     assert [h["id"] for h in hits] == ["k1"] and sp.pay_link_contact_search("0111", STAFF)[0]["id"] == "k1"
     r = sp.send_pay_link_to(out["token"], sp.SendToBody(contact_id="k1"), STAFF)
-    assert r["sent_to"] == "Sam Test" and sent[-1][0] == "c-sam" and sent[-1][1].startswith("Hi Sam,") and not made
+    assert r["sent_to"] == "Sam Test" and sent[-1][0] == "c-sam" and sent[-1][1].startswith(f"{greeting.time_greeting()} Sam,") and not made
     # A typed number someone already has: no new contact.
     sp.send_pay_link_to(out["token"], sp.SendToBody(phone="281 555 0111", create=True), STAFF)
     assert not made and sent[-1][0] == "c-sam"
@@ -494,7 +495,7 @@ def test_staff_can_edit_the_text_but_not_drop_the_link(db, monkeypatch):
     monkeypatch.setattr(sp.hooks.ghl, "upsert_contact", lambda *a, **k: made.append(1) or "c-x")
     preset = sp.pay_link_message(out["token"], user=STAFF)
     assert out["url"] in preset["message"] and preset["link"] == out["url"]
-    assert sp.pay_link_message(out["token"], name="Sam Smith", other=1, user=STAFF)["message"].startswith("Hi Sam,")
+    assert sp.pay_link_message(out["token"], name="Sam Smith", other=1, user=STAFF)["message"].startswith(f"{greeting.time_greeting()} Sam,")
     with pytest.raises(HTTPException) as e:
         sp.send_pay_link(out["token"], sp.MessageBody(message="Hi, pay us please"), STAFF)
     assert e.value.status_code == 400 and not sent

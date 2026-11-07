@@ -418,7 +418,13 @@ def p4p_check(db, today: str) -> tuple[list[str], list[str]]:
         pw = any(s.startswith("pw_") for s in secs) and not ({"stain_after", "clean_after"} & secs)
         has_after = "stain_after" in secs or any(s.startswith("pw_") and s.endswith("_after") for s in secs)
         has_before = bool({"stain_before", "clean_before", "fence_scope"} & secs) or any(s.startswith("pw_") and s.endswith("_before") for s in secs)
-        miss = p4p_missing(j.final_price_cents, j.actual_sqft or j.sqft, j.stain_gallons_used,
+        # A guessed footage (fence not visible on Google Earth) is never
+        # asked for and never counted (Alan, 2026-11-06: "it would skew the data").
+        try:
+            guessed = bool(json.loads(lead.form_data or "{}").get("sqft_guess"))
+        except ValueError:
+            guessed = False
+        miss = p4p_missing(j.final_price_cents, (j.actual_sqft or j.sqft) or (1 if guessed else 0), j.stain_gallons_used,
                            j.final_color or j.color, j.final_stain_id, j.wood_type, j.previously_stained,
                            has_after, has_before, crew, logged, is_pw=pw)
         if miss:

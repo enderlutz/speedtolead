@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from api import pay_reminders as api
 from database import Lead, PayLink
 from services import after_pay_hooks as hooks
+from services import greeting
 from services import pay_reminders as pr
 
 STAFF = {"sub": "olga", "name": "Olga", "role": "va"}
@@ -38,7 +39,7 @@ def _bill(db, **kw):
 def test_the_reminder_is_friendly_carries_the_link_and_says_who(db, sms):
     link = _bill(db)
     out = api.reminder_text(link.token, STAFF)
-    assert out["message"].startswith("Hi Pat, it's Amy with Sterling Fence Staining. Just a friendly reminder that your balance of $792.12")
+    assert out["message"].startswith(f"{greeting.time_greeting()} Pat, it's Amy with Sterling Fence Staining. Just a friendly reminder that your balance of $792.12")
     assert hooks.pay_url(link.token) in out["message"] and "isn't right" in out["message"]
 
 

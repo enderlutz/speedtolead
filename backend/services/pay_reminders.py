@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from database import Lead, PayLink
 from services import after_pay_hooks as hooks
+from services import greeting
 
 KINDS = ("balance", "extra", "full")
 WAIT_DAYS = 3          # "Needs a reminder" once a bill (or the last reminder) is this old
@@ -48,10 +49,10 @@ def sender_name(user: dict) -> str:
 
 
 def reminder_message(link: PayLink, lead: Lead | None, sender: str = "Alan") -> str:
-    first = hooks._first(lead)
+    hi = greeting.greet(lead)
     amt = hooks.money((link.amount_cents or 0) / 100)
     what = {"balance": "your balance of", "extra": "the extra work,", "full": "your fence,"}.get(link.kind, "your balance of")
-    return (f"Hi {first}, it's {sender} with Sterling Fence Staining. Just a friendly reminder that {what} {amt} "
+    return (f"{hi}, it's {sender} with Sterling Fence Staining. Just a friendly reminder that {what} {amt} "
             f"is still open. Here's your link: {hooks.pay_url(link.token)}\n"
             "Card, Apple Pay or bank account. If anything about the job isn't right, just text me back "
             "and I'll take care of it. Thank you!")
