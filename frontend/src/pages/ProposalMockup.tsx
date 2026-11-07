@@ -58,9 +58,10 @@ export type LiveOption = {
 export type PkgKey = "essential" | "signature" | "legacy";
 
 /** The real Google reviews, from /api/public/reviews: five-star with
- *  words, newest first. The counts come along but the page no longer
- *  prints them (Alan, 2026-10-12: "remove the number of reviews"). Null
- *  until fetched; sample cards show until then and when there are none. */
+ *  words, newest first. The count was taken off on 2026-10-12 ("remove the
+ *  number of reviews") and put back on 2026-11-06, once it reached 48
+ *  (REVIEW_COUNT_LIVE). Null until fetched; sample cards show until then
+ *  and when there are none. */
 type Reviews = { rating: number | null; total: number; five_star: number; url?: string; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
 import { API_BASE } from "@/lib/apiBase";
 
@@ -285,6 +286,10 @@ const REPAIRS_PRICE_LIST_LIVE = true;   // live 2026-11-01
 // The BBB Accredited badge next to the Google reviews (Alan, 2026-11-06).
 // Mockup first; true = on the customer's page too.
 const BBB_BADGE_LIVE = false;
+// The number of Google reviews, in the Why us tile, the reviews heading
+// and the See-all button (Alan, 2026-11-06). Mockup first; true = on the
+// customer's page too.
+const REVIEW_COUNT_LIVE = false;
 const LASTS_V2: Record<PkgKey, string> = { essential: "2–3 yrs", signature: "4–5 yrs", legacy: "5–8 yrs" };
 const INCLUDES_V2 = ["Cleaning", "2 coats of stain", "Loose boards screwed in"];
 
@@ -692,6 +697,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   }, []);
   const realReviews = reviews && reviews.reviews.length > 0 ? reviews : null;
   const ratingText = realReviews?.rating ? realReviews.rating.toFixed(1) : "5.0";
+  // "48 reviews", only with real data and only where it's been approved.
+  const reviewCount = (REVIEW_COUNT_LIVE || !dressed) && realReviews && realReviews.total > 0 ? realReviews.total : 0;
   // Footage shows on the invite and the after-pay screens only when a
   // drawing backs it up.
   const hasDrawing = preview ? !!dressed?.scopeUrl : true;
@@ -1334,7 +1341,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             <div className={cn("mt-3 grid grid-cols-2 gap-2", !phone && "sm:grid-cols-4")}>
               {[
                 { big: "1 year", head: "Warranty on our work", body: "If our work peels or cracks, we come back and fix it." },
-                { big: ratingText, head: "On Google", body: "We pride ourselves on being the best.", stars: true },
+                { big: ratingText, head: "On Google", body: reviewCount ? `${reviewCount} reviews. We pride ourselves on being the best.` : "We pride ourselves on being the best.", stars: true },
                 { big: "1,500+", head: "Fences restored", body: "Across the Houston area." },
                 { big: "7+ years", head: "Staining fences", body: "Hands-on, every job." },
               ].map((f) => (
@@ -1389,6 +1396,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               <div className="flex items-baseline gap-2">
                 <span className="font-heading text-4xl font-bold leading-none">{ratingText}</span>
                 <span className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-4 w-4 fill-current" style={{ color: GOLD }} />)}</span>
+                {reviewCount ? <span className="text-[15px] font-bold text-[#15130F]/80">{reviewCount} reviews</span> : null}
               </div>
               <p className="mt-0.5 text-sm text-[#15130F]/75">We pride ourselves on being the best.</p>
             </div>
@@ -1410,7 +1418,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           {/* Reading them, not writing one: the listing (2026-11-02). */}
           <a href={reviews?.url || "https://www.google.com/maps/search/?api=1&query=Sterling+Fence+Staining+Houston"} target="_blank" rel="noopener noreferrer"
             className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15">
-            See all our reviews on Google
+            {reviewCount ? `See all ${reviewCount} reviews on Google` : "See all our reviews on Google"}
           </a>
           {showBbb ? <BbbBadge className="mt-3" /> : null}
         </section>

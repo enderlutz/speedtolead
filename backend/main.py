@@ -640,6 +640,27 @@ async def _stella_loop():
         await asyncio.sleep(120)
 
 
+async def _pm_loop():
+    """David, the Project Manager: every 5 minutes, and at 9 PM Houston he texts
+    Alan the job check (tomorrow's crew, colours and stain; today's photos,
+    check-outs and hours; jobs waiting on his OK; customers left on read).
+    See services/project_manager.py."""
+    from database import get_db as _gdb
+    from services import project_manager
+    await asyncio.sleep(120)
+    while True:
+        db = _gdb()
+        try:
+            r = await asyncio.to_thread(project_manager.tick, db)
+            if r:
+                logger.info(f"[pm] {r}")
+        except Exception as e:
+            logger.error(f"Project Manager tick error: {e}")
+        finally:
+            db.close()
+        await asyncio.sleep(300)
+
+
 async def _fast_sync_loop():
     """Every minute: who had a call or text since the last look (one GHL
     search), call-backs coming up, call-back times read from new calls and
@@ -860,6 +881,7 @@ async def lifespan(app: FastAPI):
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
     stella_task = asyncio.create_task(_stella_loop())
+    pm_task = asyncio.create_task(_pm_loop())
     followup_learning = asyncio.create_task(_followup_learning_loop())
     followup_backfill = asyncio.create_task(_followup_backfill_loop())
     map_geocoder = asyncio.create_task(_map_geocode_loop())
@@ -892,6 +914,7 @@ async def lifespan(app: FastAPI):
     delay_detector.cancel()
     followup_engine.cancel()
     stella_task.cancel()
+    pm_task.cancel()
     followup_learning.cancel()
     followup_backfill.cancel()
     map_geocoder.cancel()
