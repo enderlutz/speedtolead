@@ -7,7 +7,7 @@
 // look at anything else.
 import { Check, Sparkles, Loader2, Send, PenLine, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { STAGES, currentStage, stageDone, type ScopeSteps } from "./steps";
+import { STAGES, currentStage, stageDone, photoPrepared, type ScopeSteps } from "./steps";
 
 interface Props {
   steps: ScopeSteps;
@@ -69,15 +69,21 @@ export default function StepStrip({ steps, aiConfigured, rendering, busy, onPrep
           <span className="sm:hidden">Save</span><span className="hidden sm:inline">Save, don't send</span>
         </button>
       ) : null}
-      {stage === 1 ? (
-        <button type="button" onClick={onPrepare} disabled={rendering || busy} className={GOLD}
+      {stage !== 1 && !photoPrepared(steps) ? (
+        <button type="button" onClick={onPrepare} disabled={rendering || busy}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-ink ring-1 ring-ink/20 transition hover:bg-stone-50 disabled:opacity-60"
                 title={aiConfigured
-                  ? "Brightens the photo and renders the drone view in one go. Up to a minute."
-                  : "Brightens the photo. The drone view needs an OpenAI key on the server."}>
+                  ? "Optional: brightens the photo and renders the drone view. You can send without it."
+                  : "Optional: brightens the photo. The drone view needs an OpenAI key on the server."}>
           {rendering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           {rendering ? <><span className="sm:hidden">Rendering…</span><span className="hidden sm:inline">Rendering… up to a minute</span></>
-            : <><span className="sm:hidden">Prepare</span><span className="hidden sm:inline">Prepare the photo</span></>}
+            : <><span className="sm:hidden">Prepare</span><span className="hidden sm:inline">Prepare photo (optional)</span></>}
         </button>
+      ) : null}
+      {stage === 1 ? (
+        <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+          <Sparkles className="h-3.5 w-3.5 text-bronze" /> Upload a screenshot to start
+        </span>
       ) : stage === 2 ? (
         <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
           <PenLine className="h-3.5 w-3.5 text-bronze" /> Pick a pen below and tap along the fence

@@ -263,6 +263,14 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
         _note(lead, f"Paid {money(amount)}{how} on Stripe ({kind}).")
         name = (lead.contact_name if lead else "") or "A customer"
         alert_alan(f"✅ Stripe: {name} paid {money(amount)}{how} ({kind}).")
+        # Paid means no more sales call-backs: pull any 📞 reminder still
+        # waiting in GHL for this lead (Alan, 2026-11-07).
+        if lead is not None and kind in ("deposit", "full", "balance"):
+            try:
+                from services.callback_reminder import cancel_pending
+                cancel_pending(db, lead, f"paid {kind}")
+            except Exception as e:  # noqa: BLE001 - never block the payment path
+                logger.warning("cancel_pending after payment failed for %s: %s", lead_id, e)
     finally:
         db.close()
     if kind in ("deposit", "full"):

@@ -111,6 +111,7 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
   // The same three stages the editor shows. "Sent" stands in for the
   // editor's own "confirmed", which only lives for one sitting.
   const steps = {
+    photo: started,
     brightened: !!state?.enhanced,
     droned: !!state?.use_ai && !!state?.has_ai,
     drawn: traced,

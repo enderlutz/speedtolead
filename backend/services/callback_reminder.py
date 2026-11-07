@@ -238,7 +238,8 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         now = now_ct()
         slot = pick_slot(want.replace(tzinfo=now.tzinfo), now)
         ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
-        record.update({"when": slot.isoformat(), "scheduled": bool(ok)})
+        record.update({"when": slot.isoformat(), "scheduled": bool(ok),
+                       "ghl_message_id": ghl.last_message_id() if ok else ""})
         # Tell Alan right away that it's handled (Alan, 2026-11-06: he
         # couldn't see a reminder that only arrives on the call-back day).
         if ok:
@@ -249,3 +250,91 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     db.commit()
     logger.info("Callback reminder for lead %s: %s", lead.id, record)
     return record
+
+
+# ── Closed deals get no reminders ─────────────────────────────────────────
+# Alan (2026-11-07), after a 📞 reminder fired for a customer who had paid the
+# $250 that morning: "if the deal has already been closed or the deposit's
+# paid, the callback needs to be taken off." A call-back is owed only while
+# the deal is open. The moment the money lands (or the day is confirmed),
+# every reminder still waiting in GHL for that lead is cancelled.
+
+CLOSED_STATUSES = {"closed", "archived", "won", "booked"}
+
+
+def deal_closed(db, lead) -> bool:
+    """Paid, confirmed, or marked closed: nothing left to chase."""
+    if lead is None:
+        return False
+    if (lead.status or "") in CLOSED_STATUSES or (lead.deposit_status or "") == "paid":
+        return True
+    return _paid(db, lead.id)
+
+
+def pending_reminders(lead) -> list[dict]:
+    """Reminders GHL is still holding for this lead (scheduled, in the future,
+    not cancelled)."""
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:  # noqa: BLE001
+        return []
+    now = datetime.now(timezone.utc)
+    out = []
+    for rec in fd.get(DONE_KEY) or []:
+        if not rec.get("scheduled") or rec.get("cancelled_at"):
+            continue
+        try:
+            when = datetime.fromisoformat(rec.get("when") or "")
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when > now:
+            out.append(rec)
+    return out
+
+
+def cancel_pending(db, lead, why: str) -> int:
+    """Cancel every reminder still scheduled for this lead. Returns how many
+    were marked. A record without GHL's message id (sent before 2026-11-07)
+    can't be stopped on GHL's side; it is marked anyway so nothing counts on
+    it, and the reason says so."""
+    from services import ghl
+
+    pending = pending_reminders(lead)
+    if not pending:
+        return 0
+    fd = json.loads(lead.form_data or "{}")
+    stamp = datetime.now(timezone.utc).isoformat()
+    ids = {p.get("recording_id") for p in pending}
+    for rec in fd.get(DONE_KEY) or []:
+        if rec.get("recording_id") not in ids or rec.get("cancelled_at"):
+            continue
+        mid = (rec.get("ghl_message_id") or "").strip()
+        stopped = ghl.cancel_scheduled_message(mid) if mid else False
+        rec["cancelled_at"] = stamp
+        rec["cancel_why"] = why
+        rec["ghl_cancelled"] = bool(stopped)
+    lead.form_data = json.dumps(fd)
+    db.commit()
+    logger.info("Cancelled %d call-back reminder(s) for lead %s: %s", len(pending), lead.id, why)
+    return len(pending)
+
+
+def cancel_for_closed_deals(db, limit: int = 200) -> dict:
+    """Safety net for payments that reach us sideways (QuickBooks, offline,
+    a status flipped by hand): any lead with a reminder still waiting whose
+    deal has since closed gets its reminders cancelled. Cheap enough to run
+    on Stella's tick."""
+    from database import Lead
+
+    rows = (db.query(Lead).filter(Lead.form_data.like('%"scheduled": true%'))
+            .order_by(Lead.updated_at.desc()).limit(limit).all())
+    cancelled = 0
+    for lead in rows:
+        if not pending_reminders(lead):
+            continue
+        if deal_closed(db, lead):
+            cancelled += cancel_pending(db, lead, "deal closed")
+    return {"checked": len(rows), "cancelled": cancelled}
+

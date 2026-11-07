@@ -137,3 +137,84 @@ def test_ask_falls_back_when_the_model_gives_no_text(monkeypatch):
     monkeypatch.setattr(get_settings(), "anthropic_api_key", "test", raising=False)
     assert stella.ask(_db(), "task", "file") == {"owed": True}
     assert calls == [stella.MODEL, stella.FALLBACK_MODEL]
+
+
+# ── Closed deals get no reminders (Alan, 2026-11-07) ──────────────────────
+
+import json  # noqa: E402
+from datetime import timedelta, timezone  # noqa: E402
+
+from database import PayLink  # noqa: E402
+from services import callback_reminder as cr  # noqa: E402
+
+
+def _lead_with_reminders(db, when_offsets_h, lead_id="l1", with_ids=True):
+    now = datetime.now(timezone.utc)
+    recs = []
+    for i, h in enumerate(when_offsets_h):
+        recs.append({"recording_id": f"r{i}", "owed": True, "scheduled": True,
+                     "when": (now + timedelta(hours=h)).isoformat(),
+                     "ghl_message_id": f"m{i}" if with_ids else ""})
+    lead = Lead(id=lead_id, contact_name="Pat Example", status="sent",
+                form_data=json.dumps({cr.DONE_KEY: recs}))
+    db.add(lead)
+    db.commit()
+    return lead
+
+
+def test_pending_reminders_are_the_future_scheduled_ones():
+    db = _db()
+    lead = _lead_with_reminders(db, [-3, 2, 30])
+    assert [r["recording_id"] for r in cr.pending_reminders(lead)] == ["r1", "r2"]
+
+
+def test_cancel_pending_stops_them_in_ghl_and_marks_the_record(monkeypatch):
+    db = _db()
+    lead = _lead_with_reminders(db, [-3, 2, 30])
+    cancelled = []
+    monkeypatch.setattr("services.ghl.cancel_scheduled_message", lambda mid, location_id=None: cancelled.append(mid) or True)
+    assert cr.cancel_pending(db, lead, "paid deposit") == 2
+    assert cancelled == ["m1", "m2"]
+    recs = json.loads(lead.form_data)[cr.DONE_KEY]
+    assert not recs[0].get("cancelled_at")           # already fired, left alone
+    assert recs[1]["cancelled_at"] and recs[1]["ghl_cancelled"] and recs[1]["cancel_why"] == "paid deposit"
+    assert cr.pending_reminders(lead) == []           # nothing left to cancel
+    assert cr.cancel_pending(db, lead, "again") == 0
+
+
+def test_a_record_without_a_message_id_is_still_marked(monkeypatch):
+    db = _db()
+    lead = _lead_with_reminders(db, [5], with_ids=False)
+    monkeypatch.setattr("services.ghl.cancel_scheduled_message", lambda mid, location_id=None: (_ for _ in ()).throw(AssertionError("must not call GHL with no id")))
+    assert cr.cancel_pending(db, lead, "paid deposit") == 1
+    rec = json.loads(lead.form_data)[cr.DONE_KEY][0]
+    assert rec["cancelled_at"] and rec["ghl_cancelled"] is False
+
+
+def test_deal_closed_by_paid_link_status_or_deposit():
+    db = _db()
+    open_lead = _lead_with_reminders(db, [5], lead_id="open")
+    assert not cr.deal_closed(db, open_lead)
+    paid = _lead_with_reminders(db, [5], lead_id="paid")
+    db.add(PayLink(token="t1", lead_id="paid", kind="deposit", amount_cents=25000, status="paid"))
+    db.commit()
+    assert cr.deal_closed(db, paid)
+    closed = _lead_with_reminders(db, [5], lead_id="closed")
+    closed.status = "closed"
+    assert cr.deal_closed(db, closed)
+    dep = _lead_with_reminders(db, [5], lead_id="dep")
+    dep.deposit_status = "paid"
+    assert cr.deal_closed(db, dep)
+
+
+def test_sweep_cancels_only_closed_deals(monkeypatch):
+    db = _db()
+    _lead_with_reminders(db, [5], lead_id="open")
+    _lead_with_reminders(db, [5], lead_id="paid")
+    db.add(PayLink(token="t2", lead_id="paid", kind="deposit", amount_cents=25000, status="paid"))
+    db.commit()
+    monkeypatch.setattr("services.ghl.cancel_scheduled_message", lambda mid, location_id=None: True)
+    out = cr.cancel_for_closed_deals(db)
+    assert out["cancelled"] == 1
+    still = db.query(Lead).filter(Lead.id == "open").first()
+    assert len(cr.pending_reminders(still)) == 1

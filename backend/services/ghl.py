@@ -299,12 +299,43 @@ import time
 # worker — if we ever scale to multi-worker, swap this for a small
 # bounded ring buffer keyed by contact_id.
 _last_send_error: dict | None = None
+# The GHL id of the last message _send_message queued. A scheduled text
+# needs it to be cancelled later (services/callback_reminder.cancel_pending).
+_last_message_id: str = ""
 
 
 def last_send_error() -> dict | None:
     """Return the most recent send_sms failure context, or None.
     Shape: {status_code: int | None, response_excerpt: str, exception: str}"""
     return _last_send_error
+
+
+def last_message_id() -> str:
+    """GHL's id for the last message send_sms queued, "" if it failed."""
+    return _last_message_id
+
+
+def cancel_scheduled_message(message_id: str, location_id: str | None = None) -> bool:
+    """Stop a text that GHL is holding for later (scheduledTimestamp).
+
+    Alan (2026-11-07): a 📞 call-back reminder for a customer who had already
+    paid the $250 still fired. Once a deal closes, the reminders scheduled
+    for it have to come off, and GHL only lets us do that by message id.
+    True when GHL took the cancel (or the message was already gone).
+    """
+    if not (message_id or "").strip():
+        return False
+    try:
+        r = _client.delete(f"{GHL_BASE}/conversations/messages/{message_id}/schedule",
+                           headers=_headers(location_id), timeout=15)
+        if r.status_code in (200, 204, 404):
+            logger.info(f"GHL scheduled message {message_id} cancelled (status {r.status_code})")
+            return True
+        logger.warning(f"GHL cancel of scheduled message {message_id} failed: {r.status_code} {r.text[:200]}")
+        return False
+    except Exception as e:  # noqa: BLE001 - best effort, the caller just notes it
+        logger.warning(f"GHL cancel of scheduled message {message_id} raised: {e}")
+        return False
 
 
 def _send_message(
@@ -326,8 +357,9 @@ def _send_message(
     timescale GHL's rate limiter actually clears on. Three attempts with
     1/2/4-second waits used to fail before the limit window even reset.
     """
-    global _last_send_error
+    global _last_send_error, _last_message_id
     import uuid as _uuid
+    _last_message_id = ""
     settings = get_settings()
     payload = {
         "type": msg_type,
@@ -425,6 +457,7 @@ def _send_message(
                 )
             logger.info(f"GHL {msg_type} sent to {contact_id} (attempt {attempt + 1}) messageId={message_id}")
             _last_send_error = None
+            _last_message_id = str(message_id)
             return True
         except Exception as e:
             final_exc = f"{type(e).__name__}: {str(e)[:300]}"

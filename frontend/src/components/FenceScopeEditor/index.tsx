@@ -384,9 +384,11 @@ export default function FenceScopeEditor({ leadId }: Props) {
     if (p) scope.addDrawingPoint(p);
   };
 
-  // A scope can only be sent once the photo has been made presentable, the
-  // fence has been marked, and somebody has actually looked at the result.
+  // A scope can only be sent once there is a photo, the fence has been
+  // marked, and somebody has actually looked at the result. Brightening and
+  // the drone view are optional (Alan, 2026-11-07).
   const steps = {
+    photo: !!sourceImage,
     brightened: scope.enhanced,
     droned: scope.useAi && hasAi,
     drawn: scope.segments.length > 0,
@@ -419,7 +421,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
         setHasAi(false);
         setAiImage(null);
         setUseAi(false);
-        toast.success("Screenshot uploaded — now prepare the photo");
+        toast.success("Screenshot uploaded — mark the fence. Prepare the photo first if you want the drone view.");
       } catch {
         toast.error("Upload failed");
       } finally {
