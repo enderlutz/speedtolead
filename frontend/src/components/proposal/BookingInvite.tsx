@@ -18,6 +18,11 @@ import { useEffect, useState } from "react";
 import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin, ArrowLeft, Save, ShieldCheck, Star, Receipt } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { klarnaLine } from "@/lib/klarna";
+import { BbbBadge } from "@/components/proposal/BbbBadge";
+
+// The BBB Accredited badge under the Google reviews (Alan, 2026-11-06).
+// Staff preview first; true = on the customer's /b/ page too.
+const BBB_BADGE_LIVE = false;
 
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
@@ -245,7 +250,7 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
               </div>
             </div>
           ) : trust ? (
-            <TrustPay trust={trust} firstName={firstName} longDate={longDate} total={total} totalOr={pkgOr?.total} dep={dep} paying={paying} onPay={pay}
+            <TrustPay showBbb={BBB_BADGE_LIVE || !page} trust={trust} firstName={firstName} longDate={longDate} total={total} totalOr={pkgOr?.total} dep={dep} paying={paying} onPay={pay}
               holdUntil={holdUntil} />
           ) : (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white shadow-md">
@@ -467,9 +472,9 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
  *  sum, one tap to pay, and what protects them. The no-refund rule is said
  *  before they pay, in small calm words under the button (it has to be seen
  *  before payment for a card dispute to go our way). */
-function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onPay, holdUntil }: {
+function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onPay, holdUntil, showBbb }: {
   trust: BookingTrust; firstName: string; longDate: string; total: number; totalOr?: number; dep: number;
-  paying: boolean; onPay: () => void; holdUntil: Date;
+  paying: boolean; onPay: () => void; holdUntil: Date; showBbb: boolean;
 }) {
   const first = trust.name.split(" ")[0];
   const r = trust.reviews;
@@ -530,6 +535,7 @@ function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onP
             <p className="mt-2 text-[15px] font-bold text-[#8C6224] underline underline-offset-2">See all {r.total} reviews on Google ›</p>
           </a>
         ) : null}
+        {showBbb ? <BbbBadge /> : null}
 
         <p className="text-center text-[13px] leading-snug text-[#15130F]/60">
           We hold {longDate.split(",")[0]} for you until {hold}. After that it opens up to other customers.

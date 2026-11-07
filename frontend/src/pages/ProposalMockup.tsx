@@ -27,6 +27,7 @@ import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/Af
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
 import { PICKETS, PARTS, POSTS } from "@/lib/repairs";
+import { BbbBadge } from "@/components/proposal/BbbBadge";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
 // of work, her address, the linear foot… pretend she's a mock-up
@@ -281,6 +282,9 @@ const PACKAGE_COPY_V2_LIVE = true;   // live 2026-11-01
 // the phone"), so nobody is surprised when the cleaner marks bad boards.
 // Mockup first; true = on the customer's page too.
 const REPAIRS_PRICE_LIST_LIVE = true;   // live 2026-11-01
+// The BBB Accredited badge next to the Google reviews (Alan, 2026-11-06).
+// Mockup first; true = on the customer's page too.
+const BBB_BADGE_LIVE = false;
 const LASTS_V2: Record<PkgKey, string> = { essential: "2–3 yrs", signature: "4–5 yrs", legacy: "5–8 yrs" };
 const INCLUDES_V2 = ["Cleaning", "2 coats of stain", "Loose boards screwed in"];
 
@@ -655,6 +659,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   const discount = !expired;
   const copyV2 = PACKAGE_COPY_V2_LIVE || !dressed;
   const repairPriceList = REPAIRS_PRICE_LIST_LIVE || !dressed;
+  const showBbb = BBB_BADGE_LIVE || !dressed;
   const packages = useMemo(() => PACKAGES.map((base) => {
     const p = copyV2 ? {
       ...base, lasts: LASTS_V2[base.key],
@@ -1407,6 +1412,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15">
             See all our reviews on Google
           </a>
+          {showBbb ? <BbbBadge className="mt-3" /> : null}
         </section>
 
         {/* How to pay: the deposit, or the whole job over time. Both go to
