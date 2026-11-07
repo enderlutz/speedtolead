@@ -204,7 +204,15 @@ def test_break_is_covered_then_back_to_me(db, sent):
         oc.take_break(db, b.id, "olga", five_pm + timedelta(minutes=3))
 
 
-def test_everyone_else_hears_whose_lead_it_is(db, sent):
+def _va_alarms_on(db):
+    from database import SystemConfig
+    SystemConfig.set(db, oc.VA_ALARMS_KEY, "1")
+    db.commit()
+
+
+def test_the_assigned_va_hears_for_you_and_nobody_else_is_bothered(db, sent):
+    # Alan, 2026-11-06: the VAs don't get "not yours" or the 5-minute alarm
+    # ("annoying crap they don't need right now"); admins still do.
     _user(db, "olga")
     _user(db, "geoconda")
     _shift(db, "olga")
@@ -212,13 +220,38 @@ def test_everyone_else_hears_whose_lead_it_is(db, sent):
     oc.start_clock(lead.id, TEN_AM)
     texts = dict(sent["person"])
     assert "for you" in texts["olga"]
-    assert "Olga's, not yours" in texts["geoconda"]
+    assert "geoconda" not in texts
 
 
-def test_five_minutes_tells_the_whole_team(db, sent):
+def test_everyone_else_hears_whose_lead_it_is_when_switched_on(db, sent):
     _user(db, "olga")
     _user(db, "geoconda")
     _shift(db, "olga")
+    _va_alarms_on(db)
+    lead = _lead(db)
+    oc.start_clock(lead.id, TEN_AM)
+    texts = dict(sent["person"])
+    assert "for you" in texts["olga"]
+    assert "Olga's, not yours" in texts["geoconda"]
+
+
+def test_five_minutes_tells_alan_not_the_vas(db, sent):
+    _user(db, "olga")
+    _user(db, "geoconda")
+    _shift(db, "olga")
+    lead = _lead(db, "Silent")
+    oc.start_clock(lead.id, TEN_AM)
+    sent["person"].clear()
+    oc.tick(TEN_AM + timedelta(minutes=6))
+    assert not [t for _, t in sent["person"] if "5 MINUTES" in t]
+    assert any("5 minutes, no call yet: Silent" in t for t in sent["alan"])
+
+
+def test_five_minutes_tells_the_whole_team_when_switched_on(db, sent):
+    _user(db, "olga")
+    _user(db, "geoconda")
+    _shift(db, "olga")
+    _va_alarms_on(db)
     lead = _lead(db, "Silent")
     oc.start_clock(lead.id, TEN_AM)
     sent["person"].clear()
@@ -292,6 +325,7 @@ def test_the_five_minute_alert_uses_the_persons_name(db, sent):
     _user(db, "olga")
     _user(db, "geoconda")
     _shift(db, "olga")
+    _va_alarms_on(db)
     lead = _lead(db, "Silent")
     oc.start_clock(lead.id, TEN_AM)
     oc.tick(TEN_AM + timedelta(minutes=6))

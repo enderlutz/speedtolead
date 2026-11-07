@@ -135,6 +135,21 @@ def ensure_contact(db, user) -> str:
 NEW_LEAD_ONLY_USERS = {"olga"}
 
 
+VA_ALARMS_KEY = "va_alarms"
+
+
+def alarm_people(db, skip=()) -> list:
+    """Who gets the loud on-call messages: the 5-minute "nobody has called"
+    alarm and "it's X's, not yours". Alan, 2026-11-06: not the VAs ("it's
+    just annoying crap that they don't need right now"), so admins only
+    until system_config va_alarms is "1"."""
+    from database import SystemConfig
+    team = _team(db, skip=skip)
+    if SystemConfig.get(db, VA_ALARMS_KEY, "0") == "1":
+        return team
+    return [u for u in team if (u.role or "") != "va"]
+
+
 def message_person(db, user, text: str) -> bool:
     """WhatsApp or text one team member."""
     from services import ghl
@@ -220,7 +235,7 @@ def _give(db, lead, user, when: datetime, *, alert: bool = True) -> None:
         message_person(db, user, "NEW LEAD for you. Call within 5 minutes.\n" + lead_card(lead))
         # Everyone else knows it came in and whose it is (Alan, 2026-10-19).
         who = user.display_name or user.username
-        for u in _team(db, skip=(user.username,)):
+        for u in alarm_people(db, skip=(user.username,)):
             message_person(db, u, f"New lead: {lead.contact_name or 'a customer'}. It's {who}'s, not yours. "
                                   f"If nobody calls in 5 minutes you'll hear about it.")
 
@@ -350,7 +365,7 @@ def tick(when: datetime | None = None) -> dict:
             _alan(f"5 minutes, no call yet: {lead.contact_name or 'a lead'} ({lead.contact_phone or 'no phone'}). "
                   f"On call: {who}. {get_settings().frontend_url}/leads/{lead.id}")
             # Everybody, loud (Alan, 2026-10-19: "it needs to tell everybody").
-            for u in _team(db):
+            for u in alarm_people(db):
                 message_person(db, u, f"🚨 5 MINUTES and nobody has called {lead.contact_name or 'a new lead'} "
                                       f"({lead.contact_phone or 'no phone'}). It's {who}'s. Anyone free: call now.\n"
                                       f"{get_settings().frontend_url}/leads/{lead.id}")
