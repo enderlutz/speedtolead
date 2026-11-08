@@ -28,6 +28,7 @@ export default function LegacyCallbacks() {
         <p className="text-sm text-muted-foreground">Stella finds them on the calls. You make the offer, nobody else, and never on the first call:</p>
         <p className="mt-1 text-base font-semibold">"{data.offer_line}"</p>
         <p className="mt-1 text-sm text-muted-foreground">The reason: the solid goes on faster for us and lasts longer for them.</p>
+        {data.offer_note ? <p className="mt-1 text-sm font-semibold text-amber-800">{data.offer_note}</p> : null}
         <p className="mt-2 text-sm">
           Offers made: <span className="font-semibold tabular-nums">{data.offers}</span> · closed after an offer: <span className="font-semibold tabular-nums">{data.offers_closed}</span>
         </p>

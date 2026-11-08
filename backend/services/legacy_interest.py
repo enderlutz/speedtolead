@@ -14,6 +14,8 @@ The rules, from the same conversation:
 - Never on the first call. It's for the call-back, after they've seen the
   Legacy price.
 - Always with a condition: on the schedule within two weeks.
+- Valspar solids only. A Sherwin-Williams solid costs far more, so it gets a
+  smaller discount Alan names, never the Signature price.
 - Every offer is logged on the lead, so the list can show what it closed.
 
 Where it lives: lead.form_data["legacy_interest"] =
@@ -42,6 +44,10 @@ WORDS = re.compile(r"\b(legacy|solid)\b", re.I)
 
 OFFER_LINE = (f"Legacy for the Signature price, if we get you on the schedule "
               f"in the next {OFFER_DAYS // 7} weeks.")
+# Valspar solids only (Alan, 2026-11-08). A Sherwin-Williams solid costs us far
+# more: a smaller discount Alan names, never down to the Signature price.
+OFFER_NOTE = ("Valspar solid colors only. If they want a Sherwin-Williams solid, offer the closest "
+              "Valspar match first; a Sherwin-Williams solid gets a smaller discount, never the Signature price.")
 
 TASK = """Read this phone call with a fence staining customer. Our packages: Essential = clear coat, Signature = semi-transparent, Legacy = solid color (lasts the longest).
 
@@ -135,7 +141,7 @@ def listing(db) -> dict:
     # Newest call first: the interest is freshest.
     open_.sort(key=lambda r: r["call_at"] or "", reverse=True)
     closed.sort(key=lambda r: r["call_at"] or "", reverse=True)
-    return {"open": open_, "closed": closed, "offer_line": OFFER_LINE,
+    return {"open": open_, "closed": closed, "offer_line": OFFER_LINE, "offer_note": OFFER_NOTE,
             "offers": sum(1 for r in open_ + closed if r["offer"]),
             "offers_closed": sum(1 for r in closed if r["offer"])}
 

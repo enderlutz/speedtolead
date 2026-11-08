@@ -156,7 +156,7 @@ If CALLER is not Alan, also review the caller's call in Alan's fixed order: intr
 LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real interest in Legacy or a solid color (said they want it, leaned to it, asked its price to consider it, or said it's a little too much), and they didn't pay. Not when only our side described it, or they said "not solid". Put their own words in "legacy_quote". When legacy is true and a call back is owed, add this section to the reminder, right after PRICE:
 💎 LEGACY OFFER (only you say this)
 "Legacy for the Signature price, if we get you on the schedule in the next 2 weeks."
-and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off".
+and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off". The offer is for a VALSPAR solid only. If they want a Sherwin-Williams solid (WoodScapes, SuperDeck, a custom SW color), lead with the closest Valspar solid match instead; a Sherwin-Williams solid gets a smaller discount that Alan names, never down to the Signature price.
 
 Reply with JSON only:
 {"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>"}"""

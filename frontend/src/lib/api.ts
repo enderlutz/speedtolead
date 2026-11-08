@@ -2883,7 +2883,7 @@ export const api = {
   bucketNotDone: (leadId: string, textAt = "") =>
     request<{ ok: boolean }>(`/api/on-call/buckets/${leadId}/not-done`, { method: "POST", body: JSON.stringify({ text_at: textAt }) }),
   /** Wanted Legacy on a call, didn't pay: Alan's call-backs (2026-11-08). Admin only. */
-  legacyCallbacks: () => request<{ open: LegacyRow[]; closed: LegacyRow[]; offer_line: string; offers: number; offers_closed: number; outcomes: Record<string, string> }>("/api/on-call/legacy"),
+  legacyCallbacks: () => request<{ open: LegacyRow[]; closed: LegacyRow[]; offer_line: string; offer_note?: string; offers: number; offers_closed: number; outcomes: Record<string, string> }>("/api/on-call/legacy"),
   legacyOffer: (leadId: string, outcome: string) =>
     request<{ ok: boolean }>(`/api/on-call/legacy/${leadId}/offer`, { method: "POST", body: JSON.stringify({ outcome }) }),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
