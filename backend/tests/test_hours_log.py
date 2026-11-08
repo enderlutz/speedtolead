@@ -96,3 +96,46 @@ def test_flat_pay_days_show_with_their_pay_and_are_not_missing(db, monkeypatch):
     assert len(office["flat"]) == 1
     f = office["flat"][0]
     assert f["date"] == "2026-11-02" and f["total"] == 147 and {(l["job"], l["pay"]) for l in f["lines"]} == {("House A", 93), ("House B", 54)}
+
+
+def test_the_office_sees_what_each_worker_is_owed(db, monkeypatch):
+    """Hours × rate, flat pay and receipts add up to what Alan owes (2026-11-07:
+    "tell me how much I owe him… total hourly pay and total flat pay"). Hours
+    typed in on a day the crew list pays only in flats earn nothing extra."""
+    import json
+    from database import CompanyCamJob, CrewReimbursement, HoursLog, Lead, User
+    monkeypatch.setattr(hl, "get_db", lambda: db)
+    monkeypatch.setattr(hl, "today", lambda: "2026-11-07")
+    db.add(User(id="u1", username="brent", display_name="Brent", password_hash="x", role="worker", permissions="{}", created_at="", hourly_rate=18))
+    db.add(User(id="u2", username="chris", display_name="Chris", password_hash="x", role="worker", permissions="{}", created_at="", hourly_rate=16))
+    db.add(Lead(id="A", contact_name="House A", status="new", created_at=""))
+    db.add(CompanyCamJob(id="jA", lead_id="A", crew_json=json.dumps([
+        {"username": "chris", "date": "2026-11-02", "task": "cleaning", "pay_type": "flat", "pay": 147},
+        {"username": "chris", "date": "2026-11-03", "task": "staining", "pay_type": "hourly", "pay": 16},
+        {"username": "brent", "date": "2026-11-03", "task": "staining", "pay_type": "hourly", "pay": 18}])))
+    db.add(HoursLog(id="h1", username="brent", name="Brent", work_date="2026-11-03", start="08:00", end="12:00", minutes=240))
+    db.add(HoursLog(id="h2", username="brent", name="Brent", work_date="2026-11-04", start="08:00", end="16:00", minutes=480))
+    db.add(HoursLog(id="h3", username="chris", name="Chris", work_date="2026-11-02", start="08:00", end="13:00", minutes=300))
+    db.add(HoursLog(id="h4", username="chris", name="Chris", work_date="2026-11-03", start="09:00", end="16:45", minutes=465))
+    db.add(CrewReimbursement(id="r1", username="brent", name="Brent", work_date="2026-11-07", amount=37.06, what="Lowe's", created_at=""))
+    db.commit()
+    owed = {p["username"]: p for p in hl.crew_hours("2026-11-02", "2026-11-08", {"role": "admin"})["owed"]}
+    b = owed["brent"]
+    assert (b["hours"], b["hourly_rate"], b["hourly_pay"], b["receipt_total"], b["owed"]) == (12, 18, 216, 37.06, 253.06)
+    assert b["receipts"][0]["what"] == "Lowe's"
+    c = owed["chris"]
+    assert (c["hours_in_flat"], c["hours"], c["hourly_pay"], c["flat_pay"], c["owed"]) == (5, 7.75, 124, 147, 271)
+
+
+def test_a_receipt_can_be_written_down_and_cleared(db, monkeypatch):
+    from database import User
+    monkeypatch.setattr(hl, "get_db", lambda: db)
+    db.add(User(id="u1", username="brent", display_name="Brent", password_hash="x", role="worker", permissions="{}", created_at="", hourly_rate=18))
+    db.commit()
+    r = hl.add_receipt(hl.ReceiptIn(username="Brent", date="2026-11-07", amount=37.06, what="Lowe's"), {"role": "admin", "name": "Alan"})
+    assert r["name"] == "Brent" and r["amount"] == 37.06
+    with pytest.raises(HTTPException):
+        hl.add_receipt(hl.ReceiptIn(username="nobody", date="2026-11-07", amount=5), {"role": "admin"})
+    assert hl.crew_hours("2026-11-02", "2026-11-08", {"role": "admin"})["owed"][0]["owed"] == 37.06
+    assert hl.receipt_paid(r["id"], {"role": "admin"})["ok"]
+    assert hl.crew_hours("2026-11-02", "2026-11-08", {"role": "admin"})["owed"] == []

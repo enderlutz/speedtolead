@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user, require_staff
 from api.job_visits import today
-from database import CompanyCamPhoto, HoursLog, SystemConfig, User, get_db
+from database import CompanyCamPhoto, CrewReimbursement, HoursLog, SystemConfig, User, get_db
 
 router = APIRouter()
 
@@ -179,6 +179,137 @@ def hourly_crew_days(db, start: str, end: str) -> set:
             if (c.get("pay_type") or "") != "flat"}
 
 
+def hourly_line_rates(db, start: str, end: str) -> dict:
+    """{(username, day): $/hour} from the crew list's hourly lines."""
+    out: dict = {}
+    for _, c in _crew_rows(db, start, end):
+        if (c.get("pay_type") or "") == "hourly" and float(c.get("pay") or 0) > 0:
+            out[(str(c["username"]).lower(), c["date"])] = float(c["pay"])
+    return out
+
+
+def _receipt(r: CrewReimbursement) -> dict:
+    return {"id": r.id, "username": r.username, "name": r.name or r.username, "date": r.work_date,
+            "amount": round(float(r.amount or 0), 2), "what": r.what or "", "lead_id": r.lead_id or "",
+            "paid_at": r.paid_at or ""}
+
+
+def receipts(db, start: str, end: str) -> list[dict]:
+    """Receipts dated in the range, plus any older one still unpaid, so a
+    worker's money is never forgotten."""
+    rows = (db.query(CrewReimbursement).filter(CrewReimbursement.work_date <= end)
+            .order_by(CrewReimbursement.work_date.desc()).all())
+    return [_receipt(r) for r in rows if r.work_date >= start or not (r.paid_at or "")]
+
+
+def what_is_owed(db, start: str, end: str, entries: list[dict], flat: dict, names: dict) -> list[dict]:
+    """One line per worker: hours × their rate, flat pay, receipts, and the
+    total owed (Alan, 2026-11-07: "tell me how much I owe him… total hourly
+    pay and total flat pay"). The rate is the crew list's hourly pay for that
+    day, else the worker's rate. Hours typed in on a day the crew list pays
+    only in flats earn nothing extra: that work is in the flat."""
+    rates = {u.username.lower(): float(u.hourly_rate or 0) for u in db.query(User).all()}
+    line_rates = hourly_line_rates(db, start, end)
+    hourly_days = hourly_crew_days(db, start, end)
+    flat_only = {k for k in flat if k not in hourly_days}
+    by: dict[str, dict] = {}
+
+    def get(username: str) -> dict:
+        k = username.lower()
+        if k not in by:
+            by[k] = {"username": username, "name": names.get(k, username), "hours": 0.0, "hours_in_flat": 0.0,
+                     "hourly_rate": rates.get(k, 0.0), "hourly_pay": 0.0, "flat_pay": 0.0,
+                     "receipts": [], "receipt_total": 0.0, "owed": 0.0}
+        return by[k]
+    for e in entries:
+        p = get(e["username"])
+        k = (e["username"].lower(), e["date"])
+        if k in flat_only:
+            p["hours_in_flat"] += e["hours"]
+            continue
+        p["hours"] += e["hours"]
+        p["hourly_pay"] += e["minutes"] / 60 * (line_rates.get(k) or p["hourly_rate"])
+    for f in flat.values():
+        get(f["username"])["flat_pay"] += f["total"]
+    for r in receipts(db, start, end):
+        if r["paid_at"]:
+            continue
+        p = get(r["username"])
+        p["receipts"].append(r)
+        p["receipt_total"] += r["amount"]
+    out = []
+    for p in by.values():
+        for k in ("hours", "hours_in_flat", "hourly_pay", "flat_pay", "receipt_total"):
+            p[k] = round(p[k], 2)
+        p["owed"] = round(p["hourly_pay"] + p["flat_pay"] + p["receipt_total"], 2)
+        out.append(p)
+    return sorted(out, key=lambda p: (-p["owed"], p["name"]))
+
+
+class ReceiptIn(BaseModel):
+    username: str
+    date: str
+    amount: float
+    what: str = ""
+    lead_id: str = ""
+
+
+@router.post("/crew-receipts")
+def add_receipt(body: ReceiptIn, user: dict = Depends(require_staff)):
+    """The office writes down a receipt a worker is owed (Alan, 2026-11-07)."""
+    try:
+        datetime.strptime(body.date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Pick a day")
+    if not body.amount > 0:
+        raise HTTPException(400, "How much was the receipt?")
+    db = get_db()
+    try:
+        who = db.query(User).filter(User.username.ilike(body.username.strip())).first()
+        if who is None:
+            raise HTTPException(404, "No worker by that name")
+        r = CrewReimbursement(id=str(uuid.uuid4()), username=who.username, name=who.display_name or who.username,
+                              work_date=body.date, amount=round(float(body.amount), 2), what=(body.what or "").strip()[:300],
+                              lead_id=(body.lead_id or "").strip(), paid_at="", created_at=datetime.now(timezone.utc).isoformat(),
+                              created_by=str(user.get("name") or user.get("sub") or ""))
+        db.add(r)
+        db.commit()
+        return _receipt(r)
+    finally:
+        db.close()
+
+
+@router.post("/crew-receipts/{receipt_id}/paid")
+def receipt_paid(receipt_id: str, user: dict = Depends(require_staff)):
+    """Paid back: it drops off what's owed."""
+    del user
+    db = get_db()
+    try:
+        r = db.query(CrewReimbursement).filter(CrewReimbursement.id == receipt_id).first()
+        if r is None:
+            raise HTTPException(404, "That receipt is gone already")
+        r.paid_at = datetime.now(timezone.utc).isoformat()
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@router.delete("/crew-receipts/{receipt_id}")
+def remove_receipt(receipt_id: str, user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        r = db.query(CrewReimbursement).filter(CrewReimbursement.id == receipt_id).first()
+        if r is None:
+            raise HTTPException(404, "That receipt is gone already")
+        db.delete(r)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
 @router.get("/crew-hours")
 def crew_hours(start: str = "", end: str = "", user: dict = Depends(require_staff)):
     """Every worker's logged hours in the range (default the last 7 days)."""
@@ -233,6 +364,7 @@ def crew_hours(start: str = "", end: str = "", user: dict = Depends(require_staf
                 "totals": [{"name": k, "hours": v} for k, v in sorted(totals.items(), key=lambda kv: -kv[1])],
                 "missing": sorted(seen.values(), key=lambda x: (x["date"], x["name"]), reverse=True),
                 "flat": sorted(flat.values(), key=lambda x: (x["date"], x["name"]), reverse=True),
+                "owed": what_is_owed(db, start, end, out, flat, names),
                 "pay_days": {w: WEEKDAYS[pay_day(db, w)] for w in workers}}
     finally:
         db.close()

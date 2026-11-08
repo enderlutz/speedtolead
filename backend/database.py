@@ -2151,6 +2151,25 @@ class HoursLog(Base):
     updated_at = Column(Text, default="")
 
 
+class CrewReimbursement(Base):
+    """Money a worker spent out of pocket for a job and is owed back (Alan,
+    2026-11-07: Brent bought the HOA column supplies at Lowe's on his own
+    card). One row per receipt; it shows on Crew hours next to that week's
+    pay until the office marks it paid."""
+    __tablename__ = "crew_reimbursements"
+
+    id = Column(Text, primary_key=True)
+    username = Column(Text, nullable=False)
+    name = Column(Text, default="")
+    work_date = Column(Text, nullable=False)    # YYYY-MM-DD, the day of the receipt
+    amount = Column(Float, default=0.0)
+    what = Column(Text, default="")             # "Lowe's: brushes, rollers, tape"
+    lead_id = Column(Text, default="")          # the job it was for, when known
+    paid_at = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+
 class ContentItem(Base):
     """A photo or video for social media (Alan, 2026-10-17). The file goes
     straight from the phone to Storage, untouched, so the quality stays

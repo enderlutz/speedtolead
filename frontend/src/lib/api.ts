@@ -4104,7 +4104,16 @@ export const api = {
       /** Flat pays on the crew list, per worker per day (2026-11-05). */
       flat?: { username: string; name: string; date: string; total: number; lines: { job: string; task: string; pay: number }[] }[];
       /** Each worker's pay day: "sat", "sun", "tue"… */
-      pay_days?: Record<string, string> }>(`/api/crew-hours?start=${start}&end=${end}`),
+      pay_days?: Record<string, string>;
+      /** What each worker is owed this week: hours × rate, flat pay, receipts (2026-11-07). */
+      owed?: { username: string; name: string; hours: number; hours_in_flat: number; hourly_rate: number; hourly_pay: number; flat_pay: number;
+        receipts: { id: string; date: string; amount: number; what: string; paid_at: string }[]; receipt_total: number; owed: number }[] }>(
+      `/api/crew-hours?start=${start}&end=${end}`),
+  /** The office writes down a receipt a worker is owed, marks it paid, or removes it (2026-11-07). */
+  addCrewReceipt: (b: { username: string; date: string; amount: number; what: string }) =>
+    request<{ id: string }>(`/api/crew-receipts`, { method: "POST", body: JSON.stringify(b) }),
+  crewReceiptPaid: (id: string) => request<{ ok: boolean }>(`/api/crew-receipts/${id}/paid`, { method: "POST" }),
+  deleteCrewReceipt: (id: string) => request<{ ok: boolean }>(`/api/crew-receipts/${id}`, { method: "DELETE" }),
   /** The worker it's on marks a job to fix done (2026-11-02). */
   myFixDone: (fixId: string, leftAt = "") =>
     request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST", body: JSON.stringify({ left_at: leftAt }) }),
