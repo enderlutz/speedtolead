@@ -6735,6 +6735,7 @@ export interface LegacyRow {
   address: string;
   quote: string;
   call_at: string;
+  own_brand?: string;
   signature: number;
   legacy: number;
   offer: { outcome: string; at: string; by: string } | null;

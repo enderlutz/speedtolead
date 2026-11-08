@@ -135,3 +135,10 @@ def test_a_call_review_that_says_legacy_puts_them_on_the_list(db, monkeypatch):
     assert fd[li.KEY]["recording_id"] == rid
     assert fd[cr.DONE_KEY][-1]["recording_id"] == rid  # the reminder record kept too
     assert _ids(li.listing(db)["open"]) == {a.id}
+
+
+def test_a_customer_set_on_another_brand_is_flagged(db):
+    a = _lead(db, "Wants Behr")
+    li.mark(db, a, "r1", "we want the Behr solid we picked", own_brand="Behr")
+    row = li.listing(db)["open"][0]
+    assert row["own_brand"] == "Behr"

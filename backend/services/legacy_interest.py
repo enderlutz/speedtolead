@@ -53,8 +53,10 @@ TASK = """Read this phone call with a fence staining customer. Our packages: Ess
 
 Question: did the CUSTOMER show real interest in Legacy or a solid color for their own fence? Yes if they said they want it, are leaning to it, liked it, asked its price to consider it, or said it's a little too much. No if only our side described it, or they said they don't want solid, or "darker but not solid".
 
+Also: did the customer insist on a solid from ANOTHER brand or a specific outside color (Behr, Sherwin-Williams, a paint-store color like Black Fox, "our own stain")? Only if they pushed for it; liking a color we can match on our Valspar line doesn't count.
+
 Reply with JSON only:
-{"legacy": true|false, "quote": "<the customer's own words that show it, under 160 characters, or empty>"}"""
+{"legacy": true|false, "quote": "<the customer's own words that show it, under 160 characters, or empty>", "own_brand": "<the brand or outside color they insisted on, or empty>"}"""
 
 
 def _form(lead) -> dict:
@@ -65,11 +67,16 @@ def _form(lead) -> dict:
     return fd if isinstance(fd, dict) else {}
 
 
-def mark(db, lead, recording_id: str, quote: str, call_at: str = "", by: str = "Stella") -> None:
-    """Write the flag on the lead. The newest call wins."""
+def mark(db, lead, recording_id: str, quote: str, call_at: str = "", by: str = "Stella",
+         own_brand: str = "") -> None:
+    """Write the flag on the lead. The newest call wins. `own_brand` is set
+    when the customer insisted on another brand's solid (Alan, 2026-11-08: a
+    customer wanted Legacy but ended up on a Behr solid); those get a smaller
+    discount Alan names, never the Signature price."""
     fd = _form(lead)
     fd[KEY] = {"at": datetime.now(timezone.utc).isoformat(), "recording_id": recording_id,
-               "quote": (quote or "").strip()[:200], "call_at": call_at, "by": by}
+               "quote": (quote or "").strip()[:200], "call_at": call_at, "by": by,
+               "own_brand": (own_brand or "").strip()[:80]}
     lead.form_data = json.dumps(fd)
     db.commit()
 
@@ -131,7 +138,7 @@ def listing(db) -> dict:
         sig, leg = _prices(db, l.id)
         offer = fd.get(OFFER_KEY) if isinstance(fd.get(OFFER_KEY), dict) else None
         row = {"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
-               "address": l.address or "", "quote": li.get("quote", ""), "call_at": li.get("call_at", ""),
+               "address": l.address or "", "quote": li.get("quote", ""), "call_at": li.get("call_at", ""), "own_brand": li.get("own_brand", ""),
                "signature": sig, "legacy": leg, "offer": offer}
         if l.id in paid or (l.deposit_status or "") == "paid":
             closed.append(row)
@@ -182,7 +189,7 @@ def backfill(db, limit: int = 3) -> dict:
             li = fd.get(KEY) if isinstance(fd.get(KEY), dict) else None
             # Keep the newest call's words when a lead has several.
             if li is None or (li.get("call_at") or "") < (created or ""):
-                mark(db, lead, rid, out.get("quote", ""), call_at=created or "")
+                mark(db, lead, rid, out.get("quote", ""), call_at=created or "", own_brand=out.get("own_brand") or "")
         _checked(db, lead, rid)
     SystemConfig.set(db, BACKFILL_DONE_KEY, "1")
     db.commit()

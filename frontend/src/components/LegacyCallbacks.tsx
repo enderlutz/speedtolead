@@ -66,6 +66,7 @@ function LegacyCard({ r, outcomes, open, onChanged }: { r: LegacyRow; outcomes: 
             <p className="text-sm tabular-nums">Signature {formatCurrency(r.signature)} · Legacy {formatCurrency(r.legacy)}</p>
           ) : null}
           {r.quote ? <p className="text-sm leading-snug">"{r.quote}"</p> : null}
+          {r.own_brand ? <p className="text-sm font-semibold text-amber-800">Wants {r.own_brand} solid: smaller discount only, not the Signature price.</p> : null}
           <p className="text-sm text-muted-foreground">{[r.call_at ? `Call ${timeAgo(r.call_at)}` : "", r.address].filter(Boolean).join(" · ")}</p>
           {r.offer ? <p className="text-sm font-semibold">{outcomes[r.offer.outcome] || r.offer.outcome} {timeAgo(r.offer.at)}</p> : null}
         </div>
