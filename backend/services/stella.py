@@ -15,6 +15,7 @@ Pieces:
 - calls: services/callback_reminder.py (runs after each call is analyzed)
 - texts: read_new_texts(), every 2 minutes
 - prices: no_price_check(), once a day at 5:30 PM Houston
+- Legacy call-backs: services/legacy_interest.py (wanted Legacy, didn't pay)
 Off switch for all of her: system_config stella_on = "0".
 """
 from __future__ import annotations
@@ -346,6 +347,15 @@ def tick(db) -> dict:
         db.rollback()
         logger.warning("Stella call catch-up failed: %s", e)
         note_error(db, f"call catch-up: {type(e).__name__}: {e}")
+    try:
+        # Calls from the last 60 days where the customer wanted Legacy
+        # (Alan, 2026-11-08), a few per pass until all are read once.
+        from services.legacy_interest import backfill
+        out["legacy"] = backfill(db)
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Stella Legacy backfill failed: %s", e)
+        note_error(db, f"legacy backfill: {type(e).__name__}: {e}")
     try:
         # Closed deals get no reminders (Alan, 2026-11-07).
         from services.callback_reminder import cancel_for_closed_deals, cancel_requested

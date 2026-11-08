@@ -153,8 +153,13 @@ Rules for the words: sound like Alan, a friendly local guy. The opener is fixed 
 
 If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
 
+LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real interest in Legacy or a solid color (said they want it, leaned to it, asked its price to consider it, or said it's a little too much), and they didn't pay. Not when only our side described it, or they said "not solid". Put their own words in "legacy_quote". When legacy is true and a call back is owed, add this section to the reminder, right after PRICE:
+💎 LEGACY OFFER (only you say this)
+"Legacy for the Signature price, if we get you on the schedule in the next 2 weeks."
+and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off".
+
 Reply with JSON only:
-{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>"}"""
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>"}"""
 
 
 def _clip(s: str, n: int) -> str:
@@ -280,6 +285,15 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
 
     record = {"recording_id": recording.id, "at": datetime.now(timezone.utc).isoformat(),
               "owed": bool(out.get("owed")), "why": (out.get("why") or "")[:300]}
+    if out.get("legacy"):
+        # On Alan's Legacy list until they pay (services/legacy_interest.py).
+        try:
+            from services.legacy_interest import mark as mark_legacy
+            mark_legacy(db, lead, recording.id, out.get("legacy_quote") or "", call_at=recording.created_at or "")
+            fd = json.loads(lead.form_data or "{}")
+            record["legacy"] = True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Legacy flag failed for %s: %s", lead.id, e)
     review = (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])

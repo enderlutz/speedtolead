@@ -15,8 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
 import LeadBuckets from "@/components/LeadBuckets";
+import LegacyCallbacks from "@/components/LegacyCallbacks";
 
-type Tab = "now" | "buckets" | "schedule" | "score" | "report" | "team";
+type Tab = "now" | "buckets" | "schedule" | "score" | "report" | "team" | "legacy";
 
 const ymd = (d: Date) => d.toLocaleDateString("en-CA");
 function monday(d: Date) {
@@ -60,6 +61,7 @@ export default function OnCall() {
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {btn("now", "Now")}
         {btn("buckets", "Buckets")}
+        {isAdmin ? btn("legacy", "Legacy") : null}
         {btn("schedule", "Schedule")}
         {isAdmin ? btn("score", "Scorecard") : null}
         {isAdmin ? btn("report", "Report") : null}
@@ -67,6 +69,7 @@ export default function OnCall() {
       </div>
       {tab === "now" ? <NowPanel /> : null}
       {tab === "buckets" ? <LeadBuckets /> : null}
+      {tab === "legacy" && isAdmin ? <LegacyCallbacks /> : null}
       {tab === "schedule" ? <SchedulePanel isAdmin={isAdmin} /> : null}
       {tab === "score" && isAdmin ? <ScorePanel /> : null}
       {tab === "report" && isAdmin ? <ReportPanel /> : null}

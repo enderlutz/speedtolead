@@ -623,3 +623,36 @@ def bucket_not_done(lead_id: str, body: HintIn, user: dict = Depends(require_sta
         return {"ok": True}
     finally:
         db.close()
+
+
+# ── Wanted Legacy (Alan, 2026-11-08) ────────────────────────────────────
+# Customers who wanted Legacy on a call and didn't pay. Alan-only: he is the
+# one who offers Legacy for the Signature price; VAs never see the offer.
+
+class LegacyOfferIn(BaseModel):
+    outcome: str
+
+
+@router.get("/on-call/legacy")
+def legacy_list(user: dict = Depends(require_admin)):
+    del user
+    from services.legacy_interest import OUTCOMES, listing
+    db = get_db()
+    try:
+        return {**listing(db), "outcomes": OUTCOMES}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/legacy/{lead_id}/offer")
+def legacy_offer(lead_id: str, body: LegacyOfferIn, user: dict = Depends(require_admin)):
+    from services.legacy_interest import set_offer
+    db = get_db()
+    try:
+        try:
+            offer = set_offer(db, _bucket_lead(db, lead_id), body.outcome, user.get("name") or user.get("sub") or "")
+        except ValueError:
+            raise HTTPException(400, "Pick offered, took it, or said no")
+        return {"ok": True, "offer": offer}
+    finally:
+        db.close()

@@ -2882,6 +2882,10 @@ export const api = {
   /** Back out of Done, or (with text_at) wave off a Done suggestion. */
   bucketNotDone: (leadId: string, textAt = "") =>
     request<{ ok: boolean }>(`/api/on-call/buckets/${leadId}/not-done`, { method: "POST", body: JSON.stringify({ text_at: textAt }) }),
+  /** Wanted Legacy on a call, didn't pay: Alan's call-backs (2026-11-08). Admin only. */
+  legacyCallbacks: () => request<{ open: LegacyRow[]; closed: LegacyRow[]; offer_line: string; offers: number; offers_closed: number; outcomes: Record<string, string> }>("/api/on-call/legacy"),
+  legacyOffer: (leadId: string, outcome: string) =>
+    request<{ ok: boolean }>(`/api/on-call/legacy/${leadId}/offer`, { method: "POST", body: JSON.stringify({ outcome }) }),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
   onCallSchedule: (start: string, end: string) =>
@@ -6724,6 +6728,18 @@ export interface OnCallBreak {
   id: string; username: string; date: string; start_min: number; end_min: number;
   status: "open" | "taken" | "cancelled"; taken_by: string; name?: string; taken_by_name?: string;
 }
+export interface LegacyRow {
+  lead_id: string;
+  name: string;
+  phone: string;
+  address: string;
+  quote: string;
+  call_at: string;
+  signature: number;
+  legacy: number;
+  offer: { outcome: string; at: string; by: string } | null;
+}
+
 export interface BucketRow {
   lead_id: string; name: string; phone: string; address: string; price: number;
   sent_at: string; viewed_at: string; views: number; last_talk: string;
