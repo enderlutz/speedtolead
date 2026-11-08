@@ -162,6 +162,66 @@ Reply with JSON only:
 {"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>"}"""
 
 
+# ── No answer: Stella books the next try (Alan, 2026-11-08) ──────────────
+# Alan called Luis back, got voicemail, and nothing was scheduled: "That needs
+# to be Stella's job." When our call to an open deal goes to voicemail, she
+# schedules the next try the same way she schedules any call-back. Only for
+# customers we've already had a real conversation with, so a new lead's
+# missed first call (the VAs' job) never fills Alan's phone. If a call-back
+# is already waiting for that customer, she leaves it alone.
+
+VM_MIN_SECONDS = 10
+
+VM_PROMPT = """You work for Alan, the owner of Sterling Fence Staining in Houston. We just called a customer and got their VOICEMAIL. The deal is still open. You get the WHOLE file: this voicemail (what we left), earlier calls, the texts, the estimate, any held day. Read all of it.
+
+Schedule the next try. If the customer gave times that work for them, use them. If they have another quote coming, a held day, or something we promised them by a certain time, call before that. Otherwise the next business day in the morning. Never the same evening unless they said evenings. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
+
+Write the reminder Alan gets on his phone, in exactly this format (plain words, short lines, no markdown, no phone number in the body except in VOICEMAIL, no links):
+📞 CALL NOW ❗❗❗
+
+👤 <customer name>
+
+📋 WHAT IT'S ABOUT
+<No answer <day time>, what the voicemail said in one line. Then 1-3 lines: what they want, what's stopping them.>
+
+💰 PRICE
+<package and price they have>
+
+📅 DAY
+<held day or what day they want>
+
+🗣️ SAY
+1️⃣ "Hi <Mr./Mrs. Lastname, or first name>, it's Alan with Sterling Fence Staining. How are you doing today?"
+2️⃣ "<the main point>"
+3️⃣ "<the ask: a real day and the $250>"
+
+📩 VOICEMAIL
+"<short voicemail with a real day and 346-589-7877>"
+
+Keep it under 1,000 characters. Same word rules as always: sound like Alan, never "20% off", never mention the missed call or the voicemail in SAY.
+
+Reply with JSON only:
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or ""), "reminder": "<the text, or empty>"}
+"owed" is false only if the file shows the deal is over (paid, said no, hired someone)."""
+
+
+def had_a_real_talk(db, lead_id: str, before_iso: str) -> bool:
+    """We've had at least one live conversation with them before this call."""
+    from database import CallRecording
+    return db.query(CallRecording.id).filter(
+        CallRecording.lead_id == lead_id, CallRecording.is_voicemail.isnot(True),
+        CallRecording.duration_seconds >= MIN_SECONDS, CallRecording.created_at < before_iso).first() is not None
+
+
+def answered_since(db, recording) -> bool:
+    """A live call with them after this voicemail (they called back, or we got through)."""
+    from database import CallRecording
+    return db.query(CallRecording.id).filter(
+        CallRecording.lead_id == recording.lead_id, CallRecording.id != recording.id,
+        CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= MIN_SECONDS,
+        CallRecording.created_at > (recording.created_at or "")).first() is not None
+
+
 def _clip(s: str, n: int) -> str:
     s = s or ""
     return s if len(s) <= n else s[:n] + " …"
@@ -218,10 +278,10 @@ def build_file(db, lead, recording, transcript_text: str, caller: str) -> str:
     return "\n".join(lines)
 
 
-def _ask(db, file_text: str) -> dict | None:
+def _ask(db, file_text: str, prompt: str = PROMPT) -> dict | None:
     """Stella reads the call with everything Alan has taught her."""
     from services.stella import ask
-    return ask(db, PROMPT, file_text, max_tokens=2000)
+    return ask(db, prompt, file_text, max_tokens=2000)
 
 
 def _caller_name(db, recorded_by: str) -> str:
@@ -253,7 +313,16 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     if not recording.lead_id:
         return {"skipped": "no lead"}
     lead = db.query(Lead).filter(Lead.id == recording.lead_id).first()
-    if lead is None or not worth_reviewing(recording.duration_seconds, bool(recording.is_voicemail), lead.status):
+    if lead is None:
+        return {"skipped": "not a live conversation"}
+    voicemail = bool(recording.is_voicemail)
+    if voicemail:
+        if ((recording.call_direction or "") != "outbound" or (recording.duration_seconds or 0) < VM_MIN_SECONDS
+                or (lead.status or "") in SKIP_STATUSES):
+            return {"skipped": "not our voicemail"}
+        if not had_a_real_talk(db, lead.id, recording.created_at or ""):
+            return {"skipped": "voicemail on a lead we never talked to"}
+    elif not worth_reviewing(recording.duration_seconds, False, lead.status):
         return {"skipped": "not a live conversation"}
     if _paid(db, lead.id):
         return {"skipped": "already paid"}
@@ -265,21 +334,26 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     done = fd.get(DONE_KEY) or []
     if any(d.get("recording_id") == recording.id for d in done):
         return {"skipped": "already handled"}
-    later = superseded_by(db, recording)
+    if voicemail:
+        if answered_since(db, recording):
+            return {"skipped": "talked to them after the voicemail"}
+        if pending_reminders(lead):
+            return {"skipped": "a call-back is already waiting"}
+    later = None if voicemail else superseded_by(db, recording)
     if later is not None:
         fd[DONE_KEY] = (done + [{"recording_id": recording.id, "at": datetime.now(timezone.utc).isoformat(), "owed": False,
                                  "why": f"cut off; the call that followed ({later.id[:8]}) is the one reviewed"}])[-20:]
         lead.form_data = json.dumps(fd)
         db.commit()
         return {"skipped": "superseded", "by": later.id}
-    if not ended_cleanly(transcript_text) and minutes_since_end(recording) < CUTOFF_WAIT_MINUTES:
+    if not voicemail and not ended_cleanly(transcript_text) and minutes_since_end(recording) < CUTOFF_WAIT_MINUTES:
         return {"skipped": "possible cut-off, waiting"}
     owner = (get_settings().owner_ghl_contact_id or "").strip()
     if not owner:
         return {"skipped": "no owner contact"}
 
     caller = _caller_name(db, recording.recorded_by or "")
-    out = _ask(db, build_file(db, lead, recording, transcript_text, caller))
+    out = _ask(db, build_file(db, lead, recording, transcript_text, caller), VM_PROMPT if voicemail else PROMPT)
     if not out:
         return {"skipped": "no model"}
 
@@ -295,7 +369,9 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             record["legacy"] = True
         except Exception as e:  # noqa: BLE001
             logger.warning("Legacy flag failed for %s: %s", lead.id, e)
-    review = (out.get("review") or "").strip()
+    if voicemail:
+        record["voicemail"] = True
+    review = "" if voicemail else (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])
         record["review_sent"] = True

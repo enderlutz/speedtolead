@@ -124,7 +124,7 @@ def test_a_call_review_that_says_legacy_puts_them_on_the_list(db, monkeypatch):
     monkeypatch.setattr(get_settings(), "owner_ghl_contact_id", "owner", raising=False)
     monkeypatch.setattr("services.ghl.send_sms", lambda to, msg, scheduled_at=None, **k: sent.append(msg) or True)
     monkeypatch.setattr("services.ghl.last_message_id", lambda: "m1", raising=False)
-    monkeypatch.setattr(cr, "_ask", lambda db_, f: {
+    monkeypatch.setattr(cr, "_ask", lambda db_, f, prompt=None: {
         "owed": True, "why": "wants solid", "when": "2026-11-10T09:00",
         "reminder": "📞 CALL NOW ❗❗❗\n💎 LEGACY OFFER", "review": "", "legacy": True,
         "legacy_quote": "the solid is nice but a little too much"})

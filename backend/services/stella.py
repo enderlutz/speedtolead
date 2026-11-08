@@ -374,15 +374,18 @@ def catch_up_calls(db, hours: int = 12, limit: int = 3) -> dict:
     """Any real call from the last `hours` that she hasn't reviewed yet (the
     first try failed, or the app restarted mid-way) gets reviewed now."""
     from database import CallRecording, CallTranscript, Lead
-    from services.callback_reminder import DONE_KEY, MIN_SECONDS, run_for_recording
+    from services.callback_reminder import DONE_KEY, MIN_SECONDS, VM_MIN_SECONDS, run_for_recording
+    from sqlalchemy import and_, or_
     if not on(db):
         return {"skipped": "off"}
     # Never earlier than the day she went live, so calls Alan already had
     # reminders for by hand don't get a second one.
     since = max((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(), LIVE_SINCE)
     recs = (db.query(CallRecording).filter(CallRecording.status == "analyzed", CallRecording.analyzed_at >= since,
-                                           CallRecording.lead_id.isnot(None), CallRecording.is_voicemail.isnot(True),
-                                           CallRecording.duration_seconds >= MIN_SECONDS)
+                                           CallRecording.lead_id.isnot(None),
+                                           or_(and_(CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= MIN_SECONDS),
+                                               and_(CallRecording.is_voicemail.is_(True), CallRecording.call_direction == "outbound",
+                                                    CallRecording.duration_seconds >= VM_MIN_SECONDS)))
             .order_by(CallRecording.created_at.asc()).all())
     done = 0
     for rec in recs:
@@ -398,7 +401,11 @@ def catch_up_calls(db, hours: int = 12, limit: int = 3) -> dict:
         tx = db.query(CallTranscript).filter(CallTranscript.recording_id == rec.id).first()
         if tx is None or not (tx.full_text or "").strip():
             continue
-        run_for_recording(db, rec, tx.full_text)
+        result = run_for_recording(db, rec, tx.full_text) or {}
+        # A voicemail she rightly skips (a new lead, a call-back already
+        # waiting) is checked again cheaply; it must not use up the pass.
+        if result.get("skipped"):
+            continue
         done += 1
         if done >= limit:
             break
