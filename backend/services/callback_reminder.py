@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from clock import now_ct, to_ct
@@ -49,6 +50,64 @@ def pick_slot(want: datetime, now: datetime) -> datetime:
     return t
 
 
+# A call that stops mid-sentence is a possible cut-off: 2026-11-07,
+# a customer's 5-minute call dropped and Alan called straight back for 12 minutes; Stella
+# scheduled from both. A call with no goodbye in its last lines waits
+# CUTOFF_WAIT_MINUTES; a live call followed within SUPERSEDE_MINUTES by a
+# longer one is never reviewed on its own.
+GOODBYE = re.compile(r"\b(bye|goodbye|talk to you|have a (good|great|blessed|nice)|take care|thank you so much|"
+                     r"thanks,? (man|alan|a lot)|appreciate it|sounds good,? thank)\b", re.I)
+CUTOFF_WAIT_MINUTES = 15
+SUPERSEDE_MINUTES = 20
+# Someone who works and is only free in the evenings is never called before 5
+# (Alan said "around 5-6 PM Wednesday"; Stella wrote 9 AM).
+EVENINGS = re.compile(r"(only|usually|not)\s+(\w+\s+){0,3}(evening|after work|after five|after 5|after six|after 6)|evenings? only|in the evenings?", re.I)
+
+
+def _parse_ts(ts: str | None):
+    try:
+        t = datetime.fromisoformat((ts or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def ended_cleanly(transcript: str) -> bool:
+    """A goodbye somewhere in the last lines."""
+    return bool(GOODBYE.search((transcript or "").strip()[-260:]))
+
+
+def minutes_since_end(recording, now=None) -> float:
+    start = _parse_ts(getattr(recording, "created_at", None))
+    if start is None:
+        return 10 ** 6
+    end = start + timedelta(seconds=int(recording.duration_seconds or 0))
+    return ((now or datetime.now(timezone.utc)) - end).total_seconds() / 60
+
+
+def superseded_by(db, recording):
+    """The longer live call to the same lead that started within
+    SUPERSEDE_MINUTES after this one, or None."""
+    from database import CallRecording
+    start = _parse_ts(getattr(recording, "created_at", None))
+    if start is None or not recording.lead_id:
+        return None
+    rows = (db.query(CallRecording).filter(CallRecording.lead_id == recording.lead_id, CallRecording.id != recording.id,
+                                           CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= MIN_SECONDS)
+            .all())
+    for r in rows:
+        t = _parse_ts(r.created_at)
+        if t and start < t <= start + timedelta(minutes=SUPERSEDE_MINUTES):
+            return r
+    return None
+
+
+def evenings_guard(transcript: str, slot: datetime) -> datetime:
+    if EVENINGS.search(transcript or "") and slot.hour < 17:
+        return slot.replace(hour=17, minute=0)
+    return slot
+
+
 def worth_reviewing(duration: int | None, is_voicemail: bool, lead_status: str | None) -> bool:
     """A real conversation with someone who isn't a finished customer."""
     if is_voicemail or (duration or 0) < MIN_SECONDS:
@@ -60,7 +119,7 @@ PROMPT = """You work for Alan, the owner of Sterling Fence Staining in Houston. 
 
 Decide whether Alan owes this customer a call back. Callbacks are Alan's to close. A call back is owed when the customer has not paid and the deal is still alive: they want to think, are getting another quote, want to talk to a spouse, asked for a call on a certain day, didn't pick a day, or the call ended without the $250. NOT owed: they said a clear no, it was spam or a sales call, it was a wrong number, or they already paid / booked and paid.
 
-Pick when. If a day or time was agreed on the call, use it. If a day is held for them, call before that day. If they are getting another quote, give them a day or two. Otherwise the next business day. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
+Pick when. If a day or time was agreed on the call, use it. If ALAN names the day he will reach out ("I'll reach back out Wednesday", "I'll call you Monday afternoon"), that day is the call-back, never earlier, even if the customer said "I'll get back to you" first. Days mentioned for cleaning or staining are NOT call-back days. If a day is held for them, call before that day. If they are getting another quote, give them a day or two. Otherwise the next business day. If a time or window was named ("around five, six PM", "after work", "evenings", "in the morning"), use the START of that window (5:00 PM, 8:00 AM). Someone who works and is only free evenings is never scheduled before 5 PM. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
 
 Write the reminder text Alan will get on his phone. Plain words, short lines, no markdown, exactly these sections:
 📞 CALL NOW ❗❗❗
@@ -77,7 +136,7 @@ Write the reminder text Alan will get on his phone. Plain words, short lines, no
 <held day or what day they want; real dates, never blanks>
 
 🗣️ SAY
-1️⃣ "<word-for-word opener from Alan: 'Hi, it's Alan with Sterling Fence Staining...'>"
+1️⃣ "Hi <Mr./Mrs. Lastname, or first name>, it's Alan with Sterling Fence Staining. How are you doing today?" (always this opener; never "calling you back like I said", never mention the promised call or the voicemail)
 2️⃣ "<the main point, answering what's stopping them>"
 3️⃣ "<the ask: a real day and the $250 to lock it in, rest when we finish>"
 
@@ -90,7 +149,7 @@ Write the reminder text Alan will get on his phone. Plain words, short lines, no
 
 Keep the whole reminder under 1,000 characters (GHL refuses texts over 1,600 and emojis count double): short lines, at most 2 objections. No phone number and no links anywhere in the reminder: Alan calls from the customer's GHL contact.
 
-Rules for the words: sound like Alan, a friendly local guy. Never use "20% off" or a "normal price"; the real deal is the free second coat through Thanksgiving. Never offer a discount without a real reason. Never ask for photos or board counts; repairs are counted on cleaning day (picket $14, rot board $50, cap $85, rail $75). Signature = semi-transparent (lasts 4-5 yrs), Legacy = solid (lasts the LONGEST, 5-8 yrs). Redwood Naturaltone is a Signature color. Price is the same cash or card. "Sir"/"ma'am" must match the customer. Point out anything in the file that doesn't match (sides on the call vs sides on the estimate, color vs package, a held day they said not to hold) inside WHAT IT'S ABOUT, starting with ⚠️.
+Rules for the words: sound like Alan, a friendly local guy. The opener is fixed (Alan, 2026-11-07): "Hi <name>, it's Alan with Sterling Fence Staining. How are you doing today?", then straight to the reason for the call; nothing in SAY or VOICEMAIL points at the missed call, the voicemail or "like I said". Never use "20% off" or a "normal price"; the real deal is the free second coat through Thanksgiving. Never offer a discount without a real reason. Never ask for photos or board counts; repairs are counted on cleaning day (picket $14, rot board $50, cap $85, rail $75). Signature = semi-transparent (lasts 4-5 yrs), Legacy = solid (lasts the LONGEST, 5-8 yrs). Redwood Naturaltone is a Signature color. Price is the same cash or card. "Sir"/"ma'am" must match the customer. Point out anything in the file that doesn't match (sides on the call vs sides on the estimate, color vs package, a held day they said not to hold) inside WHAT IT'S ABOUT, starting with ⚠️.
 
 If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
 
@@ -201,6 +260,15 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     done = fd.get(DONE_KEY) or []
     if any(d.get("recording_id") == recording.id for d in done):
         return {"skipped": "already handled"}
+    later = superseded_by(db, recording)
+    if later is not None:
+        fd[DONE_KEY] = (done + [{"recording_id": recording.id, "at": datetime.now(timezone.utc).isoformat(), "owed": False,
+                                 "why": f"cut off; the call that followed ({later.id[:8]}) is the one reviewed"}])[-20:]
+        lead.form_data = json.dumps(fd)
+        db.commit()
+        return {"skipped": "superseded", "by": later.id}
+    if not ended_cleanly(transcript_text) and minutes_since_end(recording) < CUTOFF_WAIT_MINUTES:
+        return {"skipped": "possible cut-off, waiting"}
     owner = (get_settings().owner_ghl_contact_id or "").strip()
     if not owner:
         return {"skipped": "no owner contact"}
@@ -236,7 +304,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         except ValueError:
             want = now_ct().replace(tzinfo=None) + timedelta(days=1)
         now = now_ct()
-        slot = pick_slot(want.replace(tzinfo=now.tzinfo), now)
+        slot = evenings_guard(transcript_text, pick_slot(want.replace(tzinfo=now.tzinfo), now))
         ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
         record.update({"when": slot.isoformat(), "scheduled": bool(ok),
                        "ghl_message_id": ghl.last_message_id() if ok else ""})
@@ -341,3 +409,37 @@ def cancel_for_closed_deals(db, limit: int = 200) -> dict:
             cancelled += cancel_pending(db, lead, "deal closed")
     return {"checked": len(rows), "cancelled": cancelled}
 
+
+def cancel_requested(db, limit: int = 200) -> dict:
+    """Reminders marked cancelled in the record but not yet stopped on GHL's
+    side: a cancel that failed, or one marked from a laptop whose GHL key
+    can't reach GHL (2026-11-07, four wrong reminders). The server's key
+    works, so this runs on Stella's tick. Three tries per record."""
+    from database import Lead
+    from services import ghl
+
+    rows = (db.query(Lead).filter(Lead.form_data.like('%"cancelled_at": "%'))
+            .order_by(Lead.updated_at.desc()).limit(limit).all())
+    tried = stopped = 0
+    for lead in rows:
+        try:
+            fd = json.loads(lead.form_data or "{}")
+        except Exception:  # noqa: BLE001
+            continue
+        changed = False
+        for rec in fd.get(DONE_KEY) or []:
+            mid = (rec.get("ghl_message_id") or "").strip()
+            tries = int(rec.get("ghl_cancel_tries") or 0)
+            if not rec.get("cancelled_at") or not mid or rec.get("ghl_cancelled") or tries >= 3:
+                continue
+            tried += 1
+            ok = bool(ghl.cancel_scheduled_message(mid))
+            rec["ghl_cancel_tries"] = tries + 1
+            if ok:
+                rec["ghl_cancelled"] = True
+                stopped += 1
+            changed = True
+        if changed:
+            lead.form_data = json.dumps(fd)
+            db.commit()
+    return {"tried": tried, "stopped": stopped}

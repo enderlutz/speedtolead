@@ -230,3 +230,50 @@ def test_confirmation_text_says_the_year_when_it_is_not_this_year():
                         else slot.strftime("%a %-m/%-d %-I:%M %p"))
     assert str(now.year + 1) in fmt(far) and "Jan 4" in fmt(far)
     assert str(now.year) not in fmt(near)
+
+
+def test_a_call_that_stops_mid_sentence_is_not_a_finished_call():
+    """2026-11-07: a 5-minute call dropped mid-word; Alan called right back."""
+    assert not cr.ended_cleanly("Okay. Yeah. I'm... And I think that more so")
+    assert cr.ended_cleanly("I'll give you a call around five, 6PM on Wednesday. Okay. Thank you so much. Bye bye.")
+
+
+def test_evenings_guard_never_before_five():
+    slot = datetime(2026, 11, 11, 9, 0, tzinfo=timezone.utc)
+    moved = cr.evenings_guard("I work. So I'm usually not available until the evenings.", slot)
+    assert (moved.hour, moved.minute) == (17, 0)
+    assert cr.evenings_guard("mornings are great for me", slot) == slot
+
+
+def test_cut_off_call_is_superseded_by_the_one_that_followed():
+    from database import CallRecording
+    db = _db()
+    _lead_with_reminders(db, [], lead_id="cut")
+    first = CallRecording(id="first", lead_id="cut", created_at="2026-11-07T23:52:00.000Z", duration_seconds=322, is_voicemail=False)
+    second = CallRecording(id="second", lead_id="cut", created_at="2026-11-07T23:57:40.000Z", duration_seconds=734, is_voicemail=False)
+    db.add_all([first, second])
+    db.commit()
+    assert cr.superseded_by(db, first).id == "second"
+    assert cr.superseded_by(db, second) is None
+    assert cr.minutes_since_end(first, now=datetime(2026, 11, 7, 23, 59, tzinfo=timezone.utc)) < cr.CUTOFF_WAIT_MINUTES
+
+
+def test_cancel_requested_pulls_hand_marked_reminders_from_ghl(monkeypatch):
+    """Marked cancelled from the laptop (its key is dead); the server sweep
+    does the GHL cancel, three tries at most."""
+    db = _db()
+    lead = _lead_with_reminders(db, [5, 30, 50])
+    recs = json.loads(lead.form_data)[cr.DONE_KEY]
+    recs[0]["cancelled_at"] = "2026-11-08T00:15:00+00:00"                       # marked by hand, never cancelled
+    recs[1]["cancelled_at"] = "2026-11-08T00:15:00+00:00"; recs[1]["ghl_cancel_tries"] = 3   # gave up
+    lead.form_data = json.dumps({cr.DONE_KEY: recs})
+    db.commit()
+    calls = []
+    monkeypatch.setattr("services.ghl.cancel_scheduled_message", lambda mid, location_id=None: calls.append(mid) or True)
+    assert cr.cancel_requested(db) == {"tried": 1, "stopped": 1}
+    assert calls == ["m0"]
+    recs = json.loads(lead.form_data)[cr.DONE_KEY]
+    assert recs[0]["ghl_cancelled"] is True and recs[0]["ghl_cancel_tries"] == 1
+    assert not recs[2].get("cancelled_at")
+    assert cr.cancel_requested(db) == {"tried": 0, "stopped": 0}
+

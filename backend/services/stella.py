@@ -348,8 +348,11 @@ def tick(db) -> dict:
         note_error(db, f"call catch-up: {type(e).__name__}: {e}")
     try:
         # Closed deals get no reminders (Alan, 2026-11-07).
-        from services.callback_reminder import cancel_for_closed_deals
+        from services.callback_reminder import cancel_for_closed_deals, cancel_requested
         out["closed"] = cancel_for_closed_deals(db)
+        # Wrong reminders marked cancelled by hand get pulled from GHL here,
+        # where the key works (2026-11-07).
+        out["cancel_requested"] = cancel_requested(db)
     except Exception as e:  # noqa: BLE001
         db.rollback()
         logger.warning("Stella closed-deal sweep failed: %s", e)
