@@ -374,7 +374,7 @@ def catch_up_calls(db, hours: int = 12, limit: int = 3) -> dict:
     """Any real call from the last `hours` that she hasn't reviewed yet (the
     first try failed, or the app restarted mid-way) gets reviewed now."""
     from database import CallRecording, CallTranscript, Lead
-    from services.callback_reminder import DONE_KEY, MIN_SECONDS, VM_MIN_SECONDS, run_for_recording
+    from services.callback_reminder import DONE_KEY, REVIEW_MIN_SECONDS, VM_MIN_SECONDS, run_for_recording
     from sqlalchemy import and_, or_
     if not on(db):
         return {"skipped": "off"}
@@ -383,7 +383,7 @@ def catch_up_calls(db, hours: int = 12, limit: int = 3) -> dict:
     since = max((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(), LIVE_SINCE)
     recs = (db.query(CallRecording).filter(CallRecording.status == "analyzed", CallRecording.analyzed_at >= since,
                                            CallRecording.lead_id.isnot(None),
-                                           or_(and_(CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= MIN_SECONDS),
+                                           or_(and_(CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= REVIEW_MIN_SECONDS),
                                                and_(CallRecording.is_voicemail.is_(True), CallRecording.call_direction == "outbound",
                                                     CallRecording.duration_seconds >= VM_MIN_SECONDS)))
             .order_by(CallRecording.created_at.asc()).all())

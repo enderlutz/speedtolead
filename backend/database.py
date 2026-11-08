@@ -2170,6 +2170,25 @@ class CrewReimbursement(Base):
     created_by = Column(Text, default="")
 
 
+class CrewWeekPaid(Base):
+    """A worker's week marked paid on Crew hours (Alan, 2026-11-08: "make sure
+    it says paid"). Office-only; the crew's own My Hours never shows it. One
+    row per worker per week (Monday start). Receipts paid with it are listed
+    so un-marking puts them back."""
+    __tablename__ = "crew_week_paid"
+
+    id = Column(Text, primary_key=True)
+    username = Column(Text, nullable=False)
+    week_start = Column(Text, nullable=False)   # YYYY-MM-DD, the Monday
+    week_end = Column(Text, default="")
+    amount = Column(Float, default=0.0)
+    method = Column(Text, default="")           # zelle | cashapp | cash | venmo | check | other
+    paid_on = Column(Text, default="")          # YYYY-MM-DD
+    receipt_ids = Column(Text, default="[]")    # JSON: receipts paid back with this
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+
 class ContentItem(Base):
     """A photo or video for social media (Alan, 2026-10-17). The file goes
     straight from the phone to Storage, untouched, so the quality stays

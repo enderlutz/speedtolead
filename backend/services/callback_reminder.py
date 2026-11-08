@@ -32,6 +32,14 @@ DONE_KEY = "callback_reminders"  # in lead.form_data: recording ids already hand
 # Alan's own phone hours, every day (On call roles): 8-10, 12-2:30, 5-8.
 WINDOWS = ((8 * 60, 10 * 60), (12 * 60, 14 * 60 + 30), (17 * 60, 20 * 60))
 MIN_SECONDS = 60
+# Every live call gets read, however short (Alan, 2026-11-08: a 44-second call
+# where the customer said "call me back on Monday" and hung up got no
+# reminder). The poller already drops anything under 5 seconds.
+REVIEW_MIN_SECONDS = 1
+# A VA's call gets a coaching review only when there was a real conversation.
+VA_REVIEW_SECONDS = 60
+# "We've talked to them" (for voicemail follow-ups) counts any live call this long.
+TALK_SECONDS = 20
 SKIP_STATUSES = {"closed", "archived"}
 
 
@@ -110,12 +118,14 @@ def evenings_guard(transcript: str, slot: datetime) -> datetime:
 
 def worth_reviewing(duration: int | None, is_voicemail: bool, lead_status: str | None) -> bool:
     """A real conversation with someone who isn't a finished customer."""
-    if is_voicemail or (duration or 0) < MIN_SECONDS:
+    if is_voicemail or (duration or 0) < REVIEW_MIN_SECONDS:
         return False
     return (lead_status or "") not in SKIP_STATUSES
 
 
 PROMPT = """You work for Alan, the owner of Sterling Fence Staining in Houston. A phone call with a customer just ended. You get the WHOLE file: this call, earlier calls, the texts, the estimate, any held day. Read all of it before deciding anything.
+
+Short calls count too: a customer who says "call me back Monday" and hangs up in 40 seconds still gets the call-back on the day they named (late morning if they gave no time). A call that is only a voicemail greeting is not a conversation.
 
 Decide whether Alan owes this customer a call back. Callbacks are Alan's to close. A call back is owed when the customer has not paid and the deal is still alive: they want to think, are getting another quote, want to talk to a spouse, asked for a call on a certain day, didn't pick a day, or the call ended without the $250. NOT owed: they said a clear no, it was spam or a sales call, it was a wrong number, or they already paid / booked and paid.
 
@@ -210,7 +220,7 @@ def had_a_real_talk(db, lead_id: str, before_iso: str) -> bool:
     from database import CallRecording
     return db.query(CallRecording.id).filter(
         CallRecording.lead_id == lead_id, CallRecording.is_voicemail.isnot(True),
-        CallRecording.duration_seconds >= MIN_SECONDS, CallRecording.created_at < before_iso).first() is not None
+        CallRecording.duration_seconds >= TALK_SECONDS, CallRecording.created_at < before_iso).first() is not None
 
 
 def answered_since(db, recording) -> bool:
@@ -218,7 +228,7 @@ def answered_since(db, recording) -> bool:
     from database import CallRecording
     return db.query(CallRecording.id).filter(
         CallRecording.lead_id == recording.lead_id, CallRecording.id != recording.id,
-        CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= MIN_SECONDS,
+        CallRecording.is_voicemail.isnot(True), CallRecording.duration_seconds >= TALK_SECONDS,
         CallRecording.created_at > (recording.created_at or "")).first() is not None
 
 
@@ -371,7 +381,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             logger.warning("Legacy flag failed for %s: %s", lead.id, e)
     if voicemail:
         record["voicemail"] = True
-    review = "" if voicemail else (out.get("review") or "").strip()
+    review = "" if voicemail or (recording.duration_seconds or 0) < VA_REVIEW_SECONDS else (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])
         record["review_sent"] = True

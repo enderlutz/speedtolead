@@ -90,3 +90,15 @@ def test_they_called_back_so_nothing_to_book(db, monkeypatch):
     _rec(db, lead, _iso(hours=1), 300, False, direction="inbound")
     assert cr.run_for_recording(db, vm, "call me back")["skipped"] == "talked to them after the voicemail"
     assert not sent
+
+
+def test_a_short_call_where_they_name_a_day_gets_its_call_back(db, monkeypatch):
+    """Ida, 2026-11-08: 44 seconds, 'call me back on Monday', then she hung up."""
+    sent, asked = [], []
+    _wire(monkeypatch, sent, asked)
+    lead = _lead(db)
+    rec = _rec(db, lead, _iso(minutes=30), 44, False)
+    out = cr.run_for_recording(db, rec, "This is Sunday, call me back on Monday. Okay, have a good night, bye.")
+    assert out.get("scheduled") is True
+    assert asked == [cr.PROMPT]
+    assert len(sent) == 2  # the scheduled reminder + the "call-back set" note; no VA review for a short call

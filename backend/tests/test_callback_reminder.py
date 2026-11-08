@@ -37,7 +37,10 @@ def test_never_in_the_past():
 
 def test_only_live_unfinished_conversations():
     assert worth_reviewing(681, False, "sent")
-    assert not worth_reviewing(8, False, "sent")
+    # Every live call is read, however short (2026-11-08).
+    assert worth_reviewing(44, False, "sent")
+    assert worth_reviewing(8, False, "sent")
+    assert not worth_reviewing(0, False, "sent")
     assert not worth_reviewing(300, True, "sent")
     assert not worth_reviewing(300, False, "closed")
     assert not worth_reviewing(300, False, "archived")

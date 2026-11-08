@@ -4,6 +4,7 @@ a tab of their schedule. The office reads every one on Crew Stats. Today
 and up to a week back; one entry per day, changed by saving again."""
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user, require_staff
 from api.job_visits import today
-from database import CompanyCamPhoto, CrewReimbursement, HoursLog, SystemConfig, User, get_db
+from database import CompanyCamPhoto, CrewReimbursement, CrewWeekPaid, HoursLog, SystemConfig, User, get_db
 
 router = APIRouter()
 
@@ -237,11 +238,28 @@ def what_is_owed(db, start: str, end: str, entries: list[dict], flat: dict, name
         p = get(r["username"])
         p["receipts"].append(r)
         p["receipt_total"] += r["amount"]
+    # Weeks the office marked paid (Alan, 2026-11-08). Receipts paid with the
+    # week come back here so the paid card still shows the full amount.
+    marks = {m.username.lower(): m for m in db.query(CrewWeekPaid).filter(CrewWeekPaid.week_start == start).all()}
+    for k, m in marks.items():
+        p = get(m.username)
+        try:
+            ids = set(json.loads(m.receipt_ids or "[]"))
+        except ValueError:
+            ids = set()
+        if ids:
+            for r in (_receipt(x) for x in db.query(CrewReimbursement).filter(CrewReimbursement.id.in_(ids)).all()):
+                if not any(x["id"] == r["id"] for x in p["receipts"]):
+                    p["receipts"].append(r)
+                    p["receipt_total"] += r["amount"]
     out = []
     for p in by.values():
         for k in ("hours", "hours_in_flat", "hourly_pay", "flat_pay", "receipt_total"):
             p[k] = round(p[k], 2)
         p["owed"] = round(p["hourly_pay"] + p["flat_pay"] + p["receipt_total"], 2)
+        m = marks.get(p["username"].lower())
+        p["paid"] = ({"id": m.id, "amount": m.amount, "method": m.method, "paid_on": m.paid_on}
+                     if m is not None else None)
         out.append(p)
     return sorted(out, key=lambda p: (-p["owed"], p["name"]))
 
@@ -304,6 +322,76 @@ def remove_receipt(receipt_id: str, user: dict = Depends(require_staff)):
         if r is None:
             raise HTTPException(404, "That receipt is gone already")
         db.delete(r)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+PAY_METHODS = {"zelle", "cashapp", "cash", "venmo", "check", "other"}
+
+
+class WeekPaidIn(BaseModel):
+    username: str
+    week_start: str
+    week_end: str = ""
+    amount: float
+    method: str = "zelle"
+    paid_on: str = ""
+
+
+@router.post("/crew-week-paid")
+def mark_week_paid(body: WeekPaidIn, user: dict = Depends(require_staff)):
+    """The office marks a worker's week paid (Alan, 2026-11-08). The receipts
+    still owed to them are paid back with it."""
+    try:
+        datetime.strptime(body.week_start, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "week_start must be YYYY-MM-DD")
+    method = (body.method or "").lower().replace(" ", "")
+    if method not in PAY_METHODS:
+        raise HTTPException(400, "Pick how they were paid")
+    db = get_db()
+    try:
+        u = db.query(User).filter(User.username.ilike(body.username)).first()
+        if u is None:
+            raise HTTPException(404, "No such worker")
+        now = datetime.now(timezone.utc).isoformat()
+        end = body.week_end or (datetime.strptime(body.week_start, "%Y-%m-%d") + timedelta(days=6)).strftime("%Y-%m-%d")
+        owed = [r for r in db.query(CrewReimbursement).filter(CrewReimbursement.username.ilike(u.username),
+                                                              CrewReimbursement.work_date <= end).all()
+                if not (r.paid_at or "")]
+        for r in owed:
+            r.paid_at = now
+        m = db.query(CrewWeekPaid).filter(CrewWeekPaid.username == u.username, CrewWeekPaid.week_start == body.week_start).first()
+        if m is None:
+            m = CrewWeekPaid(id=str(uuid.uuid4()), username=u.username, week_start=body.week_start, created_at=now)
+            db.add(m)
+        prior = set(json.loads(m.receipt_ids or "[]")) if m.receipt_ids else set()
+        m.week_end, m.amount, m.method = end, round(float(body.amount), 2), method
+        m.paid_on = body.paid_on or today()
+        m.receipt_ids = json.dumps(sorted(prior | {r.id for r in owed}))
+        m.created_by = user.get("name") or user.get("sub") or ""
+        db.commit()
+        return {"ok": True, "id": m.id}
+    finally:
+        db.close()
+
+
+@router.delete("/crew-week-paid/{mark_id}")
+def unmark_week_paid(mark_id: str, user: dict = Depends(require_staff)):
+    """Undo a paid mark; the receipts it paid back are owed again."""
+    del user
+    db = get_db()
+    try:
+        m = db.query(CrewWeekPaid).filter(CrewWeekPaid.id == mark_id).first()
+        if m is None:
+            raise HTTPException(404, "Not found")
+        ids = json.loads(m.receipt_ids or "[]")
+        if ids:
+            for r in db.query(CrewReimbursement).filter(CrewReimbursement.id.in_(ids)).all():
+                r.paid_at = ""
+        db.delete(m)
         db.commit()
         return {"ok": True}
     finally:

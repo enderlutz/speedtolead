@@ -139,3 +139,32 @@ def test_a_receipt_can_be_written_down_and_cleared(db, monkeypatch):
     assert hl.crew_hours("2026-11-02", "2026-11-08", {"role": "admin"})["owed"][0]["owed"] == 37.06
     assert hl.receipt_paid(r["id"], {"role": "admin"})["ok"]
     assert hl.crew_hours("2026-11-02", "2026-11-08", {"role": "admin"})["owed"] == []
+
+
+def test_a_week_marked_paid_says_paid_and_undo_brings_it_back(db, monkeypatch):
+    """Alan, 2026-11-08: 'make sure it says paid' on the office side."""
+    import json as _json
+    from api import hours_log as hl
+    from database import CrewReimbursement, CrewWeekPaid, User
+    db.add(User(id="u-paid-1", username="PaidWorker", display_name="Paid Worker", role="worker", hourly_rate=16.0, password_hash="x"))
+    db.add(CrewReimbursement(id="rcpt-1", username="PaidWorker", work_date="2026-11-03", amount=20.0, what="tape", paid_at=""))
+    db.commit()
+    monkeypatch.setattr(hl, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    entries = [{"username": "PaidWorker", "date": "2026-11-03", "hours": 5.0, "minutes": 300}]
+    owed = hl.what_is_owed(db, "2026-11-02", "2026-11-08", entries, {}, {})
+    row = next(p for p in owed if p["username"] == "PaidWorker")
+    assert row["owed"] == 100.0 and row["paid"] is None
+    hl.mark_week_paid(hl.WeekPaidIn(username="paidworker", week_start="2026-11-02", amount=100.0, method="Cash App"),
+                      user={"sub": "alan", "name": "Alan"})
+    owed = hl.what_is_owed(db, "2026-11-02", "2026-11-08", entries, {}, {})
+    row = next(p for p in owed if p["username"] == "PaidWorker")
+    assert row["paid"]["method"] == "cashapp" and row["paid"]["amount"] == 100.0
+    assert row["owed"] == 100.0  # the receipt paid with the week still shows on the card
+    assert db.query(CrewReimbursement).get("rcpt-1").paid_at
+    mark = db.query(CrewWeekPaid).first()
+    assert _json.loads(mark.receipt_ids) == ["rcpt-1"]
+    hl.unmark_week_paid(mark.id, user={"sub": "alan"})
+    assert db.query(CrewReimbursement).get("rcpt-1").paid_at == ""
+    owed = hl.what_is_owed(db, "2026-11-02", "2026-11-08", entries, {}, {})
+    assert next(p for p in owed if p["username"] == "PaidWorker")["paid"] is None

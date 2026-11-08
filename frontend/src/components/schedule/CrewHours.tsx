@@ -20,11 +20,13 @@ type Flat = { username: string; name: string; date: string; total: number; lines
 type Receipt = { id: string; date: string; amount: number; what: string; paid_at: string };
 /** What one worker is owed for the week (2026-11-07). */
 type Owed = { username: string; name: string; hours: number; hours_in_flat: number; hourly_rate: number; hourly_pay: number;
-  flat_pay: number; receipts: Receipt[]; receipt_total: number; owed: number };
+  flat_pay: number; receipts: Receipt[]; receipt_total: number; owed: number;
+  paid?: { id: string; amount: number; method: string; paid_on: string } | null };
 type Data = { start: string; end: string; entries: HoursEntry[]; missing?: Missing[]; flat?: Flat[]; owed?: Owed[]; pay_days?: Record<string, string> };
 const TASK: Record<string, string> = { cleaning: "cleaning", staining: "staining", repairs: "repairs", pressure_washing: "washing" };
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
+const METHOD: Record<string, string> = { zelle: "Zelle", cashapp: "Cash App", cash: "Cash", venmo: "Venmo", check: "Check", other: "Other" };
 const PAY: Record<string, string> = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
 const clock = (hm: string) => {
   const [h, m] = hm.split(":").map(Number);
@@ -72,7 +74,8 @@ export function CrewHours() {
     return out.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }, [d]);
   const weekTotal = people.reduce((t, p) => t + p.total, 0);
-  const weekOwed = people.reduce((t, p) => t + (p.owed?.owed || 0), 0);
+  // Paid weeks don't count toward what's still owed (2026-11-08).
+  const weekOwed = people.reduce((t, p) => t + (p.owed && !p.owed.paid ? p.owed.owed : 0), 0);
   const thisWeek = start === startOfWeek(today);
 
   return (
@@ -101,7 +104,7 @@ export function CrewHours() {
               <p className="text-lg font-bold">{p.name}</p>
               <p className="text-2xl font-black tabular-nums">{hrs(p.total)}</p>
             </div>
-            {p.owed ? <PayLines o={p.owed} onChange={reload} />
+            {p.owed ? <PayLines o={p.owed} start={start} end={end} onChange={reload} />
               : p.flat ? <p className="text-base font-bold text-emerald-800">+ {usd(Math.round(p.flat * 100) / 100)} flat pay</p> : null}
             {d.pay_days?.[p.username] ? <p className="mt-1 text-sm text-muted-foreground">Pay day {PAY[d.pay_days[p.username]] || d.pay_days[p.username]}</p> : null}
             <ul className="mt-2 divide-y">
@@ -140,7 +143,7 @@ export function CrewHours() {
 }
 
 /** "36.25 h × $18 = $652.50 hourly · + $272 flat pay · + $37.06 receipt · Owe $689.56", with the receipt form. */
-function PayLines({ o, onChange }: { o: Owed; onChange: () => void }) {
+function PayLines({ o, start, end, onChange }: { o: Owed; start: string; end: string; onChange: () => void }) {
   const [adding, setAdding] = useState(false);
   const [amt, setAmt] = useState("");
   const [what, setWhat] = useState("");
@@ -156,6 +159,18 @@ function PayLines({ o, onChange }: { o: Owed; onChange: () => void }) {
       setAdding(false); setAmt(""); setWhat(""); onChange();
     } catch { setOops("Didn't save. Try again."); } finally { setBusy(false); }
   };
+  const [paying, setPaying] = useState(false);
+  const [method, setMethod] = useState("zelle");
+  const markPaid = async () => {
+    setBusy(true); setOops("");
+    try { await api.markWeekPaid({ username: o.username, week_start: start, week_end: end, amount: o.owed, method }); setPaying(false); onChange(); }
+    catch { setOops("Didn't save. Try again."); } finally { setBusy(false); }
+  };
+  const unmark = async () => {
+    if (!o.paid) return;
+    setBusy(true); setOops("");
+    try { await api.unmarkWeekPaid(o.paid.id); onChange(); } catch { setOops("Didn't save. Try again."); } finally { setBusy(false); }
+  };
   const paid = async (id: string) => {
     setBusy(true);
     try { await api.crewReceiptPaid(id); onChange(); } catch { setOops("Didn't save. Try again."); } finally { setBusy(false); }
@@ -168,10 +183,30 @@ function PayLines({ o, onChange }: { o: Owed; onChange: () => void }) {
       {o.receipts.map((r) => (
         <p key={r.id} className="flex items-center justify-between gap-2 text-amber-900">
           <span className="min-w-0">+ <b className="tabular-nums">{usd(r.amount)}</b> receipt · {r.what || "receipt"} · {dayWords(r.date)}</span>
-          <button type="button" disabled={busy} onClick={() => paid(r.id)} className="h-9 shrink-0 rounded-lg border px-3 text-sm font-semibold">Paid back</button>
+          {r.paid_at ? null : <button type="button" disabled={busy} onClick={() => paid(r.id)} className="h-9 shrink-0 rounded-lg border px-3 text-sm font-semibold">Paid back</button>}
         </p>
       ))}
-      <p className="text-lg font-black">Owe <span className="tabular-nums">{usd(o.owed)}</span></p>
+      {o.paid ? (
+        <p className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-emerald-900">
+          <span className="text-lg font-black">✓ Paid <span className="tabular-nums">{usd(o.paid.amount)}</span>
+            <span className="text-sm font-semibold"> · {METHOD[o.paid.method] || o.paid.method} · {dayWords(o.paid.paid_on)}</span></span>
+          <button type="button" disabled={busy} onClick={unmark} className="h-9 rounded-lg border border-emerald-300 px-3 text-sm">Undo</button>
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-lg font-black">Owe <span className="tabular-nums">{usd(o.owed)}</span></p>
+          {paying ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <select aria-label="How they were paid" value={method} onChange={(e) => setMethod(e.target.value)} className="h-11 rounded-xl border bg-background px-2 text-base">
+                {Object.entries(METHOD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <button type="button" disabled={busy} onClick={markPaid} className="h-11 rounded-xl bg-emerald-700 px-4 text-base font-semibold text-white disabled:opacity-50">Paid {usd(o.owed)}</button>
+              <button type="button" onClick={() => setPaying(false)} className="h-11 rounded-xl border px-3 text-base">Cancel</button>
+            </span>
+          ) : o.owed > 0 ? <button type="button" onClick={() => setPaying(true)} className="h-11 rounded-xl border px-4 text-base font-semibold">Mark paid</button> : null}
+        </div>
+      )}
+      {oops && !adding ? <p className="text-sm text-rose-700">{oops}</p> : null}
       {adding ? (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <input inputMode="decimal" placeholder="$ amount" value={amt} onChange={(e) => setAmt(e.target.value)} className="h-11 w-28 rounded-xl border bg-background px-3 text-base" />

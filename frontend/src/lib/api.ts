@@ -4111,13 +4111,19 @@ export const api = {
       pay_days?: Record<string, string>;
       /** What each worker is owed this week: hours × rate, flat pay, receipts (2026-11-07). */
       owed?: { username: string; name: string; hours: number; hours_in_flat: number; hourly_rate: number; hourly_pay: number; flat_pay: number;
-        receipts: { id: string; date: string; amount: number; what: string; paid_at: string }[]; receipt_total: number; owed: number }[] }>(
+        receipts: { id: string; date: string; amount: number; what: string; paid_at: string }[]; receipt_total: number; owed: number;
+        /** The office marked this week paid (2026-11-08). Never shown to the crew. */
+        paid?: { id: string; amount: number; method: string; paid_on: string } | null }[] }>(
       `/api/crew-hours?start=${start}&end=${end}`),
   /** The office writes down a receipt a worker is owed, marks it paid, or removes it (2026-11-07). */
   addCrewReceipt: (b: { username: string; date: string; amount: number; what: string }) =>
     request<{ id: string }>(`/api/crew-receipts`, { method: "POST", body: JSON.stringify(b) }),
   crewReceiptPaid: (id: string) => request<{ ok: boolean }>(`/api/crew-receipts/${id}/paid`, { method: "POST" }),
   deleteCrewReceipt: (id: string) => request<{ ok: boolean }>(`/api/crew-receipts/${id}`, { method: "DELETE" }),
+  /** Mark a worker's week paid, or undo it (2026-11-08). Office only. */
+  markWeekPaid: (b: { username: string; week_start: string; week_end: string; amount: number; method: string; paid_on?: string }) =>
+    request<{ ok: boolean; id: string }>(`/api/crew-week-paid`, { method: "POST", body: JSON.stringify(b) }),
+  unmarkWeekPaid: (id: string) => request<{ ok: boolean }>(`/api/crew-week-paid/${id}`, { method: "DELETE" }),
   /** The worker it's on marks a job to fix done (2026-11-02). */
   myFixDone: (fixId: string, leftAt = "") =>
     request<{ ok: boolean }>(`/api/my-fixes/${fixId}/done`, { method: "POST", body: JSON.stringify({ left_at: leftAt }) }),
