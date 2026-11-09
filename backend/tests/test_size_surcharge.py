@@ -65,9 +65,12 @@ def test_breakdown_adds_up_to_each_tier():
         assert est.tiers_from_breakdown(breakdown, meta["tiers"], breakdown)[k] == pytest.approx(v, abs=0.02)
 
 
-def test_no_size_quotes_less_than_the_old_band():
+def test_no_size_quotes_less_than_the_old_band(monkeypatch):
     """Alan: "we're not actually charging less on anything" — every size,
-    package and age is at least what the old flat +25¢ (500–1,000) gave."""
+    package and age is at least what the old flat +25¢ (500–1,000) gave.
+    Checked before the under-the-thousand rounding, which takes a few dollars
+    off on purpose (Alan, 2026-11-09; tests/test_under_the_thousand.py)."""
+    monkeypatch.setattr(est, "_under_the_thousand", lambda t: (dict(t), {}))
     for age, key in (("Brand new (less than 6 months)", "brand_new"), ("1-6 years", "1_6yr"), ("6-15 years", "6_15yr")):
         for sqft in range(60, 3001, 6):
             t = price(sqft, age)

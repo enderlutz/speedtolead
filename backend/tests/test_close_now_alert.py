@@ -177,3 +177,14 @@ def test_va_hears_when_her_call_gets_a_call_back(db, monkeypatch):
     out = cr.run_for_recording(db, r, DONE)
     assert out.get("va_told") is True
     assert any(t.startswith("📅 Call-back set: Test Customer") for t in sent_va)
+
+
+def test_one_call_is_reviewed_once_even_if_two_threads_reach_it(db, monkeypatch):
+    """2026-11-09: the poller and the catch-up both reviewed one call."""
+    from services import callback_reminder as cr
+    rec = type("R", (), {"id": "rec-1", "lead_id": None})()
+    cr._IN_FLIGHT.add("rec-1")
+    try:
+        assert cr.run_for_recording(db, rec, "x") == {"skipped": "already being handled"}
+    finally:
+        cr._IN_FLIGHT.discard("rec-1")

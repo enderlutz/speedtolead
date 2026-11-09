@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 
 from clock import now_ct, to_ct
@@ -420,8 +421,36 @@ def _to_alan(message: str, scheduled_at: int | None = None) -> bool:
     return to_alan(message, scheduled_at=scheduled_at)
 
 
+# The poller (right after transcribing) and Stella's catch-up can reach the
+# same call within seconds of each other; both passed the "already handled"
+# check before either saved, so Alan and the VA got two different reviews of
+# one call (2026-11-09). One call is worked by one thread at a time.
+_IN_FLIGHT: set[str] = set()
+_IN_FLIGHT_LOCK = threading.Lock()
+
+
 def run_for_recording(db, recording, transcript_text: str) -> dict:
     """Review one finished call and schedule Alan's reminder. Returns what it did."""
+    rid = recording.id or ""
+    with _IN_FLIGHT_LOCK:
+        if rid in _IN_FLIGHT:
+            return {"skipped": "already being handled"}
+        _IN_FLIGHT.add(rid)
+    try:
+        db.refresh(recording)
+        lead_id = recording.lead_id
+        if lead_id:
+            from database import Lead
+            lead = db.query(Lead).filter(Lead.id == lead_id).first()
+            if lead is not None:
+                db.refresh(lead)
+        return _run_for_recording(db, recording, transcript_text)
+    finally:
+        with _IN_FLIGHT_LOCK:
+            _IN_FLIGHT.discard(rid)
+
+
+def _run_for_recording(db, recording, transcript_text: str) -> dict:
     from config import get_settings
     from database import Lead, SystemConfig
     from services import ghl

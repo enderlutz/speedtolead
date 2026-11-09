@@ -281,6 +281,45 @@ def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str
 
 # --- Main calculator ---
 
+# A price just over a thousand mark reads like the next thousand on the call
+# ("three thousand three dollars"). Alan, 2026-11-09: a price just over a
+# thousand drops just under it ($3,003.31 -> about $2,996.54),
+# but never by more than the cap for that thousand, so a small job doesn't
+# lose 5%. Only the automatic price; a price typed by hand is left alone.
+UNDER_THOUSAND_CAP = {1000: 25.0, 2000: 35.0, 3000: 50.0}
+UNDER_THOUSAND_CAP_ABOVE = 75.0   # $4,000 and up
+
+
+def _under_the_thousand(tiers: dict) -> tuple[dict, dict]:
+    """(new tiers, {tier: dollars taken off}).
+
+    Everything from $4 under a mark up to the cap over it is squeezed into
+    $X,996.00-$X,999.99 in order, so a bigger fence never comes out cheaper
+    than a smaller one ($999.00 must not beat $1,002 dropping to $996). Each
+    package is checked on its own and never drops to or below the one under it."""
+    out, drops = dict(tiers), {}
+    floor = 0.0
+    for k in ("essential", "signature", "legacy"):
+        p = float(out.get(k) or 0)
+        mark = int((p + 4) // 1000) * 1000          # the mark this price sits near
+        if mark >= 1000:
+            cap = UNDER_THOUSAND_CAP.get(mark, UNDER_THOUSAND_CAP_ABOVE)
+            lo, hi = mark - 4.0, mark + cap - 0.01   # window that gets squeezed
+            if lo <= p <= hi:
+                new = round(lo + (p - lo) * 3.99 / (hi - lo), 2)
+                if new < p and new > floor:
+                    drops[k] = round(p - new, 2)
+                    out[k] = new
+        floor = out[k]
+    return out, drops
+
+
+def _fmt_rate(rate: float) -> str:
+    """Same as the editor's formatRate: $0.99 stays 0.99, $0.987489 is 0.9875."""
+    four = f"{rate:.4f}"
+    return f"{rate:.2f}" if four.endswith("00") else four.rstrip("0")
+
+
 def calculate_fence_staining(
     form_data: dict[str, Any],
     zip_code: str = "",
@@ -368,6 +407,8 @@ def calculate_fence_staining(
     if min_topup:
         tiers = {k: round(v + min_topup, 2) for k, v in tiers.items()}
 
+    tiers, under = _under_the_thousand(tiers)
+
     mid = tiers["signature"]
 
     # Expanded breakdown — per-sqft rates for all 3 tiers + surcharges
@@ -388,6 +429,18 @@ def calculate_fence_staining(
          "note": f"Premium tier",
          "tier": "legacy"},
     ]
+    # The drop comes off that package's own line, and the label shows the
+    # rate that line now works out to, so rate x sqft still equals the line.
+    for line in breakdown:
+        t = line.get("tier")
+        drop = under.get(t)
+        if drop and sqft > 0:
+            line["value"] = round(line["value"] - drop, 2)
+            rate = line["value"] / sqft
+            line["rate"], line["qty"] = round(rate, 6), sqft
+            line["label"] = f"{t.title()}: ${_fmt_rate(rate)}/sqft x {sqft:.0f} sqft"
+            mark = int((tiers[t] + drop + 4) // 1000) * 1000
+            line["note"] += f" (rounded under ${mark:,}: ${drop:,.2f} off)"
     if zone_surcharge_rate > 0:
         breakdown.append({
             "label": f"{zone} zone surcharge: +${zone_surcharge_rate:.2f}/sqft",
