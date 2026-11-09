@@ -282,8 +282,21 @@ def test_cancel_requested_pulls_hand_marked_reminders_from_ghl(monkeypatch):
 
 
 
-def test_no_calls_after_six_on_sunday():
-    sun = ct(2026, 11, 8, 18, 30)  # Sunday 6:30 PM
-    slot = pick_slot(sun, ct(2026, 11, 8, 15, 0))
-    assert slot == ct(2026, 11, 9, 8, 0)  # Monday 8 AM
-    assert pick_slot(ct(2026, 11, 8, 17, 15), ct(2026, 11, 8, 15, 0)) == ct(2026, 11, 8, 17, 15)
+def test_sunday_calls_only_between_nine_and_five():
+    assert pick_slot(ct(2026, 11, 8, 18, 30), ct(2026, 11, 8, 15, 0)) == ct(2026, 11, 9, 8, 0)  # Monday 8 AM
+    assert pick_slot(ct(2026, 11, 8, 17, 15), ct(2026, 11, 8, 15, 0)) == ct(2026, 11, 9, 8, 0)
+    assert pick_slot(ct(2026, 11, 8, 16, 30), ct(2026, 11, 8, 15, 0)) == ct(2026, 11, 8, 16, 30)
+    assert pick_slot(ct(2026, 11, 8, 8, 0), ct(2026, 11, 8, 6, 0)) == ct(2026, 11, 8, 9, 0)
+
+
+def test_older_customers_never_after_six():
+    from services.callback_reminder import callable_now, evenings_guard
+    # Monday 7 PM is fine for most, not for an older customer.
+    assert pick_slot(ct(2026, 11, 9, 19, 0), NOW) == ct(2026, 11, 9, 19, 0)
+    assert pick_slot(ct(2026, 11, 9, 19, 0), NOW, older=True) == ct(2026, 11, 10, 8, 0)
+    assert pick_slot(ct(2026, 11, 9, 17, 30), NOW, older=True) == ct(2026, 11, 9, 17, 30)
+    assert callable_now(ct(2026, 11, 9, 18, 30)) and not callable_now(ct(2026, 11, 9, 18, 30), older=True)
+    assert not callable_now(ct(2026, 11, 8, 17, 30))  # Sunday after 5
+    # "Evenings only" on a Sunday can't land after the 5 PM cut-off.
+    assert evenings_guard("call me in the evening", ct(2026, 11, 8, 12, 0)) == ct(2026, 11, 9, 17, 0)
+    assert evenings_guard("call me in the evening", ct(2026, 11, 9, 9, 0)) == ct(2026, 11, 9, 17, 0)

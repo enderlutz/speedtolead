@@ -43,23 +43,40 @@ TALK_SECONDS = 20
 SKIP_STATUSES = {"closed", "archived"}
 
 
-# No customer calls after 6 PM on Sundays (Alan, 2026-11-08).
-SUNDAY_WINDOWS = ((8 * 60, 10 * 60), (12 * 60, 14 * 60 + 30), (17 * 60, 18 * 60))
+# Sundays: no customer call-backs before 9 AM or after 5 PM (Alan, 2026-11-08;
+# it was 6 PM earlier the same day).
+SUNDAY_WINDOWS = ((9 * 60, 10 * 60 + 30), (12 * 60, 14 * 60 + 30), (16 * 60, 17 * 60))
+# Older customers go to bed earlier: never a call-back after 6 PM for anyone
+# who sounds older (Alan, 2026-11-08, after an older customer's evening call).
+OLDER_LAST_MINUTE = 18 * 60
 
 
-def pick_slot(want: datetime, now: datetime) -> datetime:
+def _windows(day: datetime, older: bool = False):
+    base = SUNDAY_WINDOWS if day.weekday() == 6 else WINDOWS
+    if not older:
+        return base
+    return tuple((s, min(e, OLDER_LAST_MINUTE)) for s, e in base if s < OLDER_LAST_MINUTE)
+
+
+def pick_slot(want: datetime, now: datetime, older: bool = False) -> datetime:
     """The first moment at or after `want` (and at least 20 minutes from now)
     that falls inside one of Alan's phone windows. Both times are Houston."""
     t = max(want, now + timedelta(minutes=20)).replace(second=0, microsecond=0)
     for _ in range(14):
         mins = t.hour * 60 + t.minute
-        for start, end in (SUNDAY_WINDOWS if t.weekday() == 6 else WINDOWS):
+        for start, end in _windows(t, older):
             if mins < start:
                 return t.replace(hour=start // 60, minute=start % 60)
             if start <= mins < end:
                 return t
         t = (t + timedelta(days=1)).replace(hour=0, minute=0)
     return t
+
+
+def callable_now(now: datetime, older: bool = False) -> bool:
+    """Is right now inside Alan's phone hours for this customer?"""
+    mins = now.hour * 60 + now.minute
+    return any(s <= mins < e for s, e in _windows(now, older))
 
 
 # A call that stops mid-sentence is a possible cut-off: 2026-11-07,
@@ -70,6 +87,7 @@ def pick_slot(want: datetime, now: datetime) -> datetime:
 GOODBYE = re.compile(r"\b(bye|goodbye|talk to you|have a (good|great|blessed|nice)|take care|thank you so much|"
                      r"thanks,? (man|alan|a lot)|appreciate it|sounds good,? thank)\b", re.I)
 CUTOFF_WAIT_MINUTES = 15
+CLOSE_NOW_MINUTES = 90  # an older "close now" is stale; the scheduled call-back covers it
 SUPERSEDE_MINUTES = 20
 # Someone who works and is only free in the evenings is never called before 5
 # (Alan said "around 5-6 PM Wednesday"; Stella wrote 9 AM).
@@ -114,9 +132,17 @@ def superseded_by(db, recording):
     return None
 
 
-def evenings_guard(transcript: str, slot: datetime) -> datetime:
+def evenings_guard(transcript: str, slot: datetime, older: bool = False) -> datetime:
     if EVENINGS.search(transcript or "") and slot.hour < 17:
-        return slot.replace(hour=17, minute=0)
+        # 5 PM can be past the Sunday cut-off; then it's the next day's 5 PM,
+        # never a morning slot for someone who's only free evenings.
+        t = slot.replace(hour=17, minute=0)
+        for _ in range(7):
+            got = pick_slot(t, t - timedelta(minutes=20), older)
+            if got.hour >= 17:
+                return got
+            t = got.replace(hour=17, minute=0)
+        return t
     return slot
 
 
@@ -165,7 +191,11 @@ Keep the whole reminder under 1,000 characters (GHL refuses texts over 1,600 and
 
 Rules for the words: sound like Alan, a friendly local guy. The opener is fixed (Alan, 2026-11-07): "Hi <name>, it's Alan with Sterling Fence Staining. How are you doing today?", then straight to the reason for the call; nothing in SAY or VOICEMAIL points at the missed call, the voicemail or "like I said". Never use "20% off" or a "normal price"; the real deal is the free second coat through Thanksgiving. Never offer a discount without a real reason. Never ask for photos or board counts; repairs are counted on cleaning day (picket $14, rot board $50, cap $85, rail $75). Signature = semi-transparent (lasts 4-5 yrs), Legacy = solid (lasts the LONGEST, 5-8 yrs). Redwood Naturaltone is a Signature color. Price is the same cash or card. "Sir"/"ma'am" must match the customer. Point out anything in the file that doesn't match (sides on the call vs sides on the estimate, color vs package, a held day they said not to hold) inside WHAT IT'S ABOUT, starting with ⚠️.
 
-If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
+If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Flag a VA who ignores a money question ("is it cheaper with cash?", "can you do better?"): the moment a customer asks for a better price, a discount or a cash price, she must say "I can talk to my project manager and he can give you a call here in a few minutes", end the call and tell Alan right away; never dodge it and never try to close a negotiating customer herself. A VA may offer at most $50 off Signature and never any discount on Legacy (Legacy discounts are Alan's alone); flag anything more. Flag a downsell to a cheaper package after the customer already picked one, and the 1-year warranty brought up while talking about how long the stain lasts. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
+
+OLDER (Alan, 2026-11-08): set "older" true when the customer seems to be an older person: they mention retirement, grandkids, their age, a late husband, having trouble with the link or phone, or they talk the way older people do. Older customers are never called after 6 PM. When unsure, false.
+
+CLOSE NOW (Alan, 2026-11-08): set "close_now" true when CALLER is not Alan and the customer was close to buying on this call: they picked a package and heard the price, and they are negotiating or wavering on price (asked if cash is cheaper, asked for a better price, said it's pricey, said they'll get another estimate or think about it) but did not hang up on a firm no. Alan wants these called within minutes, while they're hot. Put the reason in "close_now_why" in one short line with the package and price ("Legacy $3,210, asked if cash is cheaper, getting another estimate"). Otherwise false.
 
 LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real interest in Legacy or a solid color (said they want it, leaned to it, asked its price to consider it, or said it's a little too much), and they didn't pay. Not when only our side described it, or they said "not solid". Put their own words in "legacy_quote". When legacy is true and a call back is owed, add this section to the reminder, right after PRICE:
 💎 LEGACY OFFER (only you say this)
@@ -173,7 +203,7 @@ LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real inter
 and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off". The offer is for a VALSPAR solid only. If they want a Sherwin-Williams solid (WoodScapes, SuperDeck, a custom SW color), lead with the closest Valspar solid match instead; a Sherwin-Williams solid gets a smaller discount that Alan names, never down to the Signature price. If the customer insisted on another brand's solid or an outside color (Behr, Sherwin-Williams, "our own stain"), put that brand in "legacy_own_brand" and leave the LEGACY OFFER section out; write "⚠️ Wants <brand> solid: smaller discount only, you name it" in WHAT IT'S ABOUT instead.
 
 Reply with JSON only:
-{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>"}"""
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>", "older": true|false, "close_now": true|false, "close_now_why": "<one line, or empty>"}"""
 
 
 # ── No answer: Stella books the next try (Alan, 2026-11-08) ──────────────
@@ -385,6 +415,17 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             logger.warning("Legacy flag failed for %s: %s", lead.id, e)
     if voicemail:
         record["voicemail"] = True
+    older = bool(out.get("older"))
+    if older:
+        record["older"] = True
+    # A customer who was close on a VA's call gets Alan on the phone within
+    # minutes, not at the next window (Alan, 2026-11-08: "Alan, call this
+    # customer now"). Only while the call is fresh and it's a time he may call.
+    if (not voicemail and out.get("close_now") and caller.lower() != "alan"
+            and minutes_since_end(recording) <= CLOSE_NOW_MINUTES and callable_now(now_ct(), older)):
+        why = (out.get("close_now_why") or out.get("why") or "").strip()
+        if ghl.send_sms(owner, f"🔥 CALL THIS CUSTOMER NOW ❗❗❗\n\n👤 {lead.contact_name}\n{why}\n\nThey were close on {caller}'s call. Call before they get the other quote."[:600]):
+            record["close_now_sent"] = True
     review = "" if voicemail or (recording.duration_seconds or 0) < VA_REVIEW_SECONDS else (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])
@@ -409,7 +450,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         except ValueError:
             want = now_ct().replace(tzinfo=None) + timedelta(days=1)
         now = now_ct()
-        slot = evenings_guard(transcript_text, pick_slot(want.replace(tzinfo=now.tzinfo), now))
+        slot = evenings_guard(transcript_text, pick_slot(want.replace(tzinfo=now.tzinfo), now, older), older)
         ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
         record.update({"when": slot.isoformat(), "scheduled": bool(ok),
                        "ghl_message_id": ghl.last_message_id() if ok else ""})
