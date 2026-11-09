@@ -137,3 +137,43 @@ def test_stella_texts_alan_from_her_own_line(db, monkeypatch):
     assert stella.to_alan("hi")
     assert stella.text_alan("David's 9 PM", own_line=False)
     assert got == ["+13465450000", None]
+
+
+def _va(db, monkeypatch, sent_va):
+    from database import SystemConfig, User
+    from services import on_call
+    import uuid as _u
+    u = User(id=str(_u.uuid4()), username="olga", role="va", password_hash="x", ghl_user_id="va-olga", alert_channel="whatsapp")
+    db.add(u)
+    SystemConfig.set(db, cr.REVIEWS_TO_VA_KEY, "olga")
+    db.commit()
+    monkeypatch.setattr(on_call, "message_person", lambda db_, user, text, force=False: sent_va.append(text) or True)
+    return u
+
+
+def test_va_voicemail_gets_coached_once(db, monkeypatch):
+    sent, sent_va = [], []
+    _wire(monkeypatch, sent, {"review": "📩 Voicemail for Test Customer: ✅ clear name ❌ no number — Stella"}, MON_2PM)
+    _va(db, monkeypatch, sent_va)
+    lead = _lead(db)
+    vm = _rec(db, lead, _iso(minutes=5), 30, True)
+    vm.recorded_by = "va-olga"
+    db.commit()
+    out = cr.run_for_recording(db, vm, "Hi, this is Amy with Sterling Fence Staining...")
+    assert out.get("vm_review") is True and len(sent_va) == 1 and sent_va[0].startswith("📩")
+    cr.run_for_recording(db, vm, "Hi, this is Amy with Sterling Fence Staining...")
+    assert len(sent_va) == 1  # never twice
+    assert not sent  # Alan isn't texted about a new lead's voicemail
+
+
+def test_va_hears_when_her_call_gets_a_call_back(db, monkeypatch):
+    sent, sent_va = [], []
+    _wire(monkeypatch, sent, {**OUT, "close_now": False, "review": ""}, MON_2PM)
+    _va(db, monkeypatch, sent_va)
+    lead = _lead(db)
+    r = _rec(db, lead, _iso(minutes=10), 600, False)
+    r.recorded_by = "va-olga"
+    db.commit()
+    out = cr.run_for_recording(db, r, DONE)
+    assert out.get("va_told") is True
+    assert any(t.startswith("📅 Call-back set: Test Customer") for t in sent_va)

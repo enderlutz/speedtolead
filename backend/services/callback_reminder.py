@@ -362,6 +362,58 @@ def _paid(db, lead_id: str) -> bool:
     return bk is not None and (bk.sent_by or "") == "paid"
 
 
+VM_REVIEW_KEY = "vm_reviews"  # in lead.form_data: VA voicemails Stella already coached
+VM_REVIEW_PROMPT = """You coach a VA at Sterling Fence Staining (Houston). She just left this VOICEMAIL for a customer. Grade only the voicemail she left (ignore the greeting).
+
+A good voicemail, under 40 seconds:
+- "Sterling Fence Staining" said slowly and clearly (not "Fence Sailing", "Fence Lending", "Sterling Fencing")
+- Mr./Mrs. + the right name
+- the reason: their fence staining estimate
+- a reason to call back: the second coat of stain free if they book by Monday, November 16
+- the number said twice: 346-589-7877
+- never asks them to do homework (text which sides, send pictures); only call or text back
+
+The script: "Hi Mr. [Last name], this is [name] with Sterling Fence Staining. I'm calling about your fence staining estimate. Right now we're including a second coat of stain for free if you book by Monday, November 16. Call or text me back at 346-589-7877. Again, 346-589-7877. Thank you!"
+
+If she left no message (only the greeting, a full mailbox, a hang-up), reply {"review": ""}.
+Otherwise reply with JSON only: {"review": "<2-4 short lines, plain text, starting '📩 Voicemail for <customer>:' then ✅ what was right and ❌ what was missing, kind and specific, ending '— Stella'>"}"""
+
+
+def _va_for(db, recording):
+    """The VA who made this call, if Alan has turned her reviews on."""
+    from database import User
+    va = db.query(User).filter(User.ghl_user_id == (recording.recorded_by or "")).first()
+    if va is None or (va.role or "") != "va" or va.disabled or not reviews_go_to(db, va.username):
+        return None
+    return va
+
+
+def review_va_voicemail(db, lead, recording, transcript_text: str) -> bool:
+    """Coach a VA on a voicemail she left (Alan, 2026-11-09: "if it's a
+    voicemail, say if we left a good voicemail"). Goes to the VA only, once
+    per recording."""
+    va = _va_for(db, recording)
+    if va is None or (recording.call_direction or "") != "outbound":
+        return False
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:  # noqa: BLE001
+        fd = {}
+    seen = fd.get(VM_REVIEW_KEY) if isinstance(fd.get(VM_REVIEW_KEY), list) else []
+    if recording.id in seen:
+        return False
+    out = _ask(db, f"CUSTOMER: {lead.contact_name}\nCALLER: {va.display_name or va.username}\n\n{(transcript_text or '')[:4000]}",
+               VM_REVIEW_PROMPT)
+    fd[VM_REVIEW_KEY] = (seen + [recording.id])[-30:]
+    lead.form_data = json.dumps(fd)
+    db.commit()
+    review = ((out or {}).get("review") or "").strip()
+    if not review:
+        return False
+    from services.on_call import message_person
+    return bool(message_person(db, va, review[:900], force=True))
+
+
 def _to_alan(message: str, scheduled_at: int | None = None) -> bool:
     """Stella's texts to Alan come from her own line (services.stella.to_alan)."""
     from services.stella import to_alan
@@ -387,8 +439,9 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         if ((recording.call_direction or "") != "outbound" or (recording.duration_seconds or 0) < VM_MIN_SECONDS
                 or (lead.status or "") in SKIP_STATUSES):
             return {"skipped": "not our voicemail"}
+        coached = review_va_voicemail(db, lead, recording, transcript_text)
         if not had_a_real_talk(db, lead.id, recording.created_at or ""):
-            return {"skipped": "voicemail on a lead we never talked to"}
+            return {"skipped": "voicemail on a lead we never talked to", "vm_review": coached}
     elif not worth_reviewing(recording.duration_seconds, False, lead.status):
         return {"skipped": "not a live conversation"}
     if _paid(db, lead.id):
@@ -512,6 +565,16 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             when_txt = (slot.strftime("%a %b %-d, %Y %-I:%M %p") if slot.year != now.year
                         else slot.strftime("%a %-m/%-d %-I:%M %p"))
             _to_alan(f"✅ Stella: {lead.contact_name} call-back set for {when_txt}. {(out.get('why') or '').strip()}"[:600])
+            # The VA hears it too, for her own calls (Alan, 2026-11-09:
+            # "tell her when the callback is scheduled").
+            va = _va_for(db, recording)
+            if va is not None:
+                try:
+                    from services.on_call import message_person
+                    record["va_told"] = bool(message_person(
+                        db, va, f"📅 Call-back set: {lead.contact_name}, {when_txt}. Alan will call them. — Stella", force=True))
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Call-back note to VA failed for %s: %s", recording.id, e)
     fd[DONE_KEY] = (done + [record])[-20:]
     lead.form_data = json.dumps(fd)
     db.commit()
