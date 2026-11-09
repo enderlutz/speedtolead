@@ -346,8 +346,12 @@ def _send_message(
     max_retries: int = 6,
     attachments: list[str] | None = None,
     scheduled_at: int | None = None,
+    from_number: str | None = None,
 ) -> bool:
     """Send a message via GHL with retry logic. msg_type: 'SMS' or 'WhatsApp'.
+
+    from_number (E.164, one of the location's numbers) picks which of our
+    lines the text comes from; GHL's default line otherwise.
 
     scheduled_at (UTC seconds) has GHL hold the text and send it then.
 
@@ -374,6 +378,8 @@ def _send_message(
         payload["attachments"] = atts
     if scheduled_at:
         payload["scheduledTimestamp"] = int(scheduled_at)
+    if from_number:
+        payload["fromNumber"] = from_number
 
     # T2.3: Generate one idempotency key per logical send (NOT per retry
     # attempt). If GHL ever sees the same key twice — e.g. our retry
@@ -494,6 +500,7 @@ def send_sms(
     location_id: str | None = None,
     attachments: list[str] | None = None,
     scheduled_at: int | None = None,
+    from_number: str | None = None,
 ) -> bool:
     """Send an SMS to a contact via GHL. Retries up to 3 times on failure.
     On failure, callers can call ghl.last_send_error() to retrieve the
@@ -501,7 +508,7 @@ def send_sms(
 
     Pass `attachments` (public image URLs) to send it as an MMS instead."""
     return _send_message("SMS", contact_id, message, location_id, attachments=attachments,
-                         scheduled_at=scheduled_at)
+                         scheduled_at=scheduled_at, from_number=from_number)
 
 
 def send_via_provider(

@@ -362,6 +362,12 @@ def _paid(db, lead_id: str) -> bool:
     return bk is not None and (bk.sent_by or "") == "paid"
 
 
+def _to_alan(message: str, scheduled_at: int | None = None) -> bool:
+    """Stella's texts to Alan come from her own line (services.stella.to_alan)."""
+    from services.stella import to_alan
+    return to_alan(message, scheduled_at=scheduled_at)
+
+
 def run_for_recording(db, recording, transcript_text: str) -> dict:
     """Review one finished call and schedule Alan's reminder. Returns what it did."""
     from config import get_settings
@@ -441,7 +447,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
     if (not voicemail and out.get("close_now") and caller.lower() != "alan"
             and minutes_since_end(recording) <= CLOSE_NOW_MINUTES and callable_now(now_ct(), older)):
         why = (out.get("close_now_why") or out.get("why") or "").strip()
-        if ghl.send_sms(owner, f"🔥 CALL THIS CUSTOMER NOW ❗❗❗\n\n👤 {lead.contact_name}\n{why}\n\nThey were close on {caller}'s call. Call before they get the other quote."[:600]):
+        if _to_alan(f"🔥 CALL THIS CUSTOMER NOW ❗❗❗\n\n👤 {lead.contact_name}\n{why}\n\nThey were close on {caller}'s call. Call before they get the other quote."[:600]):
             record["close_now_sent"] = True
     # A customer asking about oil gets Alan's call to explain it (Alan,
     # 2026-11-09, after a cedar-fence customer asked for oil on a VA call).
@@ -458,13 +464,13 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             logger.warning("Oil flag failed for %s: %s", lead.id, e)
         if caller.lower() != "alan" and callable_now(now_ct(), older):
             quote = (out.get("oil_quote") or "").strip()
-            if ghl.send_sms(owner, (f"🛢️ OIL QUESTION: {lead.contact_name} asked about oil-based on {caller}'s call"
+            if _to_alan((f"🛢️ OIL QUESTION: {lead.contact_name} asked about oil-based on {caller}'s call"
                                     + (f': "{quote}"' if quote else "") +
                                     "\nCall to explain: pine = water-based; cedar = oil is fine, same price as Signature.")[:600]):
                 record["oil_sent"] = True
     review = "" if voicemail or (recording.duration_seconds or 0) < VA_REVIEW_SECONDS else (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
-        ghl.send_sms(owner, review[:1100])
+        _to_alan(review[:1100])
         record["review_sent"] = True
         # The VA gets the same review on WhatsApp (Alan, 2026-11-06). WhatsApp
         # only delivers if she messaged the Sterling WhatsApp in the last 24 h.
@@ -495,7 +501,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             fd = json.loads(lead.form_data or "{}")
             done = fd.get(DONE_KEY) or []
             record["replaced"] = replaced
-        ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
+        ok = _to_alan(out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
         record.update({"when": slot.isoformat(), "scheduled": bool(ok),
                        "ghl_message_id": ghl.last_message_id() if ok else ""})
         # Tell Alan right away that it's handled (Alan, 2026-11-06: he
@@ -505,7 +511,7 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             # (Alan, 2026-11-07), so a date outside this year says the year.
             when_txt = (slot.strftime("%a %b %-d, %Y %-I:%M %p") if slot.year != now.year
                         else slot.strftime("%a %-m/%-d %-I:%M %p"))
-            ghl.send_sms(owner, f"✅ Stella: {lead.contact_name} call-back set for {when_txt}. {(out.get('why') or '').strip()}"[:600])
+            _to_alan(f"✅ Stella: {lead.contact_name} call-back set for {when_txt}. {(out.get('why') or '').strip()}"[:600])
     fd[DONE_KEY] = (done + [record])[-20:]
     lead.form_data = json.dumps(fd)
     db.commit()

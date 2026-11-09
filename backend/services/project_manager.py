@@ -497,7 +497,7 @@ def tick(db) -> dict:
     try:
         texts = nightly_report(db, today)
         from services.stella import text_alan
-        sent = sum(1 for t in texts if text_alan(t))
+        sent = sum(1 for t in texts if text_alan(t, own_line=False))  # David stays on the main line
         return {"nightly": sent}
     except Exception as e:  # noqa: BLE001
         db.rollback()

@@ -142,7 +142,37 @@ def note_error(db, what: str) -> None:
             pass
 
 
-def text_alan(message: str, scheduled_at: int | None = None) -> bool:
+# Stella texts Alan from her own line so her texts don't pile into the main
+# business thread (Alan, 2026-11-09: "too much going on in one phone line").
+# system_config stella_from_number = "+1346545XXXX"; empty = GHL's default.
+FROM_NUMBER_KEY = "stella_from_number"
+
+
+def from_number() -> str:
+    try:
+        from database import SessionLocal, SystemConfig
+        db = SessionLocal()
+        try:
+            return (SystemConfig.get(db, FROM_NUMBER_KEY, "") or "").strip()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def to_alan(message: str, scheduled_at: int | None = None) -> bool:
+    """Every text from Stella to Alan goes through here (her own line)."""
+    from config import get_settings
+    from services import ghl
+    owner = (get_settings().owner_ghl_contact_id or "").strip()
+    if not owner:
+        return False
+    return ghl.send_sms(owner, message[:1100], scheduled_at=scheduled_at, from_number=from_number() or None)
+
+
+def text_alan(message: str, scheduled_at: int | None = None, own_line: bool = True) -> bool:
+    if own_line:
+        return to_alan(message, scheduled_at=scheduled_at)
     from config import get_settings
     from services import ghl
     owner = (get_settings().owner_ghl_contact_id or "").strip()

@@ -124,3 +124,16 @@ def test_a_newer_call_replaces_the_waiting_call_back(db, monkeypatch):
     recs = json.loads(lead.form_data)[cr.DONE_KEY]
     assert recs[0].get("cancelled_at") and not recs[1].get("cancelled_at")
     assert len(cr.pending_reminders(lead)) == 1
+
+
+def test_stella_texts_alan_from_her_own_line(db, monkeypatch):
+    from config import get_settings
+    from database import SystemConfig
+    from services import stella
+    got = []
+    monkeypatch.setattr(get_settings(), "owner_ghl_contact_id", "owner", raising=False)
+    monkeypatch.setattr("services.ghl.send_sms", lambda to, msg, scheduled_at=None, from_number=None, **k: got.append(from_number) or True)
+    monkeypatch.setattr(stella, "from_number", lambda: "+13465450000")
+    assert stella.to_alan("hi")
+    assert stella.text_alan("David's 9 PM", own_line=False)
+    assert got == ["+13465450000", None]
