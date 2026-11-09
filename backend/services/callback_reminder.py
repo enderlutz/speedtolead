@@ -174,7 +174,7 @@ Short calls count too: a customer who says "call me back Monday" and hangs up in
 
 Decide whether Alan owes this customer a call back. Callbacks are Alan's to close. A call back is owed when the customer has not paid and the deal is still alive: they want to think, are getting another quote, want to talk to a spouse, asked for a call on a certain day, didn't pick a day, or the call ended without the $250. NOT owed: they said a clear no, it was spam or a sales call, it was a wrong number, or they already paid / booked and paid.
 
-Pick when. If a day or time was agreed on the call, use it. If ALAN names the day he will reach out ("I'll reach back out Wednesday", "I'll call you Monday afternoon"), that day is the call-back, never earlier, even if the customer said "I'll get back to you" first. Days mentioned for cleaning or staining are NOT call-back days. If a day is held for them, call before that day. If they are getting another quote, give them a day or two. Otherwise the next business day. If a time or window was named ("around five, six PM", "after work", "evenings", "in the morning"), use the START of that window (5:00 PM, 8:00 AM). Someone who works and is only free evenings is never scheduled before 5 PM. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
+Pick when. Work out "today", "tomorrow", "tonight", "this evening" from the TODAY line in the file and the call's date: on a Monday call, "tomorrow evening" is Tuesday 5 PM, never Monday. If a day or time was agreed on the call, use it. If ALAN names the day he will reach out ("I'll reach back out Wednesday", "I'll call you Monday afternoon"), that day is the call-back, never earlier, even if the customer said "I'll get back to you" first. Days mentioned for cleaning or staining are NOT call-back days. If a day is held for them, call before that day. If they are getting another quote, give them a day or two. Otherwise the next business day. If a time or window was named ("around five, six PM", "after work", "evenings", "in the morning"), use the START of that window (5:00 PM, 8:00 AM). Someone who works and is only free evenings is never scheduled before 5 PM. Give a time of day; it will be moved into Alan's phone hours (8-10 AM, 12-2:30 PM, 5-8 PM) for you.
 
 Write the reminder text Alan will get on his phone. Plain words, short lines, no markdown, exactly these sections:
 📞 CALL NOW ❗❗❗
@@ -487,6 +487,14 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             want = now_ct().replace(tzinfo=None) + timedelta(days=1)
         now = now_ct()
         slot = evenings_guard(transcript_text, pick_slot(want.replace(tzinfo=now.tzinfo), now, older), older)
+        # The newest call decides the call-back: one reminder per customer
+        # (Alan, 2026-11-09: a VA's call set Tue noon, his own call an hour
+        # later promised "tomorrow evening", and both stayed scheduled).
+        replaced = cancel_pending(db, lead, f"replaced by the newer call {recording.id[:8]}")
+        if replaced:
+            fd = json.loads(lead.form_data or "{}")
+            done = fd.get(DONE_KEY) or []
+            record["replaced"] = replaced
         ok = ghl.send_sms(owner, out["reminder"].strip()[:1100], scheduled_at=int(slot.timestamp()))
         record.update({"when": slot.isoformat(), "scheduled": bool(ok),
                        "ghl_message_id": ghl.last_message_id() if ok else ""})

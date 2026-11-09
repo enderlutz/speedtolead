@@ -108,3 +108,19 @@ def test_oil_question_texts_alan_and_marks_the_lead(db, monkeypatch):
     assert any(m.startswith("🛢️") and "cedar" in m for m, at in sent if at is None)
     db.refresh(lead)
     assert json.loads(lead.form_data)[cr.OIL_KEY]["quote"].startswith("I prefer")
+
+
+def test_a_newer_call_replaces_the_waiting_call_back(db, monkeypatch):
+    import json
+    sent = []
+    _wire(monkeypatch, sent, {**OUT, "close_now": False, "when": "2030-01-08T12:00"}, MON_2PM)
+    monkeypatch.setattr("services.ghl.cancel_scheduled_message", lambda mid, location_id=None: True)
+    lead = _lead(db)
+    cr.run_for_recording(db, _rec(db, lead, _iso(minutes=60), 600, False), DONE)
+    _wire(monkeypatch, sent, {**OUT, "close_now": False, "when": "2030-01-08T17:00"}, MON_2PM, caller="Alan")
+    out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=10), 800, False), DONE)
+    assert out.get("replaced") == 1
+    db.refresh(lead)
+    recs = json.loads(lead.form_data)[cr.DONE_KEY]
+    assert recs[0].get("cancelled_at") and not recs[1].get("cancelled_at")
+    assert len(cr.pending_reminders(lead)) == 1
