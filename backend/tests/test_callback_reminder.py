@@ -280,3 +280,10 @@ def test_cancel_requested_pulls_hand_marked_reminders_from_ghl(monkeypatch):
     assert not recs[2].get("cancelled_at")
     assert cr.cancel_requested(db) == {"tried": 0, "stopped": 0}
 
+
+
+def test_no_calls_after_six_on_sunday():
+    sun = ct(2026, 11, 8, 18, 30)  # Sunday 6:30 PM
+    slot = pick_slot(sun, ct(2026, 11, 8, 15, 0))
+    assert slot == ct(2026, 11, 9, 8, 0)  # Monday 8 AM
+    assert pick_slot(ct(2026, 11, 8, 17, 15), ct(2026, 11, 8, 15, 0)) == ct(2026, 11, 8, 17, 15)

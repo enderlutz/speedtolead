@@ -43,13 +43,17 @@ TALK_SECONDS = 20
 SKIP_STATUSES = {"closed", "archived"}
 
 
+# No customer calls after 6 PM on Sundays (Alan, 2026-11-08).
+SUNDAY_WINDOWS = ((8 * 60, 10 * 60), (12 * 60, 14 * 60 + 30), (17 * 60, 18 * 60))
+
+
 def pick_slot(want: datetime, now: datetime) -> datetime:
     """The first moment at or after `want` (and at least 20 minutes from now)
     that falls inside one of Alan's phone windows. Both times are Houston."""
     t = max(want, now + timedelta(minutes=20)).replace(second=0, microsecond=0)
     for _ in range(14):
         mins = t.hour * 60 + t.minute
-        for start, end in WINDOWS:
+        for start, end in (SUNDAY_WINDOWS if t.weekday() == 6 else WINDOWS):
             if mins < start:
                 return t.replace(hour=start // 60, minute=start % 60)
             if start <= mins < end:
