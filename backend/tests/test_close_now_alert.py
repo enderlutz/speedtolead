@@ -87,3 +87,12 @@ def test_review_reaches_olga_past_her_new_lead_only_mute(db, monkeypatch):
     assert on_call.message_person(db, u, "hi") is True and not sent  # muted for alerts
     on_call.message_person(db, u, "review", force=True)
     assert sent == ["review"]
+
+
+def test_short_va_calls_get_reviewed_too(db, monkeypatch):
+    sent = []
+    _wire(monkeypatch, sent, {**OUT, "close_now": False, "review": "🎧 Amy's call: short one — Stella"}, MON_2PM)
+    lead = _lead(db)
+    out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=10), 35, False), DONE)
+    assert out.get("review_sent") is True
+    assert any(m.startswith("🎧") for m, at in sent)
