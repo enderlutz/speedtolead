@@ -89,6 +89,7 @@ def callable_now(now: datetime, older: bool = False) -> bool:
 GOODBYE = re.compile(r"\b(bye|goodbye|talk to you|have a (good|great|blessed|nice)|take care|thank you so much|"
                      r"thanks,? (man|alan|a lot)|appreciate it|sounds good,? thank)\b", re.I)
 CUTOFF_WAIT_MINUTES = 15
+OIL_KEY = "oil_interest"
 CLOSE_NOW_MINUTES = 90  # an older "close now" is stale; the scheduled call-back covers it
 SUPERSEDE_MINUTES = 20
 # Someone who works and is only free in the evenings is never called before 5
@@ -211,13 +212,15 @@ OLDER (Alan, 2026-11-08): set "older" true when the customer seems to be an olde
 
 CLOSE NOW (Alan, 2026-11-08): set "close_now" true when CALLER is not Alan and the customer was close to buying on this call: they picked a package and heard the price, and they are negotiating or wavering on price (asked if cash is cheaper, asked for a better price, said it's pricey, said they'll get another estimate or think about it) but did not hang up on a firm no. Alan wants these called within minutes, while they're hot. Put the reason in "close_now_why" in one short line with the package and price ("Legacy $3,210, asked if cash is cheaper, getting another estimate"). Otherwise false.
 
+OIL (Alan, 2026-11-09): set "oil" true when the CUSTOMER asked about or asked for an oil-based stain (oil, Ready Seal, Cabot, "penetrates", "soaks in"). Put their own words in "oil_quote". Alan calls these himself to explain it: our photos are all water-based because most Houston fences are pine (pine drinks oil and looks blotchy); on cedar, oil is fine and the same price as Signature.
+
 LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real interest in Legacy or a solid color (said they want it, leaned to it, asked its price to consider it, or said it's a little too much), and they didn't pay. Not when only our side described it, or they said "not solid". Put their own words in "legacy_quote". When legacy is true and a call back is owed, add this section to the reminder, right after PRICE:
 💎 LEGACY OFFER (only you say this)
 "Legacy for the Signature price, if we get you on the schedule in the next 2 weeks."
 and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off". The offer is for a VALSPAR solid only. If they want a Sherwin-Williams solid (WoodScapes, SuperDeck, a custom SW color), lead with the closest Valspar solid match instead; a Sherwin-Williams solid gets a smaller discount that Alan names, never down to the Signature price. If the customer insisted on another brand's solid or an outside color (Behr, Sherwin-Williams, "our own stain"), put that brand in "legacy_own_brand" and leave the LEGACY OFFER section out; write "⚠️ Wants <brand> solid: smaller discount only, you name it" in WHAT IT'S ABOUT instead.
 
 Reply with JSON only:
-{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>", "older": true|false, "close_now": true|false, "close_now_why": "<one line, or empty>"}"""
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>", "older": true|false, "close_now": true|false, "close_now_why": "<one line, or empty>", "oil": true|false, "oil_quote": "<customer's words, or empty>"}"""
 
 
 # ── No answer: Stella books the next try (Alan, 2026-11-08) ──────────────
@@ -440,6 +443,25 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
         why = (out.get("close_now_why") or out.get("why") or "").strip()
         if ghl.send_sms(owner, f"🔥 CALL THIS CUSTOMER NOW ❗❗❗\n\n👤 {lead.contact_name}\n{why}\n\nThey were close on {caller}'s call. Call before they get the other quote."[:600]):
             record["close_now_sent"] = True
+    # A customer asking about oil gets Alan's call to explain it (Alan,
+    # 2026-11-09, after a cedar-fence customer asked for oil on a VA call).
+    if not voicemail and out.get("oil"):
+        record["oil"] = True
+        try:
+            fd2 = json.loads(lead.form_data or "{}")
+            fd2[OIL_KEY] = {"at": datetime.now(timezone.utc).isoformat(), "recording_id": recording.id,
+                            "quote": (out.get("oil_quote") or "")[:200], "caller": caller}
+            lead.form_data = json.dumps(fd2)
+            db.commit()
+            fd = fd2
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Oil flag failed for %s: %s", lead.id, e)
+        if caller.lower() != "alan" and callable_now(now_ct(), older):
+            quote = (out.get("oil_quote") or "").strip()
+            if ghl.send_sms(owner, (f"🛢️ OIL QUESTION: {lead.contact_name} asked about oil-based on {caller}'s call"
+                                    + (f': "{quote}"' if quote else "") +
+                                    "\nCall to explain: pine = water-based; cedar = oil is fine, same price as Signature.")[:600]):
+                record["oil_sent"] = True
     review = "" if voicemail or (recording.duration_seconds or 0) < VA_REVIEW_SECONDS else (out.get("review") or "").strip()
     if review and caller.lower() != "alan":
         ghl.send_sms(owner, review[:1100])

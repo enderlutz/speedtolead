@@ -96,3 +96,15 @@ def test_short_va_calls_get_reviewed_too(db, monkeypatch):
     out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=10), 35, False), DONE)
     assert out.get("review_sent") is True
     assert any(m.startswith("🎧") for m, at in sent)
+
+
+def test_oil_question_texts_alan_and_marks_the_lead(db, monkeypatch):
+    import json
+    sent = []
+    _wire(monkeypatch, sent, {**OUT, "close_now": False, "oil": True, "oil_quote": "I prefer an oil based because the cedar"}, MON_2PM)
+    lead = _lead(db)
+    out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=10), 600, False), DONE)
+    assert out.get("oil_sent") is True
+    assert any(m.startswith("🛢️") and "cedar" in m for m, at in sent if at is None)
+    db.refresh(lead)
+    assert json.loads(lead.form_data)[cr.OIL_KEY]["quote"].startswith("I prefer")
