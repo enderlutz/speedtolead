@@ -61,3 +61,29 @@ def test_older_customer_call_back_not_after_six(db, monkeypatch):
     out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=10), 600, False), DONE)
     assert out.get("older") is True
     assert datetime.fromisoformat(out["when"]).hour < 18
+
+
+def test_reviews_reach_only_the_vas_alan_turned_on(db):
+    from database import SystemConfig
+    SystemConfig.set(db, cr.REVIEWS_TO_VA_KEY, "olga")
+    db.commit()
+    assert cr.reviews_go_to(db, "olga") and cr.reviews_go_to(db, "Olga")
+    assert not cr.reviews_go_to(db, "Geoconda")
+    SystemConfig.set(db, cr.REVIEWS_TO_VA_KEY, "1")
+    db.commit()
+    assert cr.reviews_go_to(db, "Geoconda")
+    SystemConfig.set(db, cr.REVIEWS_TO_VA_KEY, "0")
+    db.commit()
+    assert not cr.reviews_go_to(db, "olga")
+
+
+def test_review_reaches_olga_past_her_new_lead_only_mute(db, monkeypatch):
+    from database import User
+    from services import on_call
+    sent = []
+    monkeypatch.setattr(on_call, "ensure_contact", lambda db_, u: "cid")
+    monkeypatch.setattr("services.ghl.send_whatsapp", lambda cid, text: sent.append(text) or False)
+    u = User(username="olga", role="va", password_hash="x", alert_channel="whatsapp")
+    assert on_call.message_person(db, u, "hi") is True and not sent  # muted for alerts
+    on_call.message_person(db, u, "review", force=True)
+    assert sent == ["review"]

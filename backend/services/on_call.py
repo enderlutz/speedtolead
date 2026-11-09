@@ -167,12 +167,13 @@ def alarm_people(db, skip=()) -> list:
     return [u for u in team if (u.role or "") != "va"]
 
 
-def message_person(db, user, text: str) -> bool:
-    """WhatsApp or text one team member."""
+def message_person(db, user, text: str, force: bool = False) -> bool:
+    """WhatsApp or text one team member. `force` skips the alert mutes, for a
+    message Alan turned on for that person on purpose (Stella's call reviews)."""
     from services import ghl
-    if (user.username or "").lower() in NEW_LEAD_ONLY_USERS:
+    if not force and (user.username or "").lower() in NEW_LEAD_ONLY_USERS:
         return True  # handled: she gets the plain new-lead message instead
-    if alerts_off(db, user):
+    if not force and alerts_off(db, user):
         logger.info("on call: %s gets no automated messages right now (alerts_off_users)", user.username)
         return True  # handled: Alan hears about it through his own alerts
     cid = ensure_contact(db, user)

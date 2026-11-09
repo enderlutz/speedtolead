@@ -146,6 +146,18 @@ def evenings_guard(transcript: str, slot: datetime, older: bool = False) -> date
     return slot
 
 
+REVIEWS_TO_VA_KEY = "stella_reviews_to_va"
+
+
+def reviews_go_to(db, username: str) -> bool:
+    """Does this VA get Stella's review of her own calls?"""
+    from database import SystemConfig
+    raw = (SystemConfig.get(db, REVIEWS_TO_VA_KEY, "0") or "0").strip().lower()
+    if raw == "1":
+        return True
+    return (username or "").strip().lower() in {n.strip() for n in raw.split(",") if n.strip() and n.strip() != "0"}
+
+
 def worth_reviewing(duration: int | None, is_voicemail: bool, lead_status: str | None) -> bool:
     """A real conversation with someone who isn't a finished customer."""
     if is_voicemail or (duration or 0) < REVIEW_MIN_SECONDS:
@@ -191,7 +203,7 @@ Keep the whole reminder under 1,000 characters (GHL refuses texts over 1,600 and
 
 Rules for the words: sound like Alan, a friendly local guy. The opener is fixed (Alan, 2026-11-07): "Hi <name>, it's Alan with Sterling Fence Staining. How are you doing today?", then straight to the reason for the call; nothing in SAY or VOICEMAIL points at the missed call, the voicemail or "like I said". Never use "20% off" or a "normal price"; the real deal is the free second coat through Thanksgiving. Never offer a discount without a real reason. Never ask for photos or board counts; repairs are counted on cleaning day (picket $14, rot board $50, cap $85, rail $75). Signature = semi-transparent (lasts 4-5 yrs), Legacy = solid (lasts the LONGEST, 5-8 yrs). Redwood Naturaltone is a Signature color. Price is the same cash or card. "Sir"/"ma'am" must match the customer. Point out anything in the file that doesn't match (sides on the call vs sides on the estimate, color vs package, a held day they said not to hold) inside WHAT IT'S ABOUT, starting with ⚠️.
 
-If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Flag a VA who ignores a money question ("is it cheaper with cash?", "can you do better?"): the moment a customer asks for a better price, a discount or a cash price, she must say "I can talk to my project manager and he can give you a call here in a few minutes", end the call and tell Alan right away; never dodge it and never try to close a negotiating customer herself. VA discount limits (Alan, 2026-11-08): Signature only, $50 off a $1,000-$1,500 job, $100 off a $1,500-$2,000 job, nothing under $1,000 or over $2,000, and only to book now with the $250; never any discount on Legacy (Alan alone can take Legacy down as far as the Signature price). Flag anything more. Flag a downsell to a cheaper package after the customer already picked one, and the 1-year warranty brought up while talking about how long the stain lasts. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line Alan can say to her.
+If CALLER is not Alan, also review the caller's call in Alan's fixed order: intro, address, sides, main reason, fence age ("probably some gray and sprinkler stains"), the whole process (clean day, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, the three packages (Legacy "lasts the longest"), Signature semi vs Legacy solid, a day, the $250. Flag skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "another bid" go unanswered. Flag a VA who ignores a money question ("is it cheaper with cash?", "can you do better?"): the moment a customer asks for a better price, a discount or a cash price, she must say "I can talk to my project manager and he can give you a call here in a few minutes", end the call and tell Alan right away; never dodge it and never try to close a negotiating customer herself. VA discount limits (Alan, 2026-11-08): Signature only, $50 off a $1,000-$1,500 job, $100 off a $1,500-$2,000 job, nothing under $1,000 or over $2,000, and only to book now with the $250; never any discount on Legacy (Alan alone can take Legacy down as far as the Signature price). Flag anything more. Flag a downsell to a cheaper package after the customer already picked one, and the 1-year warranty brought up while talking about how long the stain lasts. Quote the moment. Keep the review under 900 characters, plain text, starting "🎧 <caller>'s call with <customer>" and ending "— Stella", then ✅ what went well, ❌ misses, and 💬 one calm coaching line for her. The VA may read this review herself, so write it to help her, plainly and kindly.
 
 OLDER (Alan, 2026-11-08): set "older" true when the customer seems to be an older person: they mention retirement, grandkids, their age, a late husband, having trouble with the link or phone, or they talk the way older people do. Older customers are never called after 6 PM. When unsure, false.
 
@@ -436,11 +448,11 @@ def run_for_recording(db, recording, transcript_text: str) -> dict:
             from database import User
             from services.on_call import message_person
             va = db.query(User).filter(User.ghl_user_id == (recording.recorded_by or "")).first()
-            # Off until Alan has checked Stella's reviews (system_config
-            # stella_reviews_to_va = "1" turns it on), so no VA gets a bad tip.
-            to_va = SystemConfig.get(db, "stella_reviews_to_va", "0") == "1"
-            if to_va and va is not None and (va.role or "") == "va" and not va.disabled:
-                record["review_to_va"] = bool(message_person(db, va, review[:1100]))
+            # Off until Alan has checked Stella's reviews, so no VA gets a bad
+            # tip. system_config stella_reviews_to_va: "1" = every VA, or a
+            # list of usernames ("olga"; Alan turned Olga on 2026-11-09).
+            if va is not None and (va.role or "") == "va" and not va.disabled and reviews_go_to(db, va.username):
+                record["review_to_va"] = bool(message_person(db, va, review[:1100], force=True))
                 db.commit()
         except Exception as e:  # noqa: BLE001
             logger.warning("Review to VA failed for %s: %s", recording.id, e)
