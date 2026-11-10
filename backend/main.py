@@ -1027,6 +1027,8 @@ app.include_router(branding.router, prefix="/api")
 app.include_router(staff_question.router, prefix="/api")
 app.include_router(job_visits.router, prefix="/api")
 app.include_router(hours_log.router, prefix="/api")
+from api import mcp_server as _mcp_server  # noqa: E402  (Claude app connector, no /api prefix)
+app.include_router(_mcp_server.router)
 
 
 # Voice training simulator WebSocket. Lives at root (not /api) because

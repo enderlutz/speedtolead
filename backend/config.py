@@ -128,6 +128,14 @@ class Settings(BaseSettings):
     # Auth
     auth_secret: str = "change-me-in-production"
 
+    # MCP server for the Claude app (api/mcp_server.py). Off until
+    # MCP_OWNER_PASSWORD (12+ characters) is set in Railway; never in a file.
+    # Bump MCP_TOKEN_VERSION to sign every connected device out.
+    # MCP_PUBLIC_URL pins the address Claude is told to use (optional).
+    mcp_owner_password: str = ""
+    mcp_token_version: str = "1"
+    mcp_public_url: str = ""
+
     # Shared secret for GHL webhooks. When set, /webhook/ghl/* endpoints
     # require the secret as either a `?token=...` query param OR an
     # `X-Webhook-Token` header. Defense against random POSTs to our
