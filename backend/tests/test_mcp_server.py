@@ -249,3 +249,65 @@ def test_same_words_twice_in_15_minutes_refused(client, db, monkeypatch):
     draft = json.loads(_call(client, t, "draft_text", {"lead_id": "L2", "message": "Hi there"})["content"][0]["text"])
     dup = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "send"})
     assert dup["isError"] is True and not sent
+
+
+def _crew_user(db, username="Chris"):
+    from database import User
+    db.add(User(id="U-" + username, username=username, display_name=username, password_hash="x", role="worker"))
+    db.commit()
+
+
+def _ok(client, t, name, args):
+    res = _call(client, t, name, args)
+    assert res["isError"] is False, res
+    return json.loads(res["content"][0]["text"])
+
+
+def test_change_tools_write_and_log(client, db):
+    from database import CompanyCamJob, CrewReimbursement, Lead, SystemConfig
+    _seed(db)
+    _crew_user(db, "Chris")
+    _crew_user(db, "BrentBrown")
+    _cid, _c, _v, tok = _sign_in(client)
+    t = tok["access_token"]
+
+    out = _ok(client, t, "set_job", {"lead_id": "L1", "color": "Classic Mahogany · Valspar · Solid",
+                                    "sqft": 4123, "gallons_needed": 25})
+    assert out["changed"]["sqft"] == [1000, 4123]
+    job = db.query(CompanyCamJob).filter_by(lead_id="L1").first()
+    db.refresh(job)
+    assert job.color.startswith("Classic Mahogany") and job.gallons_needed == 25 and job.sqft_edited
+
+    crew = _ok(client, t, "set_crew", {"lead_id": "L1", "worker": "chris", "date": "2026-11-11",
+                                      "task": "cleaning", "pay_type": "flat", "pay": 59})
+    assert any(e["pay"] == 59 and e["pay_type"] == "flat" for e in crew["crew_now"])
+    monday = _ok(client, t, "set_crew", {"lead_id": "L1", "worker": "BrentBrown", "date": "2026-11-16",
+                                        "task": "staining", "pay_type": "hourly", "pay": 18})
+    assert "never" in monday["warning"]
+    bad = _call(client, t, "set_crew", {"lead_id": "L1", "worker": "Nobody", "date": "2026-11-11", "task": "cleaning"})
+    assert bad["isError"] is True and "Chris" in bad["content"][0]["text"]
+
+    _ok(client, t, "add_note", {"lead_id": "L1", "note": "cover the pool", "where": "cleaning"})
+    _ok(client, t, "add_note", {"lead_id": "L1", "note": "wife picks the color"})
+    db.expire_all()
+    assert "cover the pool" in db.query(CompanyCamJob).filter_by(lead_id="L1").first().cleaning_notes
+    assert "wife picks the color" in json.loads(db.query(Lead).filter_by(id="L1").first().form_data)["notes"]
+
+    _ok(client, t, "log_receipt", {"worker": "BrentBrown", "amount": 23.6, "what": "10 pickets", "date": "2026-11-10"})
+    assert db.query(CrewReimbursement).filter_by(username="BrentBrown").first().amount == 23.6
+
+    _ok(client, t, "teach_stella", {"lesson": "Evenings mean 5 PM or later, because customers work days."})
+    assert "Evenings mean 5 PM" in SystemConfig.get(db, "stella_playbook", "")
+
+    off = _ok(client, t, "david_day_off", {"worker": "Chris", "weekday": "sunday", "kind": "ask"})
+    assert off["all_days_off"]["chris"]["ask"] == ["sunday"]
+
+    log = _ok(client, t, "change_log", {})["changes"]
+    assert [c["tool"] for c in log][:3] == ["david_day_off", "teach_stella", "log_receipt"]
+
+
+def test_change_tools_are_marked_as_writes(client):
+    _cid, _c, _v, tok = _sign_in(client)
+    tools = {x["name"]: x for x in _rpc(client, tok["access_token"], "tools/list").json()["result"]["tools"]}
+    assert tools["set_crew"]["annotations"]["readOnlyHint"] is False
+    assert tools["customer"]["annotations"]["readOnlyHint"] is True

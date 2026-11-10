@@ -50,7 +50,9 @@ INSTRUCTIONS = (
     "Start with find_customer to get a lead_id. Times are Houston time. Read the customer's "
     "texts and latest call before drafting anything to them. Texting a customer is two steps: "
     "draft_text, show Alan the exact words, edit with another draft_text, and call send_text "
-    "only when Alan's latest message says 'send'. Never send on your own."
+    "only when Alan's latest message says 'send'. Never send on your own. Before any change "
+    "tool (set_job, set_crew, add_note, log_receipt, teach_stella, david_day_off), say exactly "
+    "what will change and wait for Alan's OK. Crew never see prices."
 )
 CODE_TTL = 300
 ACCESS_TTL = 24 * 3600

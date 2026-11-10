@@ -5,8 +5,10 @@ tomorrow?" or "what did this customer say?", and Claude answers by calling
 these. Each tool takes plain arguments and returns a plain dict; api/mcp_server.py
 turns that into the MCP wire format and handles the sign-in.
 
-Look-ups never write anything. The one thing that reaches outside is texting
-a customer, and it takes two steps on purpose (Alan, 2026-11-10: "first we'd
+Look-ups never write anything. Change tools (set_job, set_crew, add_note,
+log_receipt, teach_stella, david_day_off) each save a before/after line to
+system_config mcp_change_log (see change_log). The one thing that reaches
+outside is texting a customer, and it takes two steps on purpose (Alan, 2026-11-10: "first we'd
 do a draft text, then I edit it, then I say send"):
 
   draft_text  saves nothing and sends nothing; it returns the exact words and a
@@ -288,6 +290,261 @@ def stella(db, days_ahead: int = 2) -> dict:
     return {"on": stella_svc.on(db), "call_backs_waiting": waiting, "playbook": stella_svc.playbook(db)}
 
 
+# ── changes (Alan, 2026-11-10): each one logged with before/after ──────────
+
+CHANGE_LOG_KEY = "mcp_change_log"
+BY = "Alan via Claude app"
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _log_change(db, tool: str, lead_id: str, what: str) -> None:
+    from database import SystemConfig
+    try:
+        log = json.loads(SystemConfig.get(db, CHANGE_LOG_KEY, "") or "[]")
+    except ValueError:
+        log = []
+    log.append({"at": datetime.now(timezone.utc).isoformat(), "tool": tool, "lead_id": lead_id, "what": what[:500]})
+    SystemConfig.set(db, CHANGE_LOG_KEY, json.dumps(log[-300:]))
+    logger.info("mcp change %s %s: %s", tool, lead_id, what[:200])
+
+
+def _stamp() -> str:
+    return now_ct().strftime("%m/%d %-I:%M %p")
+
+
+def _job_for(db, lead):
+    import uuid
+    from database import CompanyCamJob
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    if job:
+        return job, False
+    now = datetime.now(timezone.utc).isoformat()
+    job = CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, sqft=0, gallons_needed=0,
+                        package="", color="", created_at=now, updated_at=now)
+    db.add(job)
+    db.flush()
+    return job, True
+
+
+def _crew_names(db) -> dict:
+    from database import User
+    return {u.username.lower(): u.username for u in db.query(User)
+            .filter(User.role.notin_(["admin", "va", "social"])).all() if not getattr(u, "disabled", False)}
+
+
+def set_job(db, lead_id: str, color: str = "", package: str = "", sqft: float = 0,
+            gallons_needed: float = 0, gallons_used: float = -1, color_confirmed: bool | None = None) -> dict:
+    """Change a job card's color, package, footage or gallons (makes the card if missing)."""
+    lead = _lead_or_error(db, lead_id)
+    job, made = _job_for(db, lead)
+    before = {"color": job.color, "package": job.package, "sqft": job.sqft,
+              "gallons_needed": job.gallons_needed, "gallons_used": job.stain_gallons_used,
+              "color_confirmed": bool(job.color_confirmed)}
+    if color.strip():
+        job.color = color.strip()
+    if package.strip():
+        pk = package.strip().lower()
+        if pk not in ("essential", "signature", "legacy"):
+            raise ToolError("Package must be essential, signature or legacy.")
+        job.package = pk
+    if sqft and float(sqft) > 0:
+        job.sqft = float(sqft)
+        job.sqft_edited = True
+    if gallons_needed and float(gallons_needed) > 0:
+        job.gallons_needed = float(gallons_needed)
+        job.gallons_edited = True
+    if gallons_used is not None and float(gallons_used) >= 0:
+        job.stain_gallons_used = float(gallons_used)
+    if color_confirmed is not None:
+        job.color_confirmed = bool(color_confirmed)
+    job.updated_at = datetime.now(timezone.utc).isoformat()
+    after = {"color": job.color, "package": job.package, "sqft": job.sqft,
+             "gallons_needed": job.gallons_needed, "gallons_used": job.stain_gallons_used,
+             "color_confirmed": bool(job.color_confirmed)}
+    changed = {k: [before[k], after[k]] for k in after if before[k] != after[k]}
+    if not changed and not made:
+        db.rollback()
+        return {"name": lead.contact_name, "changed": {}, "note": "Nothing to change."}
+    _log_change(db, "set_job", lead.id, json.dumps(changed, default=str))
+    db.commit()
+    return {"name": lead.contact_name, "made_new_card": made, "changed": changed}
+
+
+def set_crew(db, lead_id: str, worker: str, date: str, task: str, pay_type: str = "",
+             pay: float = -1, note: str = "", order: int = 0, helper: bool = False,
+             remove: bool = False) -> dict:
+    """Put a worker on a job day (or change their pay / take them off)."""
+    import copy
+    from database import CompanyCamJob  # noqa: F401
+    from services.crew_pay_history import record_pay_changes
+    lead = _lead_or_error(db, lead_id)
+    names = _crew_names(db)
+    user = names.get((worker or "").strip().lower())
+    if not user:
+        raise ToolError("Unknown worker. Crew usernames: " + ", ".join(sorted(names.values())))
+    day = (date or "").strip()
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise ToolError("Use a date like 2026-11-12.")
+    task = (task or "").strip().lower()
+    if task not in ("cleaning", "staining", "repairs", "pressure_washing"):
+        raise ToolError("Task must be cleaning, staining, repairs or pressure_washing.")
+    pt = (pay_type or "").strip().lower()
+    if pt and pt not in ("flat", "hourly"):
+        raise ToolError("Pay type must be flat or hourly.")
+    job, made = _job_for(db, lead)
+    crew = _json(job.crew_json, [])
+    before = copy.deepcopy(crew)
+    hit = next((e for e in crew if e.get("username") == user and e.get("date") == day and e.get("task") == task), None)
+    if remove:
+        if not hit:
+            raise ToolError(f"{user} isn't on this job for {task} on {day}.")
+        crew.remove(hit)
+        what = f"took {user} off {task} {day}"
+    else:
+        if not hit:
+            hit = {"username": user, "date": day, "task": task, "order": int(order or 1),
+                   "helper": bool(helper), "pay_type": "", "pay": 0.0}
+            crew.append(hit)
+            what = f"put {user} on {task} {day}"
+        else:
+            what = f"changed {user} {task} {day}"
+            if order:
+                hit["order"] = int(order)
+            hit["helper"] = bool(helper) if helper else hit.get("helper", False)
+        if pt:
+            hit["pay_type"] = pt
+        if pay is not None and float(pay) >= 0:
+            hit["pay"] = float(pay)
+        if (note or "").strip():
+            hit["note"] = note.strip()
+        what += f" ({hit.get('pay_type') or '?'} ${hit.get('pay') or 0:g})"
+    job.crew_json = json.dumps(crew)
+    job.updated_at = datetime.now(timezone.utc).isoformat()
+    record_pay_changes(db, lead.id, before, crew, BY, source="claude_app")
+    _log_change(db, "set_crew", lead.id, what)
+    db.commit()
+    warn = ""
+    try:
+        from services.project_manager import _rules, day_off_problem
+        flag = day_off_problem(user, day, _rules(db))
+        warn = {"never": f"{user} never works that weekday.", "ask": f"{user} usually doesn't work that weekday; ask first."}.get(flag, "")
+    except Exception:
+        pass
+    return {"name": lead.contact_name, "done": what, "crew_now": crew, "warning": warn}
+
+
+def add_note(db, lead_id: str, note: str, where: str = "lead") -> dict:
+    """Add a dated note to the customer (lead notes) or to the crew's cleaning/staining notes."""
+    lead = _lead_or_error(db, lead_id)
+    text_ = (note or "").strip()
+    if not text_:
+        raise ToolError("The note is empty.")
+    line = f"{_stamp()} (Alan): {text_}"
+    where = (where or "lead").strip().lower()
+    if where == "lead":
+        fd = _json(lead.form_data, {})
+        fd["notes"] = ((fd.get("notes") or "").rstrip() + "\n\n" + line).strip()
+        lead.form_data = json.dumps(fd)
+    elif where in ("cleaning", "staining"):
+        job, _made = _job_for(db, lead)
+        field = "cleaning_notes" if where == "cleaning" else "staining_notes"
+        setattr(job, field, line + "\n" + (getattr(job, field) or ""))
+        job.updated_at = datetime.now(timezone.utc).isoformat()
+    else:
+        raise ToolError("where must be lead, cleaning or staining.")
+    _log_change(db, "add_note", lead.id, f"{where}: {text_}")
+    db.commit()
+    return {"name": lead.contact_name, "added_to": where, "note": line}
+
+
+def log_receipt(db, worker: str, amount: float, what: str, date: str = "", lead_id: str = "") -> dict:
+    """Log money a worker spent that Alan owes back (shows on Crew hours)."""
+    import uuid
+    from database import CrewReimbursement
+    names = _crew_names(db)
+    user = names.get((worker or "").strip().lower())
+    if not user:
+        raise ToolError("Unknown worker. Crew usernames: " + ", ".join(sorted(names.values())))
+    amt = float(amount or 0)
+    if amt <= 0 or amt > 5000:
+        raise ToolError("Amount must be between $0 and $5,000.")
+    day = (date or "").strip() or now_ct().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise ToolError("Use a date like 2026-11-10.")
+    name = ""
+    if lead_id:
+        name = _lead_or_error(db, lead_id).contact_name
+    from database import User
+    u = db.query(User).filter(User.username == user).first()
+    row = CrewReimbursement(id=str(uuid.uuid4()), username=user, name=(u.display_name if u else "") or user,
+                            work_date=day, amount=round(amt, 2), what=(what or "").strip()[:300],
+                            lead_id=lead_id or "", created_at=datetime.now(timezone.utc).isoformat(),
+                            created_by=BY)
+    db.add(row)
+    _log_change(db, "log_receipt", lead_id or "", f"{user} ${amt:.2f} {day}: {what}")
+    db.commit()
+    return {"logged": True, "worker": user, "amount": round(amt, 2), "date": day, "what": row.what, "job": name}
+
+
+def teach_stella(db, lesson: str) -> dict:
+    """Add one rule to Stella's playbook. Takes effect on her next review."""
+    from services import stella as stella_svc
+    text_ = (lesson or "").strip()
+    if len(text_) < 8:
+        raise ToolError("Write the rule out in a full sentence.")
+    stella_svc.teach(db, text_)
+    _log_change(db, "teach_stella", "", text_)
+    db.commit()
+    return {"saved": True, "rule": text_, "note": "Stella follows it from her next call review."}
+
+
+def david_day_off(db, worker: str, weekday: str, kind: str = "never", remove: bool = False) -> dict:
+    """David's days-off rule for a worker: 'never' (never schedule) or 'ask' (ask first)."""
+    from database import SystemConfig
+    from services import project_manager as pm
+    names = _crew_names(db)
+    user = names.get((worker or "").strip().lower())
+    if not user:
+        raise ToolError("Unknown worker. Crew usernames: " + ", ".join(sorted(names.values())))
+    wd = (weekday or "").strip().lower()
+    if wd not in WEEKDAYS:
+        raise ToolError("Weekday like monday, tuesday…")
+    kind = (kind or "never").strip().lower()
+    if kind not in ("never", "ask"):
+        raise ToolError("kind must be never or ask.")
+    rules = {k: {kk: list(vv) for kk, vv in v.items()} for k, v in pm._rules(db).items()}
+    r = rules.setdefault(user.lower(), {})
+    idx = WEEKDAYS.index(wd)
+    for k in ("never", "ask"):
+        r[k] = [d for d in r.get(k, []) if d != idx]
+    if not remove:
+        r.setdefault(kind, []).append(idx)
+    rules[user.lower()] = {k: v for k, v in r.items() if v}
+    SystemConfig.set(db, pm.DAYS_OFF_KEY, json.dumps(rules))
+    what = f"{user}: {'removed ' + wd if remove else kind + ' on ' + wd}"
+    _log_change(db, "david_day_off", "", what)
+    db.commit()
+    return {"saved": True, "rule": what, "all_days_off": {k: {kk: [WEEKDAYS[i] for i in vv] for kk, vv in v.items()}
+                                                          for k, v in rules.items()}}
+
+
+def change_log(db, limit: int = 20) -> dict:
+    """The latest changes made from the Claude app."""
+    from database import SystemConfig
+    try:
+        log = json.loads(SystemConfig.get(db, CHANGE_LOG_KEY, "") or "[]")
+    except ValueError:
+        log = []
+    out = list(reversed(log))[:max(1, min(int(limit or 20), 100))]
+    for e in out:
+        e["at"] = _ct(e.get("at"))
+    return {"changes": out}
+
+
 # ── customer texts: draft, then send on Alan's "send" ─────────────────────
 
 def _draft_key() -> str:
@@ -405,6 +662,44 @@ TOOLS = [
     (stella, "stella",
      "Stella (AI sales manager): her playbook and the call-backs waiting for Alan.",
      {"days_ahead": _int("How many days ahead (default 2)")}, []),
+    (set_job, "set_job",
+     "Change a job card: color (e.g. 'Classic Mahogany · Valspar · Solid'), package, sq ft, gallons "
+     "needed, gallons used, color confirmed. Makes the card if missing. Confirm with Alan first.",
+     {"lead_id": _str("From find_customer"), "color": _str("New color text"), "package": _str("essential/signature/legacy"),
+      "sqft": {"type": "number", "description": "Square feet"}, "gallons_needed": {"type": "number", "description": "Gallons to buy/use"},
+      "gallons_used": {"type": "number", "description": "Gallons actually used"},
+      "color_confirmed": {"type": "boolean", "description": "Customer confirmed the color"}}, ["lead_id"]),
+    (set_crew, "set_crew",
+     "Put a worker on a job day, change their pay, or take them off (remove=true). Pay is recorded in "
+     "pay history. Crew never see prices. Confirm with Alan first.",
+     {"lead_id": _str("From find_customer"), "worker": _str("Crew username, e.g. Chris, Jose Arthur, BrentBrown"),
+      "date": _str("YYYY-MM-DD"), "task": _str("cleaning/staining/repairs/pressure_washing"),
+      "pay_type": _str("flat or hourly"), "pay": {"type": "number", "description": "Dollars (flat) or per hour"},
+      "note": _str("Short crew note, e.g. arrival time"), "order": _int("Stop number that day"),
+      "helper": {"type": "boolean", "description": "Helper on this job"},
+      "remove": {"type": "boolean", "description": "Take them off this job day"}},
+     ["lead_id", "worker", "date", "task"]),
+    (add_note, "add_note",
+     "Add a dated note: where='lead' (customer notes), 'cleaning' or 'staining' (crew job notes).",
+     {"lead_id": _str("From find_customer"), "note": _str("The note"), "where": _str("lead/cleaning/staining")},
+     ["lead_id", "note"]),
+    (log_receipt, "log_receipt",
+     "Log a worker's receipt that Alan owes back (reimbursement).",
+     {"worker": _str("Crew username"), "amount": {"type": "number", "description": "Dollars"},
+      "what": _str("What was bought, where"), "date": _str("YYYY-MM-DD, default today"),
+      "lead_id": _str("The job it was for (optional)")}, ["worker", "amount", "what"]),
+    (teach_stella, "teach_stella",
+     "Add ONE rule to Stella's playbook, in a clear sentence with the reason. Show Alan the exact rule "
+     "and get his OK first.",
+     {"lesson": _str("The rule, one sentence + why")}, ["lesson"]),
+    (david_day_off, "david_day_off",
+     "David's days-off rules: a worker 'never' works a weekday, or 'ask' first. remove=true clears it. "
+     "(David's other checks are fixed code; tell Alan to ask on the laptop for those.)",
+     {"worker": _str("Crew username"), "weekday": _str("monday…sunday"), "kind": _str("never or ask"),
+      "remove": {"type": "boolean", "description": "Clear this rule"}}, ["worker", "weekday"]),
+    (change_log, "change_log",
+     "The latest changes made from the Claude app (what, when).",
+     {"limit": _int("How many (default 20)")}, []),
     (draft_text, "draft_text",
      "Step 1 of texting a customer: make a draft from the business line. Sends nothing. Show Alan the "
      "exact text; for edits call it again. Texts sound like Alan: short, plain, open 'Good morning/"
@@ -417,7 +712,7 @@ TOOLS = [
      ["draft_id", "alan_said"]),
 ]
 
-_WRITES = {"send_text"}
+_WRITES = {"send_text", "set_job", "set_crew", "add_note", "log_receipt", "teach_stella", "david_day_off"}
 
 _BY_NAME = {name: fn for fn, name, *_ in TOOLS}
 
@@ -426,8 +721,8 @@ def list_tools() -> list[dict]:
     return [{
         "name": name, "description": desc,
         "inputSchema": {"type": "object", "properties": props, "required": req},
-        "annotations": ({"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True,
-                         "title": "Send text to customer"} if name in _WRITES
+        "annotations": ({"readOnlyHint": False, "destructiveHint": False,
+                         "openWorldHint": name == "send_text"} if name in _WRITES
                         else {"readOnlyHint": True}),
     } for _fn, name, desc, props, req in TOOLS]
 
