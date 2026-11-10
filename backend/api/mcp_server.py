@@ -46,9 +46,11 @@ ALG = "HS256"
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_INFO = {"name": "Sterling Dashboard", "version": "1.0"}
 INSTRUCTIONS = (
-    "Sterling Fence Staining's dashboard (Houston fence staining company). Read-only. "
-    "Start with find_customer to get a lead_id. Times are Houston time. Never show crew "
-    "prices to crew; customer texts are only drafts until Alan says send."
+    "Sterling Fence Staining's dashboard (Houston fence staining company). "
+    "Start with find_customer to get a lead_id. Times are Houston time. Read the customer's "
+    "texts and latest call before drafting anything to them. Texting a customer is two steps: "
+    "draft_text, show Alan the exact words, edit with another draft_text, and call send_text "
+    "only when Alan's latest message says 'send'. Never send on your own."
 )
 CODE_TTL = 300
 ACCESS_TTL = 24 * 3600

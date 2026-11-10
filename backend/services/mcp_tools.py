@@ -5,9 +5,18 @@ tomorrow?" or "what did this customer say?", and Claude answers by calling
 these. Each tool takes plain arguments and returns a plain dict; api/mcp_server.py
 turns that into the MCP wire format and handles the sign-in.
 
-Week 1 is look-up only: nothing here writes to the database, texts anyone or
-calls GHL. Changes (colors, crew, teaching Stella) come in week 2, as their own
-tools, each one logged.
+Look-ups never write anything. The one thing that reaches outside is texting
+a customer, and it takes two steps on purpose (Alan, 2026-11-10: "first we'd
+do a draft text, then I edit it, then I say send"):
+
+  draft_text  saves nothing and sends nothing; it returns the exact words and a
+              draft_id (the words, signed, good for 2 hours). An edit is a new
+              draft_text call, so the id always matches what Alan last saw.
+  send_text   sends exactly that draft, only with alan_said="send", once, from
+              the business line through GHL, and refuses a repeat of the same
+              words to the same customer within 15 minutes.
+
+Off switch: system_config mcp_texting_off = "1".
 """
 from __future__ import annotations
 
@@ -19,6 +28,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_
 
 from clock import now_ct, to_ct
+
+DRAFT_TTL = 2 * 3600
+MAX_TEXT = 1500
+_sent_drafts: set[str] = set()
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +288,79 @@ def stella(db, days_ahead: int = 2) -> dict:
     return {"on": stella_svc.on(db), "call_backs_waiting": waiting, "playbook": stella_svc.playbook(db)}
 
 
+# ── customer texts: draft, then send on Alan's "send" ─────────────────────
+
+def _draft_key() -> str:
+    import hashlib
+    import hmac
+    from config import get_settings
+    return hmac.new(get_settings().auth_secret.encode(), b"mcp-draft-v1", hashlib.sha256).hexdigest()
+
+
+def _texting_off(db) -> bool:
+    from database import SystemConfig
+    return (SystemConfig.get(db, "mcp_texting_off", "") or "").strip() == "1"
+
+
+def draft_text(db, lead_id: str, message: str) -> dict:
+    """Make a draft text to a customer. Sends nothing."""
+    import secrets
+    import time
+    from jose import jwt
+    lead = _lead_or_error(db, lead_id)
+    body = (message or "").strip()
+    if not body:
+        raise ToolError("The text is empty.")
+    if len(body) > MAX_TEXT:
+        raise ToolError(f"Too long ({len(body)} characters); keep it under {MAX_TEXT}.")
+    if not lead.ghl_contact_id:
+        raise ToolError("This customer isn't in GHL, so we can't text them from the business line.")
+    draft_id = jwt.encode({"typ": "draft", "lead": lead.id, "text": body, "n": secrets.token_urlsafe(6),
+                           "exp": int(time.time()) + DRAFT_TTL}, _draft_key(), algorithm="HS256")
+    return {
+        "draft_id": draft_id, "to": lead.contact_name, "phone": lead.contact_phone,
+        "from": "the business line (GHL)", "text": body, "characters": len(body),
+        "next": "Show Alan this exact text. To change it, call draft_text again with the new words. "
+                "Only call send_text when Alan's latest message says 'send'.",
+    }
+
+
+def send_text(db, draft_id: str, alan_said: str) -> dict:
+    """Send a draft exactly as written, only after Alan says send."""
+    from datetime import datetime, timedelta, timezone
+    from jose import JWTError, jwt
+    from database import Message
+    from services import ghl
+    if (alan_said or "").strip().lower().rstrip(".!") != "send":
+        raise ToolError("Not sent. Alan has to say 'send' after seeing this exact draft.")
+    if _texting_off(db):
+        raise ToolError("Texting from Claude is switched off (mcp_texting_off).")
+    try:
+        d = jwt.decode(draft_id or "", _draft_key(), algorithms=["HS256"])
+    except JWTError:
+        raise ToolError("That draft is expired or not real. Make a new draft_text and show it to Alan.")
+    if d.get("typ") != "draft":
+        raise ToolError("That isn't a draft id.")
+    if draft_id in _sent_drafts:
+        raise ToolError("Already sent. Not sending it twice.")
+    lead = _lead_or_error(db, d.get("lead", ""))
+    body = d["text"]
+    since = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    dup = (db.query(Message).filter(Message.lead_id == lead.id, Message.direction == "outbound",
+                                    Message.body == body, Message.created_at >= since).first())
+    if dup:
+        raise ToolError("The same text already went to this customer in the last 15 minutes. Not sending again.")
+    _sent_drafts.add(draft_id)
+    ok = ghl.send_sms(lead.ghl_contact_id, body, location_id=lead.ghl_location_id or None)
+    if not ok:
+        _sent_drafts.discard(draft_id)
+        logger.warning("mcp send_text failed for lead %s: %s", lead.id, ghl.last_send_error())
+        raise ToolError("GHL didn't take it. Nothing was sent; try again in a minute.")
+    logger.info("mcp send_text: sent to lead %s (%d chars)", lead.id, len(body))
+    return {"sent": True, "to": lead.contact_name, "text": body,
+            "when": now_ct().strftime("%a %m/%d %-I:%M %p")}
+
+
 # ── the list Claude sees ──────────────────────────────────────────────────
 
 def _str(desc):
@@ -319,7 +405,19 @@ TOOLS = [
     (stella, "stella",
      "Stella (AI sales manager): her playbook and the call-backs waiting for Alan.",
      {"days_ahead": _int("How many days ahead (default 2)")}, []),
+    (draft_text, "draft_text",
+     "Step 1 of texting a customer: make a draft from the business line. Sends nothing. Show Alan the "
+     "exact text; for edits call it again. Texts sound like Alan: short, plain, open 'Good morning/"
+     "afternoon/evening Mr./Mrs. <last name>' (first name if unsure). Crew never see prices.",
+     {"lead_id": _str("From find_customer"), "message": _str("The full text")}, ["lead_id", "message"]),
+    (send_text, "send_text",
+     "Step 2: send a draft exactly as written. ONLY when Alan's latest message says 'send' about this "
+     "draft; pass alan_said='send'. Never send on your own, never re-send.",
+     {"draft_id": _str("From draft_text"), "alan_said": _str("Must be exactly 'send'")},
+     ["draft_id", "alan_said"]),
 ]
+
+_WRITES = {"send_text"}
 
 _BY_NAME = {name: fn for fn, name, *_ in TOOLS}
 
@@ -328,7 +426,9 @@ def list_tools() -> list[dict]:
     return [{
         "name": name, "description": desc,
         "inputSchema": {"type": "object", "properties": props, "required": req},
-        "annotations": {"readOnlyHint": True},
+        "annotations": ({"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True,
+                         "title": "Send text to customer"} if name in _WRITES
+                        else {"readOnlyHint": True}),
     } for _fn, name, desc, props, req in TOOLS]
 
 

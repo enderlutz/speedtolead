@@ -182,3 +182,70 @@ def test_tool_errors_are_readable(client, db):
     bad = _rpc(client, tok["access_token"], "tools/call",
                {"name": "schedule", "arguments": {"date": "tomorrow"}}).json()["result"]
     assert bad["isError"] is True
+
+
+def _text_lead(db):
+    from database import Lead
+    db.add(Lead(id="L2", contact_name="Text Customer", ghl_contact_id="ghl-test-2", ghl_location_id="loc",
+                contact_phone="+15550002222", phone_key="5550002222", created_at="2026-11-01T15:00:00+00:00",
+                form_data="{}"))
+    db.commit()
+
+
+def _call(client, token, name, args):
+    return _rpc(client, token, "tools/call", {"name": name, "arguments": args}).json()["result"]
+
+
+def test_texting_needs_a_draft_and_alans_send(client, db, monkeypatch):
+    import services.ghl as ghl
+    sent = []
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, body, **k: sent.append((cid, body)) or True)
+    _text_lead(db)
+    _cid, _c, _v, tok = _sign_in(client)
+    t = tok["access_token"]
+
+    draft = json.loads(_call(client, t, "draft_text", {"lead_id": "L2", "message": "Good afternoon, see you Thursday."})
+                       ["content"][0]["text"])
+    assert draft["text"] == "Good afternoon, see you Thursday." and not sent
+
+    no = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "looks good"})
+    assert no["isError"] is True and not sent
+
+    ok = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "Send"})
+    assert ok["isError"] is False and sent == [("ghl-test-2", "Good afternoon, see you Thursday.")]
+
+    again = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "send"})
+    assert again["isError"] is True and len(sent) == 1
+
+
+def test_tampered_draft_and_off_switch(client, db, monkeypatch):
+    import services.ghl as ghl
+    from database import SystemConfig
+    sent = []
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, body, **k: sent.append(body) or True)
+    _text_lead(db)
+    _cid, _c, _v, tok = _sign_in(client)
+    t = tok["access_token"]
+    bad = _call(client, t, "send_text", {"draft_id": "made.up.token", "alan_said": "send"})
+    assert bad["isError"] is True
+    draft = json.loads(_call(client, t, "draft_text", {"lead_id": "L2", "message": "Hi"})["content"][0]["text"])
+    SystemConfig.set(db, "mcp_texting_off", "1")
+    off = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "send"})
+    assert off["isError"] is True and not sent
+
+
+def test_same_words_twice_in_15_minutes_refused(client, db, monkeypatch):
+    from datetime import datetime, timezone
+    import services.ghl as ghl
+    from database import Message
+    sent = []
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, body, **k: sent.append(body) or True)
+    _text_lead(db)
+    db.add(Message(id="M9", lead_id="L2", direction="outbound", body="Hi there",
+                   created_at=datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    _cid, _c, _v, tok = _sign_in(client)
+    t = tok["access_token"]
+    draft = json.loads(_call(client, t, "draft_text", {"lead_id": "L2", "message": "Hi there"})["content"][0]["text"])
+    dup = _call(client, t, "send_text", {"draft_id": draft["draft_id"], "alan_said": "send"})
+    assert dup["isError"] is True and not sent
