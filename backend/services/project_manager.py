@@ -437,6 +437,29 @@ def p4p_check(db, today: str) -> tuple[list[str], list[str]]:
 
 # ── The nightly text ─────────────────────────────────────────────────────
 
+def _first(text: str, n: int = 80) -> str:
+    t = " ".join((text or "").split())
+    return t if len(t) <= n else t[: n - 1].rstrip() + "…"
+
+
+def learned_today(db, today: str) -> str:
+    """'🧠 LEARNED TODAY' with the rules David and lessons Stella got today
+    (first ~80 characters each); '' when neither learned anything."""
+    from services import david_playbook, stella
+    david = [r["text"] for r in david_playbook.learned_on(db, today)]
+    try:
+        lessons = stella.lessons_on(db, today)
+    except Exception:  # noqa: BLE001
+        lessons = []
+    if not david and not lessons:
+        return ""
+    out = [f"🧠 LEARNED TODAY: David {len(david)} new rule{'s' if len(david) != 1 else ''}, "
+           f"Stella {len(lessons)} new lesson{'s' if len(lessons) != 1 else ''}"]
+    out += [f"• David: {_first(t)}" for t in david]
+    out += [f"• Stella: {_first(t)}" for t in lessons]
+    return "\n".join(out)
+
+
 def nightly_report(db, today: str | None = None) -> list[str]:
     today = today or now_ct().strftime("%Y-%m-%d")
     sections = []
@@ -460,6 +483,9 @@ def nightly_report(db, today: str | None = None) -> list[str]:
         if fills:
             t += "\nI filled in:\n" + "\n".join(fills)
         sections.append(t)
+    learned = learned_today(db, today)
+    if learned:
+        sections.append(learned)
     header = f"🗂️ DAVID · 9 PM JOB CHECK ({weekday_label(today, short=True)} {today[5:].replace('-', '/')})"
     return split_texts(header, sections)
 

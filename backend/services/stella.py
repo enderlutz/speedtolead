@@ -96,6 +96,15 @@ def teach(db, lesson: str) -> str:
     return updated
 
 
+def lessons_on(db, day: str) -> list[str]:
+    """The lessons teach() added on that Houston date (YYYY-MM-DD). teach()
+    already stamps each one as '- (YYYY-MM-DD) lesson', so this only reads."""
+    from database import SystemConfig
+    text = SystemConfig.get(db, PLAYBOOK_KEY, "") or ""
+    mark = f"- ({day}) "
+    return [line[len(mark):].strip() for line in text.splitlines() if line.startswith(mark) and line[len(mark):].strip()]
+
+
 def ask(db, task: str, file_text: str, max_tokens: int = 1500) -> dict | None:
     """One question to Stella: her playbook + the task, JSON back."""
     from config import get_settings

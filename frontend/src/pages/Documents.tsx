@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileText, Image as ImageIcon, Lightbulb, Loader2, Mic, Pencil, Search, Trash2, Upload } from "lucide-react";
+import { BookOpen, FileText, Image as ImageIcon, Lightbulb, Loader2, Mic, Pencil, Search, Trash2, Upload } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { DavidRules } from "@/components/DavidRules";
 import { IdeasPlaybook } from "@/components/IdeasPlaybook";
 import PlaudRecordings from "@/components/PlaudRecordings";
 import { cn } from "@/lib/utils";
@@ -24,8 +25,10 @@ export default function Documents() {
   // Alan opens to Ideas (2026-10-30: "I don't even look at documents, so it
   // always needs to open up to ideas"); Files is the second tab.
   // Recordings (2026-10-31) sits between them: his Plaud recordings and nightly briefs.
-  const tab = !isAlan || params.get("tab") === "files" ? "files" : params.get("tab") === "recordings" ? "recordings" : "ideas";
-  const setTab = (t: "files" | "ideas" | "recordings") => setParams(t === "ideas" ? {} : { tab: t }, { replace: true });
+  // David's rules (2026-11-11): the project manager's rulebook, also read by the Claude app.
+  const asked = params.get("tab");
+  const tab = !isAlan || asked === "files" ? "files" : asked === "recordings" ? "recordings" : asked === "david" ? "david" : "ideas";
+  const setTab = (t: "files" | "ideas" | "recordings" | "david") => setParams(t === "ideas" ? {} : { tab: t }, { replace: true });
   const [docs, setDocs] = useState<DocumentRow[] | null>(null);
   const [cats, setCats] = useState<DocCategory[]>([]);
   const [q, setQ] = useState("");
@@ -118,8 +121,8 @@ export default function Documents() {
 
   // Files | Ideas (Alan's playbook, 2026-10-30). Ideas is his alone.
   const tabBar = isAlan ? (
-    <div className="inline-flex rounded-xl bg-muted p-1">
-      {([["ideas", "Ideas/Tasks", Lightbulb], ["recordings", "Recordings", Mic], ["files", "Files", FileText]] as const).map(([k, l, Icon]) => (
+    <div className="inline-flex flex-wrap rounded-xl bg-muted p-1">
+      {([["ideas", "Ideas/Tasks", Lightbulb], ["recordings", "Recordings", Mic], ["david", "David's rules", BookOpen], ["files", "Files", FileText]] as const).map(([k, l, Icon]) => (
         <button key={k} type="button" onClick={() => setTab(k)}
           className={cn("inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold", tab === k ? "bg-background shadow-sm" : "text-muted-foreground")}>
           <Icon className="h-4 w-4" /> {l}
@@ -133,6 +136,15 @@ export default function Documents() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Mic className="h-6 w-6" /> Recordings</h1>
         {tabBar}
         <PlaudRecordings />
+      </div>
+    );
+  }
+  if (isAlan && tab === "david") {
+    return (
+      <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
+        <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="h-6 w-6" /> David's rules</h1>
+        {tabBar}
+        <DavidRules />
       </div>
     );
   }

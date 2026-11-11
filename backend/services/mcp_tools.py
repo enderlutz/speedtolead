@@ -6,7 +6,7 @@ these. Each tool takes plain arguments and returns a plain dict; api/mcp_server.
 turns that into the MCP wire format and handles the sign-in.
 
 Look-ups never write anything. Change tools (set_job, set_crew, add_note,
-log_receipt, teach_stella, david_day_off) each save a before/after line to
+log_receipt, teach_stella, teach_david, forget_david_rule, david_day_off) each save a before/after line to
 system_config mcp_change_log (see change_log). The one thing that reaches
 outside is texting a customer, and it takes two steps on purpose (Alan, 2026-11-10: "first we'd
 do a draft text, then I edit it, then I say send"):
@@ -502,6 +502,39 @@ def teach_stella(db, lesson: str) -> dict:
     return {"saved": True, "rule": text_, "note": "Stella follows it from her next call review."}
 
 
+def teach_david(db, rule: str) -> dict:
+    """Add one rule to David's rulebook (system_config david_playbook)."""
+    from services import david_playbook
+    try:
+        out = david_playbook.teach(db, rule)
+    except david_playbook.RuleError as e:
+        raise ToolError(str(e))
+    r = out["rule"]
+    if not out["added"]:
+        return {"saved": False, "rule": r, "note": f"David already has this as rule {r['n']}."}
+    _log_change(db, "teach_david", "", r["text"])
+    db.commit()
+    return {"saved": True, "rule": r, "note": "Every Claude that connects sees it from the next connection."}
+
+
+def david_rules(db) -> dict:
+    """David's rulebook, numbered."""
+    from services import david_playbook
+    return {"rules": david_playbook.rules(db)}
+
+
+def forget_david_rule(db, index: int) -> dict:
+    """Take rule number `index` out of David's rulebook."""
+    from services import david_playbook
+    try:
+        gone = david_playbook.forget(db, index)
+    except david_playbook.RuleError as e:
+        raise ToolError(str(e))
+    _log_change(db, "forget_david_rule", "", f"#{gone['n']}: {gone['text']}")
+    db.commit()
+    return {"removed": gone, "rules": david_playbook.rules(db)}
+
+
 def david_day_off(db, worker: str, weekday: str, kind: str = "never", remove: bool = False) -> dict:
     """David's days-off rule for a worker: 'never' (never schedule) or 'ask' (ask first)."""
     from database import SystemConfig
@@ -692,9 +725,20 @@ TOOLS = [
      "Add ONE rule to Stella's playbook, in a clear sentence with the reason. Show Alan the exact rule "
      "and get his OK first.",
      {"lesson": _str("The rule, one sentence + why")}, ["lesson"]),
+    (david_rules, "david_rules",
+     "David (AI project manager): his rulebook, numbered, with the date each rule was added.",
+     {}, []),
+    (teach_david, "teach_david",
+     "Add ONE rule to David's rulebook (jobs, crew, materials, scheduling), in a clear sentence with "
+     "the reason. Show Alan the exact rule and get his OK first. Same words twice are not added again.",
+     {"rule": _str("The rule, one sentence + why")}, ["rule"]),
+    (forget_david_rule, "forget_david_rule",
+     "Remove one rule from David's rulebook by its number (from david_rules). Show Alan the rule and "
+     "get his OK first.",
+     {"index": _int("Rule number, 1 = first")}, ["index"]),
     (david_day_off, "david_day_off",
      "David's days-off rules: a worker 'never' works a weekday, or 'ask' first. remove=true clears it. "
-     "(David's other checks are fixed code; tell Alan to ask on the laptop for those.)",
+     "(Any other rule for David goes in with teach_david.)",
      {"worker": _str("Crew username"), "weekday": _str("monday…sunday"), "kind": _str("never or ask"),
       "remove": {"type": "boolean", "description": "Clear this rule"}}, ["worker", "weekday"]),
     (change_log, "change_log",
@@ -712,7 +756,8 @@ TOOLS = [
      ["draft_id", "alan_said"]),
 ]
 
-_WRITES = {"send_text", "set_job", "set_crew", "add_note", "log_receipt", "teach_stella", "david_day_off"}
+_WRITES = {"send_text", "set_job", "set_crew", "add_note", "log_receipt", "teach_stella", "teach_david",
+           "forget_david_rule", "david_day_off"}
 
 _BY_NAME = {name: fn for fn, name, *_ in TOOLS}
 

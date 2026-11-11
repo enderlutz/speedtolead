@@ -51,9 +51,41 @@ INSTRUCTIONS = (
     "texts and latest call before drafting anything to them. Texting a customer is two steps: "
     "draft_text, show Alan the exact words, edit with another draft_text, and call send_text "
     "only when Alan's latest message says 'send'. Never send on your own. Before any change "
-    "tool (set_job, set_crew, add_note, log_receipt, teach_stella, david_day_off), say exactly "
-    "what will change and wait for Alan's OK. Crew never see prices."
+    "tool (set_job, set_crew, add_note, log_receipt, teach_stella, teach_david, forget_david_rule, "
+    "david_day_off), say exactly what will change and wait for Alan's OK. Crew never see prices."
 )
+PLAYBOOK_CAP = 8000  # per playbook, so the initialize reply stays a sensible size
+
+
+def _cap(text: str, tool: str) -> str:
+    text = (text or "").strip()
+    if len(text) <= PLAYBOOK_CAP:
+        return text
+    return text[:PLAYBOOK_CAP].rsplit("\n", 1)[0] + f"\n… (cut here; call {tool} for the rest)"
+
+
+def instructions() -> str:
+    """The fixed INSTRUCTIONS plus the rules Alan has taught David and Stella,
+    read fresh from the database on every connection. Never fails: a database
+    problem just leaves the playbooks off."""
+    parts = [INSTRUCTIONS]
+    try:
+        from database import SystemConfig, get_db
+        from services import david_playbook, stella
+        db = get_db()
+        try:
+            david = david_playbook.playbook_text(db)
+            stella_text = SystemConfig.get(db, stella.PLAYBOOK_KEY, "") or stella.DEFAULT_PLAYBOOK
+        finally:
+            db.close()
+        parts.append("Follow these rules Alan has taught. Rules for jobs, crew and materials are David's; "
+                     "rules for leads, calls and sales are Stella's.")
+        parts.append("== DAVID (AI Project Manager) ==\n"
+                     + (_cap(david, "david_rules") or "No rules yet. Add them with teach_david."))
+        parts.append("== STELLA (AI Sales Manager) ==\n" + _cap(stella_text, "stella"))
+    except Exception:  # noqa: BLE001
+        logger.exception("mcp: could not read the playbooks for initialize")
+    return "\n\n".join(parts)
 CODE_TTL = 300
 ACCESS_TTL = 24 * 3600
 REFRESH_TTL = 60 * 24 * 3600
@@ -324,7 +356,7 @@ def _handle(msg: dict) -> dict | None:
         return _rpc_result(mid, {
             "protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": SERVER_INFO, "instructions": INSTRUCTIONS,
+            "serverInfo": SERVER_INFO, "instructions": instructions(),
         })
     if method == "ping":
         return _rpc_result(mid, {})
