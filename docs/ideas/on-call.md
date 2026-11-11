@@ -82,3 +82,6 @@ Alan with Olga. Goal: no notebook. The system remembers, scores and directs.
     call ("call me Thursday after 3", "send the colour samples") become tasks
     automatically from the transcript (call_intent already pulls callback
     phrases). Ask Olga what she writes down and make sure each kind is caught.
+
+## Customer not listening = pause and check (Alan 2026-11-10)
+When the customer goes quiet during the process explanation (no "mhm", no answers), the VA pauses: "Sir, can you hear me okay?" Questions are how we hold attention on the phone. Later: Stella flags calls where the customer barely spoke during steps 2-4 (talk share), and the VA script gets a "check they're listening" line.
