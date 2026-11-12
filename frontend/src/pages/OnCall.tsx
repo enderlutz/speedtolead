@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
 import {
   api, getCurrentUser,
-  type OnCallBreak, type OnCallCallCounts, type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
+  type OnCallBreak, type OnCallCallCounts, type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift, type VaCallbackPerson,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,7 @@ export default function OnCall() {
         </div>
         <div className="order-1 sm:order-2"><CallCounts /></div>
       </div>
+      <VaCallbacks />
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {btn("now", "Now")}
         {btn("buckets", "Buckets")}
@@ -117,6 +118,62 @@ function CallCounts() {
         </tbody>
       </table>
       <p className="mt-1 text-sm text-muted-foreground">Counts when your name reaches the customer · double dials = 1</p>
+    </div>
+  );
+}
+
+/** Call-backs Alan gave a VA (2026-11-12): one card per VA with what's due
+ * today, overdue ones in red. A call to that customer ticks it off on its own;
+ * "Called" does it by hand. A VA sees only her own card. */
+function VaCallbacks() {
+  const [people, setPeople] = useState<VaCallbackPerson[]>([]);
+  const [busy, setBusy] = useState("");
+  const load = useCallback(() => api.onCallVaCallbacks().then((d) => setPeople(d.people)).catch(() => {}), []);
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 60_000);
+    return () => clearInterval(t);
+  }, [load]);
+  const done = async (leadId: string) => {
+    setBusy(leadId);
+    try { await api.onCallVaCallbackDone(leadId); toast.success("Marked called"); await load(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+    finally { setBusy(""); }
+  };
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const when = (iso: string) => {
+    const d = new Date(iso);
+    const time = d.toLocaleTimeString([], { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
+    const day = d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    return day === today ? time : `${d.toLocaleDateString([], { timeZone: "America/Chicago", weekday: "short", month: "numeric", day: "numeric" })} ${time}`;
+  };
+  const shown = people.filter((p) => p.callbacks.length);
+  if (!shown.length) return null;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {shown.map((p) => (
+        <div key={p.username} className="rounded-lg border border-gold/40 bg-white p-3 shadow-sm">
+          <div className="mb-1 text-base font-semibold text-ink">{p.name}'s calls today ({p.callbacks.length})</div>
+          <div className="divide-y divide-ink/10">
+            {p.callbacks.map((c) => (
+              <div key={c.lead_id} className="flex items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2">
+                    <Link to={`/leads/${c.lead_id}`} className="text-base font-semibold text-ink underline-offset-2 hover:underline">{c.name || "Customer"}</Link>
+                    <span className={`text-sm font-semibold tabular-nums ${c.overdue ? "text-rose-700" : "text-cedar"}`}>
+                      {when(c.when)}{c.overdue ? " · overdue" : ""}
+                    </span>
+                  </div>
+                  {c.why ? <p className="text-sm leading-snug text-muted-foreground">{c.why}</p> : null}
+                </div>
+                <Button className="min-h-11 shrink-0" disabled={busy === c.lead_id} onClick={() => void done(c.lead_id)}>
+                  {busy === c.lead_id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />} Called
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

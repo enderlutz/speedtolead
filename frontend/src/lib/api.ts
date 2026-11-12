@@ -2890,6 +2890,10 @@ export const api = {
   onCallNotALead: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/not-a-lead`, { method: "POST" }),
   onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
   onCallCallCounts: () => request<OnCallCallCounts>("/api/on-call/call-counts"),
+  /** Each VA's call-backs due today (Alan, 2026-11-12). A VA gets only hers. */
+  onCallVaCallbacks: () => request<{ people: VaCallbackPerson[] }>("/api/on-call/callbacks"),
+  onCallVaCallbackDone: (leadId: string) =>
+    request<{ ok: boolean }>(`/api/on-call/callbacks/${leadId}/done`, { method: "POST" }),
   /** Every priced lead in a bucket (Alan, 2026-11-01). */
   onCallBuckets: () => request<{ a: BucketRow[]; b: BucketRow[]; c: BucketRow[]; d: BucketRow[]; customers: BucketRow[]; reasons: Record<string, string> }>("/api/on-call/buckets"),
   bucketDone: (leadId: string, reason: string) =>
@@ -6822,6 +6826,11 @@ export interface OnCallCallCounts {
   week_start: string; today_start: string;
   people: { name: string; today: number; week: number; waiting_today: number; waiting_week: number }[];
 }
+export interface VaCallback {
+  lead_id: string; name: string; phone: string; ghl_contact_id: string; ghl_location_id: string;
+  when: string; why: string; overdue: boolean;
+}
+export interface VaCallbackPerson { username: string; name: string; callbacks: VaCallback[] }
 export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }
 
 export interface BookedMonth {

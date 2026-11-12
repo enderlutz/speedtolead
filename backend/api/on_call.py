@@ -14,6 +14,9 @@
     GET  /api/on-call/breaks                 today's break asks; POST asks, /{id}/take covers it
     GET  /api/on-call/todo                   need an estimate / follow up lists
     GET  /api/on-call/call-counts            calls per person, this week + today
+    GET  /api/on-call/callbacks              each VA's call-backs for today
+    POST /api/on-call/callbacks              give a lead's call-back to a VA (admin)
+    POST /api/on-call/callbacks/{id}/done    "Called" by hand
 """
 from __future__ import annotations
 
@@ -667,5 +670,72 @@ def call_counts(user: dict = Depends(require_staff)):
     db = get_db()
     try:
         return count_calls(db)
+    finally:
+        db.close()
+
+
+# ── VA call-backs (Alan, 2026-11-12) ────────────────────────────────────
+# Some call-backs go to a VA instead of Alan. See services/va_callbacks.py.
+
+class VaCallbackIn(BaseModel):
+    lead_id: str
+    to: str
+    when: str
+    why: str = ""
+
+
+@router.get("/on-call/callbacks")
+def va_callbacks_today(user: dict = Depends(require_staff)):
+    """The office sees every VA's list; a VA sees only her own."""
+    from services import va_callbacks
+    db = get_db()
+    try:
+        admin = user.get("role") == "admin"
+        me = (user.get("sub") or "").lower()
+        rows = va_callbacks.due_for(db, None if admin else me)
+        team = _team(db)
+        names = {u.username.lower(): (u.display_name or u.username) for u in db.query(User).all()}
+        order = [u.username for u in team if (u.role or "") == "va"] if admin else [user.get("sub") or ""]
+        for r in rows:
+            if r["to"].lower() not in {o.lower() for o in order}:
+                order.append(r["to"])
+        people = []
+        for username in order:
+            mine = [{k: v for k, v in r.items() if k != "to"} for r in rows if r["to"].lower() == username.lower()]
+            people.append({"username": username, "name": names.get(username.lower(), username), "callbacks": mine})
+        return {"people": people}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/callbacks/{lead_id}/done")
+def va_callback_done(lead_id: str, user: dict = Depends(require_staff)):
+    from services import va_callbacks
+    db = get_db()
+    try:
+        lead = _bucket_lead(db, lead_id)
+        cb = va_callbacks.get(lead)
+        if not cb:
+            raise HTTPException(404, "No call-back on this lead")
+        if user.get("role") != "admin" and cb["to"].lower() != (user.get("sub") or "").lower():
+            raise HTTPException(403, "That call-back is someone else's")
+        va_callbacks.mark_done(db, lead, user.get("sub") or "", "marked")
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/callbacks")
+def va_callback_set(body: VaCallbackIn, user: dict = Depends(require_admin)):
+    from services import va_callbacks
+    db = get_db()
+    try:
+        lead = _bucket_lead(db, body.lead_id)
+        try:
+            cb = va_callbacks.set_callback(db, lead, body.to, body.when, body.why,
+                                           user.get("name") or user.get("sub") or "")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True, "callback": cb}
     finally:
         db.close()
