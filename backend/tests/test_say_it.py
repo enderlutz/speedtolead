@@ -87,10 +87,10 @@ def test_known_salutation_says_mister_or_missus():
     assert say_it.speak_name(_lead("JOHN Q PUBLIC", form={"salutation": "Mr."})) == "Mister Public"
 
 
-def test_no_salutation_says_the_full_name():
-    assert say_it.speak_name(_lead("JANE DOE")) == "Jane Doe"
-    assert say_it.speak_name(_lead("jane doe", form={"salutation": "none"})) == "Jane Doe"
-    assert say_it.speak_name(_lead("jane McDoe")) == "Jane McDoe"
+def test_no_salutation_says_the_first_name_only():
+    assert say_it.speak_name(_lead("JANE DOE")) == "Jane"
+    assert say_it.speak_name(_lead("jane doe", form={"salutation": "none"})) == "Jane"
+    assert say_it.speak_name(_lead("jane McDoe")) == "Jane"
 
 
 def test_typed_label_counts():
@@ -114,7 +114,7 @@ def test_say_it_like_overrides_replace_each_part():
     assert p["address"] == "one Odd Lane"
     lead = _lead("zed quux", "1 Odd Ln", {"say_address": "one ODD lane"})
     assert say_it.parts(lead)["address"] == "one ODD lane"
-    assert say_it.parts(lead)["name"] == "Zed Quux"
+    assert say_it.parts(lead)["name"] == "Zed"
 
 
 def test_cache_is_lru():

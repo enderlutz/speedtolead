@@ -24,7 +24,8 @@ from services import greeting
 NAME_KEY = "say_name"
 ADDRESS_KEY = "say_address"
 
-SPOKEN_LABEL = {"Mr.": "Mister", "Mrs.": "Missus", "Ms.": "Miz", "Dr.": "Doctor"}
+# Mr. or Mrs. only (Alan, 2026-11-11); Ms./Miss are said "Missus".
+SPOKEN_LABEL = {"Mr.": "Mister", "Mrs.": "Missus", "Ms.": "Missus", "Miss": "Missus", "Dr.": "Doctor"}
 
 STREET_WORDS = {
     "ln": "Lane", "dr": "Drive", "ct": "Court", "st": "Street", "rd": "Road",
@@ -168,7 +169,10 @@ def speak_address(address: str | None) -> str:
 
 
 def speak_name(lead) -> str:
-    """"Missus Smith" when we know the label, else the full name."""
+    """"Mister/Missus Smith" when we know the label (from the call voice or
+    staff, never guessed from the name), else the FIRST name only (Alan,
+    2026-11-11: "if you can't confidently tell... it just has to be their
+    first name")."""
     if lead is None:
         return ""
     label = greeting.label(lead)
@@ -177,7 +181,7 @@ def speak_name(lead) -> str:
         return f"{SPOKEN_LABEL.get(label, label)} {last}"
     words = [greeting._clean(w) for w in (getattr(lead, "contact_name", "") or "").split()]
     words = [w for w in words if w and w.lower() not in greeting.LABELS]
-    return " ".join(_fix_case(w) for w in words)
+    return _fix_case(words[0]) if words else ""
 
 
 def overrides(lead) -> dict:
