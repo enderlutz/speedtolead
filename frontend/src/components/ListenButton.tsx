@@ -1,6 +1,6 @@
 // Listen button (2026-11-11): reads the customer's name and address out loud
 // before a VA dials, so names and street names come out right. "Missus Doe"
-// when we know the label, else the full name; then the address the way an
+// when we know the label, else the first name; then the address the way an
 // American says it. The pencil lets staff type how it should sound
 // ("ek-PEN-yong"); that replaces the name or address part.
 //
@@ -31,6 +31,20 @@ function silentWav(): string {
   return `data:audio/wav;base64,${btoa(bin)}`;
 }
 let SILENT: string | null = null;
+
+// Only one voice at a time on the whole page (Alan, 2026-11-11: two taps
+// played on top of each other). Every tap stops whatever is playing first.
+let PLAYING: HTMLAudioElement | null = null;
+function stopAll() {
+  if (PLAYING) { PLAYING.pause(); PLAYING.currentTime = 0; PLAYING = null; }
+  if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+}
+function playUrl(url: string) {
+  stopAll();
+  const a = new Audio(url);
+  PLAYING = a;
+  void a.play().catch(() => {});
+}
 
 function speakWithBrowser(text: string): boolean {
   if (typeof window === "undefined" || !("speechSynthesis" in window) || !text) return false;
@@ -66,11 +80,13 @@ export function ListenButton({ leadId, className, label = "Listen" }: { leadId: 
   useEffect(() => forget, [leadId]);
 
   const listen = async () => {
-    // Replays: straight from the tap, no network.
-    if (audioUrl.current) { void new Audio(audioUrl.current).play().catch(() => {}); return; }
-    if (fallbackText.current) { speakWithBrowser(fallbackText.current); return; }
+    // Replays: straight from the tap, no network. Each tap restarts it.
+    if (audioUrl.current) { playUrl(audioUrl.current); return; }
+    if (fallbackText.current) { stopAll(); speakWithBrowser(fallbackText.current); return; }
     if (loading) return;
+    stopAll();
     const audio = new Audio();
+    PLAYING = audio;
     audio.src = SILENT ||= silentWav();
     void audio.play().catch(() => {});
     setLoading(true);
@@ -78,9 +94,10 @@ export function ListenButton({ leadId, className, label = "Listen" }: { leadId: 
       const url = await api.fetchSayAudioUrl(leadId).catch(() => null);
       if (url) {
         audioUrl.current = url;
+        if (PLAYING !== audio) return; // another button took over while this loaded
         audio.pause();
         audio.src = url;
-        await audio.play().catch(() => new Audio(url).play());
+        await audio.play().catch(() => playUrl(url));
         return;
       }
       const t = await api.sayText(leadId);
