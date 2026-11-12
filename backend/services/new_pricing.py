@@ -20,8 +20,10 @@ moves leads that come in after the change.
     if they never got a lead card).
 
 The price engine multiplies everything by `multiplier(lead)`: the package
-rates, the zone and small-job surcharges, the minimum job, and the repair
-price list. Estimates already sent stay frozen as they are.
+rates, the zone and small-job surcharges and the minimum job: the staining
+price only. Repairs are never uplifted; they're always the plain list price
+(Alan, 2026-11-11; services/repair_prices.py). Estimates already sent stay
+frozen as they are.
 """
 from __future__ import annotations
 

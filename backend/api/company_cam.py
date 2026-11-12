@@ -33,7 +33,6 @@ from services.company_cam import (
     PW_FINISH_KEYS,
     PW_SERVICES,
     PW_TASK,
-    job_multiplier,
     is_pw_job,
     normalize_pw_services,
     job_pw_sections, pw_custom_of, pw_notes_of, set_pw_items,
@@ -498,8 +497,6 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "wood_type": job.wood_type or "",
         "color_all_sides": job.color_all_sides or "",
         "repairs": _repairs(job),
-        # New-customer pricing for the repair price list (services/new_pricing.py).
-        "price_uplift_pct": round((job_multiplier(job) - 1.0) * 100, 2),
         "repair_notes": job.repair_notes or "",
         "picket_ft": float(getattr(job, "picket_length_ft", 0) or 0),
         "pickets_marked_at": job.pickets_marked_at or "",

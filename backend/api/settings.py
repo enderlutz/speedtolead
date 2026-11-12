@@ -579,9 +579,10 @@ def get_stats():
 
 
 # --- New-customer pricing (Alan, 2026-11-04) ---
-# A brand-new person pays this percent more on every price (packages and the
-# repair list); anyone already in the system keeps today's prices. Decided
-# once per lead when it's created: services/new_pricing.py.
+# A brand-new person pays this percent more on the staining price (the
+# packages; never the repairs, Alan 2026-11-11); anyone already in the system
+# keeps today's prices. Decided once per lead when it's created:
+# services/new_pricing.py.
 
 class NewCustomerPricingUpdate(BaseModel):
     percent: float
@@ -615,3 +616,52 @@ def update_new_customer_pricing(body: NewCustomerPricingUpdate, user: dict = Dep
         return {"percent": percent_setting(db)}
     finally:
         db.close()
+
+
+# --- Repair price list (Alan, 2026-11-11) ---
+# Editable on the Pricing page, with a confirmation step. Public read: the
+# same prices are on every customer proposal. Admin-only save. A save only
+# changes what is priced from the list from then on; bookings and agreed
+# per-unit prices on a job keep what they were (services/repair_prices.py).
+
+class RepairPricesUpdate(BaseModel):
+    prices: dict
+
+
+def _repair_prices_payload(db) -> dict:
+    from services.repair_prices import SETTING_KEY, defaults, get_prices
+    row = db.query(SystemConfig).filter(SystemConfig.key == SETTING_KEY).first()
+    return {"prices": get_prices(db), "defaults": defaults(), "updated_at": (row.updated_at if row else "") or ""}
+
+
+@router.get("/public/repair-prices")
+def get_repair_prices():
+    """{"prices": {"pine": 1200, ...} in cents, "defaults": {...}, "updated_at"}."""
+    db = get_db()
+    try:
+        return _repair_prices_payload(db)
+    finally:
+        db.close()
+
+
+@router.put("/settings/repair-prices")
+def update_repair_prices(body: RepairPricesUpdate, user: dict = Depends(require_admin)):
+    """Admin only. Every price in cents, more than $0 and at most $2,000."""
+    from services.activity_log import log_event
+    from services.repair_prices import LABELS, save_prices, validate
+    try:
+        clean = validate(body.prices)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db = get_db()
+    try:
+        _, changed = save_prices(db, clean)
+        out = _repair_prices_payload(db)
+    finally:
+        db.close()
+    if changed:
+        who = user.get("name") or user.get("sub") or ""
+        words = ", ".join(f"{LABELS[k]} ${o / 100:,.2f} → ${n / 100:,.2f}" for k, (o, n) in changed.items())
+        log_event(None, "repair_prices_changed", f"{words} by {who}",
+                  {"by": user.get("sub") or "", "changes": {k: {"old": o, "new": n} for k, (o, n) in changed.items()}})
+    return {**out, "changed": {k: {"old": o, "new": n} for k, (o, n) in changed.items()}}

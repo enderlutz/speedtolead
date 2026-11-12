@@ -125,7 +125,25 @@ def test_todays_prices_are_unchanged_without_uplift():
     assert a[3]["tiers"] == b[3]["tiers"]
 
 
-def test_repair_price_list_goes_up_ten_percent():
+def test_repairs_never_get_the_new_customer_uplift(db):
+    """Alan, 2026-11-11: the +10% is for the staining price only. A new
+    customer's pine picket bills at the plain list price; their packages
+    still carry the +10%."""
+    import json
+    from database import CompanyCamJob
+    from services.company_cam import planned_repairs, site_extras
+
+    lead = _lead(db, phone="+17135550190")
+    assert lead.price_uplift_pct == 10
+    plan = {"counts": {"pickets": 5, "posts": 1}, "picket_type": "pine", "post_type": "post6"}
+    job = CompanyCamJob(id=str(uuid.uuid4()), lead_id=lead.id, repairs_json=json.dumps(plan),
+                        extras_json=json.dumps({"counts": {"pickets": 2}, "picket_type": "pine", "post_type": "post6"}),
+                        extras_confirmed_at="2026-11-11T15:00:00+00:00")
+    db.add(job)
+    db.commit()
     assert list_cents("pickets", "pine") == 1200
-    assert list_cents("pickets", "pine", m=1.10) == 1320
-    assert list_cents("posts", post_type="post6", m=1.10) == 24750
+    assert planned_repairs(job)["total_cents"] == 5 * 1200 + 22500
+    assert [l["unit_cents"] for l in site_extras(job)["lines"]] == [1200]
+    _, _, _, old = calculate_fence_staining(FORM, "77433")
+    _, _, _, new = calculate_fence_staining(FORM, "77433", multiplier(lead))
+    assert abs(new["tiers"]["signature"] - old["tiers"]["signature"] * 1.10) < 0.05

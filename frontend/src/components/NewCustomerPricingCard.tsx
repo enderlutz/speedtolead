@@ -1,5 +1,6 @@
 // New-customer pricing (Alan, 2026-11-04): a brand-new person pays N% more on
-// everything; anyone already in the system keeps today's prices. This card is
+// the staining price (never the repairs, Alan 2026-11-11); anyone already in
+// the system keeps today's prices. This card is
 // the guide for the office: both columns side by side, so a VA quoting on the
 // phone reads the right one. The lead page shows which one a lead is on.
 import { useEffect, useState } from "react";
@@ -9,7 +10,7 @@ import { api, getCurrentUser } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PARTS, PICKETS, POSTS, withUplift } from "@/lib/repairs";
+import { withUplift } from "@/lib/repairs";
 
 type Rates = { essential: number; signature: number; legacy: number };
 
@@ -82,18 +83,10 @@ export function NewCustomerPricingCard({ tierRates, minJob }: { tierRates: Recor
                 <td className="py-1.5 pr-3 text-right tabular-nums">{money(minJob, false)}</td>
                 <td className="py-1.5 text-right font-semibold tabular-nums text-amber-700">{money(up(minJob), false)}</td>
               </tr>
-              {[...PICKETS.map((x) => [`Picket (${x.label})`, x.price] as const),
-                ...PARTS.map((x) => [x.label, x.price] as const),
-                ...POSTS.map((x) => [`Post (${x.label})`, x.price] as const)].map(([label, price]) => (
-                <tr key={label}>
-                  <td className="py-1.5 pr-3">{label}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{money(price)}</td>
-                  <td className="py-1.5 text-right font-semibold tabular-nums text-amber-700">{money(up(price))}</td>
-                </tr>
-              ))}
             </tbody>
           </table>
           <p className="mt-2 text-xs text-muted-foreground">Zone and small-job surcharges go up by the same percent.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Repairs never go up: everyone pays the same repair prices (Repair Prices, below).</p>
         </div>
 
         {isAdmin ? (

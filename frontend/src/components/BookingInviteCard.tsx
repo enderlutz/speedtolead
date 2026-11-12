@@ -14,7 +14,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite, COLOR_IN_PERSON } from "@/components/proposal/BookingInvite";
 import { QuotePage } from "@/components/proposal/QuotePage";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
-import { PICKETS, PARTS, POSTS, repairLines, repairsTotal, withUplift } from "@/lib/repairs";
+import { PICKETS, PARTS, POSTS, repairLines, repairsTotal, useRepairPrices } from "@/lib/repairs";
 
 type Tier = "essential" | "signature" | "legacy";
 /** "none": no fence staining, only other services (Alan, 2026-10-21, Teila). */
@@ -143,10 +143,21 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     return !f ? "them" : NOT_A_NAME.has(f.toLowerCase()) ? "there" : f;
   })();
   const [draft, setDraft] = useState<Draft>(blank);
-  // New-customer pricing on the repair list (services/new_pricing.py).
-  const up = lead.price_uplift_pct || 0;
+  // Repairs are the plain list price, never the new-customer +10% (Alan,
+  // 2026-11-11); the live list can change on the Pricing page.
+  useRepairPrices();
   const [calOpen, setCalOpen] = useState(false);
   const [st, setSt] = useState<BookingState | null>(null);
+  // A booking already sent keeps the price each it was sent with, even if
+  // the list changes later: lines are matched by name ("Picket replacement
+  // (Pine)"), so a new kind of repair gets today's list price.
+  const agreedEach = useMemo(() => {
+    const out: Record<string, number> = {};
+    if (st?.booking && st.booking.status !== "cancelled") {
+      for (const r of st.draft?.repairs || []) if (r && r.name && r.unit_price > 0) out[r.name] = r.unit_price;
+    }
+    return out;
+  }, [st]);
   // The quick $250 under Payment links holds a day; this card reloads to show it.
   const [quickTick, setQuickTick] = useState(0);
   useEffect(() => {
@@ -236,7 +247,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const price = own > 0 ? own : estPrice;
   const tierOr = noFence ? "" : draft.tierOr;
   const off = noFence ? 0 : discountOff(price, draft);
-  const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType, up);
+  const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType)
+    .map((l) => (agreedEach[l.name] ? { ...l, unit_price: agreedEach[l.name] } : l));
+  const eachFor = (name: string, list: number) => agreedEach[name] || list;
   const repairs = repairsTotal(lines);
   // The repairs discount, the same rule as the server: up to all of the repairs.
   const roff = (() => {
@@ -613,15 +626,15 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         {repairsOpen ? (
           <div className="space-y-2.5 border-t bg-white p-3 text-[#15130F]">
             <Counter stack label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />}
-              price={withUplift(PICKETS.find((p) => p.key === draft.picketType)!.price, up)} n={draft.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+              price={(() => { const p = PICKETS.find((x) => x.key === draft.picketType) || PICKETS[0]; return eachFor(`Picket replacement (${p.label})`, p.price); })()} n={draft.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
               <Chips options={PICKETS} value={draft.picketType} onChange={(k) => setDraft({ ...draft, picketType: k })} />
             </Counter>
             {PARTS.map((part) => (
               <Counter stack key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />}
-                price={withUplift(part.price, up)} n={draft.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+                price={eachFor(`${part.label} replacement`, part.price)} n={draft.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
             <Counter stack label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />}
-              price={withUplift(POSTS.find((p) => p.key === draft.postType)!.price, up)} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
+              price={(() => { const p = POSTS.find((x) => x.key === draft.postType) || POSTS[0]; return eachFor(`Post replacement (${p.label})`, p.price); })()} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={draft.postType} onChange={(k) => setDraft({ ...draft, postType: k })} />
             </Counter>
             {/* A discount on the repairs alone (Alan, 2026-10-15). */}

@@ -2267,6 +2267,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ percent }),
     }),
+  /** The repair price list in cents (public: it's on every proposal). */
+  getRepairPrices: () =>
+    request<{ prices: Record<string, number>; defaults: Record<string, number>; updated_at: string }>("/api/public/repair-prices"),
+  /** Admin only. Every price in cents. */
+  setRepairPrices: (prices: Record<string, number>) =>
+    request<{ prices: Record<string, number>; defaults: Record<string, number>; updated_at: string; changed: Record<string, { old: number; new: number }> }>("/api/settings/repair-prices", {
+      method: "PUT",
+      body: JSON.stringify({ prices }),
+    }),
   getStats: () => request<{ total_leads: number; total_estimates: number; sent_estimates: number }>("/api/settings/stats"),
 
   // PDF Templates
@@ -4325,8 +4334,6 @@ export interface ColorPlanRow {
 }
 
 export interface CompanyCamJob {
-  /** The customer's new-customer pricing, for the repair price list. */
-  price_uplift_pct?: number;
   lead_id: string;
   /** Brand-new or already clean fence: no cleaning step (Alan, 2026-10-18). */
   no_cleaning?: boolean;

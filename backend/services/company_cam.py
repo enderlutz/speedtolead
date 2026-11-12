@@ -751,45 +751,34 @@ def measure_options(db, lead_id: str) -> dict:
     return {"captures": rows, "height_ft": next((h for h in heights if h), 6.0)}
 
 
-# The repair price list, per unit, tax included. Matches frontend
-# lib/repairs.ts; change both together.
+# The repair price list's DEFAULTS, per unit, tax included. The live list is
+# editable on the Pricing page (services/repair_prices.py, SystemConfig
+# "repair_prices"); these are what it uses when nothing is saved. Keep them
+# matching frontend lib/repairs.ts DEFAULT_PRICES.
 REPAIR_PRICE_CENTS = {"pine": 1200, "cedar": 1400, "rotboard": 5000, "cap": 8500, "rail": 7500,
                       "post6": 22500, "post7": 25500, "post8": 35000}
 POST_LABELS = {"post6": "6 ft fence", "post7": "7 ft fence", "post8": "8 ft fence"}
 
 
-def list_cents(key: str, picket_type: str = "pine", post_type: str = "post6", m: float = 1.0) -> int:
-    """The price list for one repair, by its count key. `m` is the lead's
-    new-customer pricing (services/new_pricing.multiplier): 1.10 = +10%."""
+def list_cents(key: str, picket_type: str = "pine", post_type: str = "post6", db=None) -> int:
+    """The live price list for one repair, by its count key. Always the plain
+    list price: the new-customer +10% is for the staining price only, never
+    repairs (Alan, 2026-11-11)."""
+    from services.repair_prices import get_prices
+    prices = get_prices(db)
     if key == "pickets":
-        base = REPAIR_PRICE_CENTS.get(picket_type, 1200)
-    elif key == "posts":
-        base = REPAIR_PRICE_CENTS.get(post_type, 22500)
-    else:
-        base = REPAIR_PRICE_CENTS.get(key, 0)
-    return int(round(base * (m or 1.0)))
+        return int(prices.get(picket_type) or prices["pine"])
+    if key == "posts":
+        return int(prices.get(post_type) or prices["post6"])
+    return int(prices.get(key) or 0)
 
 
-def job_multiplier(job) -> float:
-    """The job's customer's new-customer pricing, 1.0 for today's prices."""
-    try:
-        from sqlalchemy.orm import object_session
-        from database import Lead
-        from services.new_pricing import multiplier
-        sess = object_session(job)
-        if sess is None or not getattr(job, "lead_id", ""):
-            return 1.0
-        return multiplier(sess.query(Lead).filter(Lead.id == job.lead_id).first())
-    except Exception:  # noqa: BLE001
-        return 1.0
-
-
-def repair_lines(counts: dict, picket_type: str, post_type: str, prices: dict | None = None, m: float = 1.0) -> list[dict]:
+def repair_lines(counts: dict, picket_type: str, post_type: str, prices: dict | None = None, db=None) -> list[dict]:
     """[{"name": "Picket replacement (Pine)", "qty": 5, "unit_cents": 1200, "key": "pickets"}, ...]
-    `prices` (dollars each, by key) is what was agreed; the list (times the
-    customer's new-customer pricing `m`) otherwise."""
+    `prices` (dollars each, by key) is what was agreed; the live price list
+    otherwise (no new-customer uplift on repairs)."""
     prices = prices or {}
-    each = lambda k: int(round(float(prices[k]) * 100)) if prices.get(k) else list_cents(k, picket_type, post_type, m)  # noqa: E731
+    each = lambda k: int(round(float(prices[k]) * 100)) if prices.get(k) else list_cents(k, picket_type, post_type, db)  # noqa: E731
     out = []
     if counts.get("pickets"):
         out.append({"name": f"Picket replacement ({picket_type.title()})", "qty": int(counts["pickets"]),
@@ -815,8 +804,7 @@ def planned_repairs(job) -> dict:
     """What the office agreed with the customer on the phone: lines at the
     agreed price each, and the total. Already in the job's price."""
     v = _load(getattr(job, "repairs_json", "") or "")
-    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6", v.get("prices"),
-                         job_multiplier(job))
+    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6", v.get("prices"))
     return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines)}
 
 
@@ -835,14 +823,13 @@ def site_extras(job) -> dict:
         return {"lines": [], "total_cents": 0, "confirmed_at": ""}
     v = _load(job.extras_json or "")
     pt, po = v.get("picket_type") or "pine", v.get("post_type") or "post6"
-    jm = job_multiplier(job)
-    lines = repair_lines(v.get("counts") or {}, pt, po, v.get("prices"), jm)
+    lines = repair_lines(v.get("counts") or {}, pt, po, v.get("prices"))
     if v.get("mode") != "final":
         return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}
     plan = planned_repairs(job)
     final_cents = sum(l["qty"] * l["unit_cents"] for l in lines)
     agreed = {l["key"]: l["unit_cents"] for l in plan["lines"]}
-    below = [l["name"] for l in lines if l["unit_cents"] < agreed.get(l["key"], list_cents(l["key"], pt, po, jm))]
+    below = [l["name"] for l in lines if l["unit_cents"] < agreed.get(l["key"], list_cents(l["key"], pt, po))]
     out = list(lines)
     if plan["total_cents"]:
         out.append({"name": "Repairs agreed before (already in your price)", "qty": 1, "unit_cents": -plan["total_cents"], "key": "plan"})

@@ -26,7 +26,7 @@ import { klarnaLine, monthlyFrom, fourPayments } from "@/lib/klarna";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
-import { PICKETS, PARTS, POSTS } from "@/lib/repairs";
+import { PICKETS, PARTS, POSTS, useRepairPrices } from "@/lib/repairs";
 import { BbbBadge } from "@/components/proposal/BbbBadge";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
@@ -676,6 +676,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // colors" with all of them, then "Legacy Finish colors" with all of them.
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
+  // The live repair price list (Pricing page); the defaults until it loads.
+  const repairPricesVersion = useRepairPrices();
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
@@ -736,7 +738,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
     let total = (counts.pickets || 0) * picket.price + (counts.posts || 0) * post.price;
     for (const part of PARTS) total += (counts[part.key] || 0) * part.price;
     return total;
-  }, [counts, picketType, postType]);
+  }, [counts, picketType, postType, repairPricesVersion]);
   const total = (chosen?.price || 0) + repairs;
   const pay = payLine(total || packages[1].price);
   const bump = (key: string, by: number) =>

@@ -4,9 +4,9 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, Plus, X, DollarSign, Ruler, Search, Hammer } from "lucide-react";
-import { PICKETS, PARTS, POSTS } from "@/lib/repairs";
+import { Save, Plus, X, DollarSign, Ruler, Search } from "lucide-react";
 import { NewCustomerPricingCard } from "@/components/NewCustomerPricingCard";
+import { RepairPricesCard } from "@/components/RepairPricesCard";
 
 interface TierRates {
   essential: number;
@@ -318,40 +318,9 @@ export default function Pricing() {
       </Card>
       {/* Repair prices (Alan, 2026-11-11: "add all the repairs that we do
           into our pricing screen so we can see the price for each kind of
-          board"). Read-only: the list lives in lib/repairs.ts and the
-          server's company_cam.REPAIR_PRICE_CENTS; change both together. */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Hammer className="h-4 w-4" /> Repair Prices
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Per board, tax included. Loose boards get screwed back in for free. Counts are confirmed on cleaning day.
-          </p>
-          <div className="divide-y rounded-lg border text-sm">
-            {PICKETS.map((p) => (
-              <div key={p.key} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                <div><div className="font-semibold">Picket ({p.label})</div><div className="text-xs text-muted-foreground">One fence board</div></div>
-                <div className="font-bold tabular-nums">${p.price}</div>
-              </div>
-            ))}
-            {PARTS.map((p) => (
-              <div key={p.key} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                <div><div className="font-semibold">{p.label}</div><div className="text-xs text-muted-foreground">{p.what}</div></div>
-                <div className="font-bold tabular-nums">${p.price}</div>
-              </div>
-            ))}
-            {POSTS.map((p) => (
-              <div key={p.key} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                <div><div className="font-semibold">Post ({p.label})</div><div className="text-xs text-muted-foreground">Replaced post, set in concrete</div></div>
-                <div className="font-bold tabular-nums">${p.price}</div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+          board"), editable by Alan with a confirmation step: the list is kept
+          on the server (services/repair_prices.py), read through lib/repairs.ts. */}
+      <RepairPricesCard />
     </div>
   );
 }
