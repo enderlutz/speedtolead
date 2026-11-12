@@ -58,6 +58,12 @@ _BOT_UA_PATTERNS = [
     "nuzzel",
     "bitlybot",
     "headlesschrome",  # Many automated previewers
+    # Scripts checking a link (Claude, curl): never the customer (Alan, 2026-11-12).
+    "curl/",
+    "python-requests",
+    "python-httpx",
+    "python-urllib",
+    "wget",
     "puppeteer",
     "playwright",
     "phantomjs",

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { BookingInvite, type BookingTrust } from "@/components/proposal/BookingInvite";
 import { QuotePage } from "@/components/proposal/QuotePage";
+import { staffHeaders } from "@/lib/staffView";
 
 import { API_BASE as BASE } from "@/lib/apiBase";
 
@@ -56,7 +57,7 @@ export default function BookingPage() {
     document.title = "Sterling Fence Staining";
     // ?preview=1: staff looking, never counted as the customer's visit.
     const qs = params.get("preview") === "1" ? "?preview=1" : "";
-    fetch(`${BASE}/api/public/booking/${encodeURIComponent(token || "")}${qs}`)
+    fetch(`${BASE}/api/public/booking/${encodeURIComponent(token || "")}${qs}`, { headers: staffHeaders() })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
         const d = (await r.json()) as Booking;

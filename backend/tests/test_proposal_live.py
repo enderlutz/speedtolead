@@ -414,3 +414,22 @@ def test_with_options_archived_a_send_is_this_estimate_alone_with_no_drawing(db,
     db.commit()
     st = pl.get_live(p.token, _Req())
     assert len(st["options"]) == 1 and st["options"][0]["label"] == "" and not st["options"][0]["has_scope"]
+
+
+def test_team_logins_and_link_checks_never_count_as_the_customer(monkeypatch):
+    """Alan, 2026-11-12: testing a proposal made it look like the customer
+    opened it. A logged-in team member (their login rides along as a Bearer
+    header from the page) and script checks (curl, python) never count."""
+    from api import proposals as pr
+    from jose import jwt as _jwt
+    secret = "test-secret-123"
+    monkeypatch.setattr(pr, "get_settings", lambda: type("S", (), {"auth_secret": secret})())
+    good = _jwt.encode({"sub": "alan"}, secret, algorithm="HS256")
+    staff = type("R", (), {"cookies": {}, "headers": {"authorization": f"Bearer {good}"}})()
+    customer = type("R", (), {"cookies": {}, "headers": {}})()
+    faked = type("R", (), {"cookies": {}, "headers": {"authorization": "Bearer not-a-real-login"}})()
+    assert pr._is_internal_user(staff) is True
+    assert pr._is_internal_user(customer) is False and pr._is_internal_user(faked) is False
+    for ua in ("curl/8.7.1", "python-requests/2.31", "python-httpx/0.27", "Wget/1.21"):
+        assert pr._is_bot_view(ua), ua
+    assert not pr._is_bot_view("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148")

@@ -17,6 +17,7 @@ import ProposalView from "@/pages/ProposalView";
 import { sidesInWords } from "@/lib/fenceSides";
 
 import { API_BASE as BASE } from "@/lib/apiBase";
+import { staffHeaders } from "@/lib/staffView";
 
 type Payload = {
   name: string; address: string; feet: number; sides: string[];
@@ -50,7 +51,7 @@ export default function ProposalLive() {
       try {
         // The dashboard opens this with ?preview=1 so staff never count as a view.
         const preview = new URLSearchParams(window.location.search).get("preview") === "1" ? "?preview=1" : "";
-        const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/live${preview}`);
+        const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/live${preview}`, { headers: staffHeaders() });
         // 404 = not an interactive proposal: an older PDF one, shown as before.
         if (r.status === 404) { if (alive) setState("pdf"); return; }
         if (!r.ok) throw new Error(String(r.status));
