@@ -5,6 +5,7 @@ import { useNow } from "@/hooks/useNow";
 import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type LeadObjectionEntry, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
+import ListenButton from "@/components/ListenButton";
 
 const CALL_SCRIPT_ON = false;
 // "Request Alan's Approval" on the send panel, archived 2026-10-14.
@@ -1435,7 +1436,8 @@ export default function LeadDetail() {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="font-heading text-lg sm:text-2xl font-bold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
-          {/* New-customer pricing (Alan, 2026-11-04): so nobody quotes the
+          {/* Hear the name + address before dialing (2026-11-11). */}
+          <ListenButton leadId={lead.id} className="mt-1" />          {/* New-customer pricing (Alan, 2026-11-04): so nobody quotes the
               old number on the phone. The estimate already includes it. */}
           {(lead.price_uplift_pct || 0) > 0 ? (
             <span className="mt-0.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"

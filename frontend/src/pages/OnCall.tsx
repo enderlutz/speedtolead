@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
 import LeadBuckets from "@/components/LeadBuckets";
 import LegacyCallbacks from "@/components/LegacyCallbacks";
+import ListenButton from "@/components/ListenButton";
 
 type Tab = "now" | "buckets" | "schedule" | "score" | "report" | "team" | "legacy";
 
@@ -134,6 +135,8 @@ function NowPanel() {
             </div>
             {l.clock_started ? <Clock since={l.clock_started} now={now} /> : null}
           </div>
+          {/* Hear the name + address before dialing (2026-11-11). */}
+          <ListenButton leadId={l.lead_id} className="mt-2" />
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Link to={`/leads/${l.lead_id}`} className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-semibold">Profile</Link>
             <Button className="min-h-11" onClick={() => called(l.lead_id)}><Check className="mr-1 h-4 w-4" /> I called</Button>

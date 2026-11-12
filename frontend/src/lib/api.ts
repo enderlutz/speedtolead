@@ -2893,6 +2893,21 @@ export const api = {
     request<{ ok: boolean }>(`/api/on-call/legacy/${leadId}/offer`, { method: "POST", body: JSON.stringify({ outcome }) }),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
+  // --- Listen button: say the customer's name + address (2026-11-11) ---
+  sayText: (leadId: string) => request<SayText>(`/api/leads/${leadId}/say-text`),
+  saveSayIt: (leadId: string, body: { say_name?: string; say_address?: string }) =>
+    request<SayText>(`/api/leads/${leadId}/say`, { method: "PUT", body: JSON.stringify(body) }),
+  /** The spoken name + address as an object URL, or null when there's no voice
+   *  (the caller then speaks sayText with the browser). Caller revokes. */
+  fetchSayAudioUrl: async (leadId: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/say`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "X-Division": getDivision() },
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return blob.size ? URL.createObjectURL(blob) : null;
+  },
   onCallSchedule: (start: string, end: string) =>
     request<{ shifts: OnCallShift[]; people: OnCallPerson[]; open_min: number; close_min: number }>(`/api/on-call/schedule?start=${start}&end=${end}`),
   onCallSetDay: (date: string, shifts: { username: string; start_min: number; end_min: number }[]) =>
@@ -6773,6 +6788,14 @@ export interface OnCallTodoRow {
   stage: string; next: string; tone: string; key: string; ghl_contact_id?: string; ghl_location_id?: string;
 }
 export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }
+/** What the Listen button says: the name, then the address (2026-11-11). */
+export interface SayText {
+  lead_id: string; name: string; address: string; text: string;
+  /** "Say it like" overrides typed by staff; "" when not set. */
+  say_name: string; say_address: string;
+  /** True when the ElevenLabs voice is set up. */
+  tts: boolean;
+}
 export interface OnCallLead {
   lead_id: string; name: string; phone: string; address: string; clock_started: string; waiting_for_morning: boolean;
   on_call: string; fence_height: string; fence_age: string; timeline: string; sides: string | string[]; late_alerted: boolean;

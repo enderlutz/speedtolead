@@ -81,7 +81,8 @@ def is_configured() -> bool:
     return bool(get_settings().elevenlabs_api_key)
 
 
-def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_multilingual_v2") -> bytes:
+def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_multilingual_v2",
+               speed: float | None = None) -> bytes:
     """Synthesize text to MP3 bytes via ElevenLabs.
 
     `voice_id` is a catalog key from VOICE_CATALOG (e.g. "adam_mature"),
@@ -92,6 +93,9 @@ def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_mul
     Returns empty bytes if the API key is missing or the call fails — the
     orchestrator will route the persona's text response to the browser as
     text-only when this happens, so the practice loop still works.
+
+    `speed` (optional, ElevenLabs allows 0.7-1.2) slows or speeds the voice;
+    left out, the voice's normal pace is used.
     """
     settings = get_settings()
     if not settings.elevenlabs_api_key:
@@ -107,6 +111,8 @@ def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_mul
         **voice["settings"],
         "use_speaker_boost": True,
     }
+    if speed is not None:
+        voice_settings["speed"] = max(0.7, min(1.2, float(speed)))
 
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{resolved_uuid}"
     headers = {
