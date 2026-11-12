@@ -25,6 +25,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
+
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -339,7 +341,8 @@ def tick(when: datetime | None = None) -> dict:
     try:
         # 1. 8 AM: overnight leads go to whoever is on first, one list.
         if in_hours(when):
-            waiting = (db.query(Lead).filter(Lead.oncall_to == MORNING)
+            # A lead somebody already called overnight doesn't need the list.
+            waiting = (db.query(Lead).filter(Lead.oncall_to == MORNING, Lead.first_call_at == "")
                        .order_by(Lead.created_at).all())
             if waiting:
                 people = on_call_now(db, when)
@@ -356,23 +359,40 @@ def tick(when: datetime | None = None) -> dict:
                     out["morning"] = len(waiting)
 
         # 2. First calls GHL has logged (any outbound call to that contact).
+        # After-hours leads (MORNING) have no clock start, so their call counts
+        # from when they came in. Without this, an overnight lead someone
+        # called before 8 AM, or on a day nobody was on the schedule, never
+        # got marked called (2026-11-12).
         since = _iso(when - timedelta(days=2))
-        open_leads = (db.query(Lead).filter(Lead.oncall_at != "", Lead.oncall_at >= since, Lead.first_call_at == "")
-                      .all())
+        open_leads = (db.query(Lead).filter(Lead.first_call_at == "", or_(
+            (Lead.oncall_at != "") & (Lead.oncall_at >= since),
+            (Lead.oncall_to == MORNING) & (Lead.oncall_at == "") & (Lead.created_at >= since))).all())
         for lead in open_leads:
+            start = lead.oncall_at or lead.created_at
             msg = (db.query(Message)
                    .filter(Message.lead_id == lead.id, Message.direction == "outbound",
-                           Message.message_type.ilike("%CALL%"), Message.created_at >= lead.oncall_at)
+                           Message.message_type.ilike("%CALL%"), Message.created_at >= start)
                    .order_by(Message.created_at).first())
             rec = (db.query(CallRecording)
                    .filter(CallRecording.lead_id == lead.id, CallRecording.call_direction == "outbound",
-                           CallRecording.created_at >= lead.oncall_at)
+                           CallRecording.created_at >= start)
                    .order_by(CallRecording.created_at).first())
             hits = [x for x in ((msg.created_at if msg else ""), (rec.created_at if rec else "")) if x]
             if hits:
-                record_call(db, lead, min(hits), lead.oncall_to or "GHL")
+                by = lead.oncall_to if lead.oncall_to and lead.oncall_to != MORNING else "GHL"
+                record_call(db, lead, min(hits), by)
                 out["called"] += 1
         db.commit()
+
+        # 2b. VA call-backs (Alan, 2026-11-12): a call marks them done, and the
+        # VA hears at the call-back time. Never allowed to break the tick.
+        try:
+            from services import va_callbacks
+            out["va_callbacks_done"] = va_callbacks.auto_done(db, when)
+            out["va_callbacks_sent"] = va_callbacks.notify_due(db, when)
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            logger.warning("on call: VA call-backs failed: %s", e)
 
         # 3. Five minutes, no call: Alan hears about it, always.
         cutoff, floor = _iso(when - LATE_AFTER), _iso(when - timedelta(hours=3))

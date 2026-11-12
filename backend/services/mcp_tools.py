@@ -6,7 +6,7 @@ these. Each tool takes plain arguments and returns a plain dict; api/mcp_server.
 turns that into the MCP wire format and handles the sign-in.
 
 Look-ups never write anything. Change tools (set_job, set_crew, add_note,
-log_receipt, teach_stella, teach_david, forget_david_rule, david_day_off) each save a before/after line to
+log_receipt, set_va_callback, teach_stella, teach_david, forget_david_rule, david_day_off) each save a before/after line to
 system_config mcp_change_log (see change_log). The one thing that reaches
 outside is texting a customer, and it takes two steps on purpose (Alan, 2026-11-10: "first we'd
 do a draft text, then I edit it, then I say send"):
@@ -459,6 +459,20 @@ def add_note(db, lead_id: str, note: str, where: str = "lead") -> dict:
     return {"name": lead.contact_name, "added_to": where, "note": line}
 
 
+def set_va_callback(db, lead_id: str, va: str, when: str, why: str) -> dict:
+    """Give a customer's call-back to a VA: it shows on her On call list and she
+    gets a 📞 message at that time (services/va_callbacks.py)."""
+    from services import va_callbacks
+    lead = _lead_or_error(db, lead_id)
+    try:
+        cb = va_callbacks.set_callback(db, lead, va, when, why, BY)
+    except ValueError as e:
+        raise ToolError(str(e))
+    _log_change(db, "set_va_callback", lead.id, f"{cb['to']} at {cb['when']}: {cb['why']}")
+    db.commit()
+    return {"name": lead.contact_name, "va": cb["to"], "when": va_callbacks.when_label(cb["when"]), "why": cb["why"]}
+
+
 def log_receipt(db, worker: str, amount: float, what: str, date: str = "", lead_id: str = "") -> dict:
     """Log money a worker spent that Alan owes back (shows on Crew hours)."""
     import uuid
@@ -716,6 +730,12 @@ TOOLS = [
      "Add a dated note: where='lead' (customer notes), 'cleaning' or 'staining' (crew job notes).",
      {"lead_id": _str("From find_customer"), "note": _str("The note"), "where": _str("lead/cleaning/staining")},
      ["lead_id", "note"]),
+    (set_va_callback, "set_va_callback",
+     "Give a customer's call-back to a VA: it goes on her 'calls today' list on On call and she gets a "
+     "message at that time. Confirm with Alan first.",
+     {"lead_id": _str("From find_customer"), "va": _str("VA username, e.g. Geoconda"),
+      "when": _str("ISO date-time with zone, e.g. 2026-11-13T14:00:00-06:00 (no zone = Houston)"),
+      "why": _str("One line: what the call is for")}, ["lead_id", "va", "when", "why"]),
     (log_receipt, "log_receipt",
      "Log a worker's receipt that Alan owes back (reimbursement).",
      {"worker": _str("Crew username"), "amount": {"type": "number", "description": "Dollars"},
@@ -756,7 +776,7 @@ TOOLS = [
      ["draft_id", "alan_said"]),
 ]
 
-_WRITES = {"send_text", "set_job", "set_crew", "add_note", "log_receipt", "teach_stella", "teach_david",
+_WRITES = {"send_text", "set_job", "set_crew", "add_note", "log_receipt", "set_va_callback", "teach_stella", "teach_david",
            "forget_david_rule", "david_day_off"}
 
 _BY_NAME = {name: fn for fn, name, *_ in TOOLS}
