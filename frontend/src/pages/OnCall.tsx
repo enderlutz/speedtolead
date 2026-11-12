@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
 import {
   api, getCurrentUser,
-  type OnCallBreak, type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
+  type OnCallBreak, type OnCallCallCounts, type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,9 +55,12 @@ export default function OnCall() {
   );
   return (
     <div className={`mx-auto space-y-4 p-4 sm:p-6 ${tab === "now" ? "max-w-6xl" : "max-w-3xl"}`}>
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold"><PhoneCall className="h-5 w-5 text-primary" /> On call</h1>
-        <p className="text-sm text-muted-foreground">Every new lead 8 AM–8 PM goes to whoever is on call. Call within 5 minutes.</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="order-2 sm:order-1">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold"><PhoneCall className="h-5 w-5 text-primary" /> On call</h1>
+          <p className="text-sm text-muted-foreground">Every new lead 8 AM–8 PM goes to whoever is on call. Call within 5 minutes.</p>
+        </div>
+        <div className="order-1 sm:order-2"><CallCounts /></div>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {btn("now", "Now")}
@@ -75,6 +78,45 @@ export default function OnCall() {
       {tab === "score" && isAdmin ? <ScorePanel /> : null}
       {tab === "report" && isAdmin ? <ReportPanel /> : null}
       {tab === "team" && isAdmin ? <TeamPanel /> : null}
+    </div>
+  );
+}
+
+/** Calls per person, this week and today (Alan, 2026-11-11). Counts only
+ * when the caller's name reached the customer; double dials are one call. */
+function CallCounts() {
+  const [data, setData] = useState<OnCallCallCounts | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.onCallCallCounts().then((d) => { if (live) setData(d); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  const checking = (n: number) => (n > 0 ? <span className="ml-1 text-sm font-normal text-muted-foreground">(+{n} checking)</span> : null);
+  return (
+    <div className="w-full rounded-lg border border-gold/40 bg-white p-3 shadow-sm sm:w-80">
+      <div className="mb-1 text-base font-semibold text-ink">Calls</div>
+      <table className="w-full text-[15px]">
+        <thead>
+          <tr className="text-left text-sm text-muted-foreground">
+            <th className="py-1 font-medium">Name</th>
+            <th className="py-1 text-right font-medium">This week</th>
+            <th className="py-1 text-right font-medium">Today</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(data?.people ?? []).map((p) => (
+            <tr key={p.name} className="border-t border-ink/10">
+              <td className="py-1.5 font-medium text-ink">{p.name}</td>
+              <td className="py-1.5 text-right text-xl font-bold tabular-nums text-ink">{p.week}{checking(p.waiting_week)}</td>
+              <td className="py-1.5 text-right text-xl font-bold tabular-nums text-cedar">{p.today}{checking(p.waiting_today)}</td>
+            </tr>
+          ))}
+          {!data ? <tr><td colSpan={3} className="py-2 text-sm text-muted-foreground">Loading…</td></tr> : null}
+        </tbody>
+      </table>
+      <p className="mt-1 text-sm text-muted-foreground">Counts when your name reaches the customer · double dials = 1</p>
     </div>
   );
 }

@@ -13,6 +13,7 @@
     GET  /api/on-call/scorecard?start=&end=  speed to lead per person
     GET  /api/on-call/breaks                 today's break asks; POST asks, /{id}/take covers it
     GET  /api/on-call/todo                   need an estimate / follow up lists
+    GET  /api/on-call/call-counts            calls per person, this week + today
 """
 from __future__ import annotations
 
@@ -654,5 +655,17 @@ def legacy_offer(lead_id: str, body: LegacyOfferIn, user: dict = Depends(require
         except ValueError:
             raise HTTPException(400, "Pick offered, took it, or said no")
         return {"ok": True, "offer": offer}
+    finally:
+        db.close()
+
+
+@router.get("/on-call/call-counts")
+def call_counts(user: dict = Depends(require_staff)):
+    """Calls where the caller's name reached the customer, per person, this
+    week (since Monday) and today, Houston time. See services/call_counts.py."""
+    from services.call_counts import count_calls
+    db = get_db()
+    try:
+        return count_calls(db)
     finally:
         db.close()
