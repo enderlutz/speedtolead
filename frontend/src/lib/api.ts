@@ -2880,6 +2880,7 @@ export const api = {
   onCallCancelBreak: (id: string) => request<{ ok: boolean }>(`/api/on-call/breaks/${id}/cancel`, { method: "POST" }),
   onCallNotALead: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/not-a-lead`, { method: "POST" }),
   onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
+  onCallCallCounts: () => request<OnCallCallCounts>("/api/on-call/call-counts"),
   /** Every priced lead in a bucket (Alan, 2026-11-01). */
   onCallBuckets: () => request<{ a: BucketRow[]; b: BucketRow[]; c: BucketRow[]; d: BucketRow[]; customers: BucketRow[]; reasons: Record<string, string> }>("/api/on-call/buckets"),
   bucketDone: (leadId: string, reason: string) =>
@@ -6808,6 +6809,11 @@ export interface OnCallLogRow {
   filled_at?: string; waited_before_start?: number; minutes_total?: number | null; minutes_so_far?: number | null;
   /** Our automatic text after the fill, as proof it went out. */
   text_sent_at?: string;
+}
+/** Calls where the caller's name reached the customer; double dials = 1. */
+export interface OnCallCallCounts {
+  week_start: string; today_start: string;
+  people: { name: string; today: number; week: number; waiting_today: number; waiting_week: number }[];
 }
 export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }
 
