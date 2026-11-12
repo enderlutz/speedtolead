@@ -181,6 +181,13 @@ def _process_lead(lead_id: str, lead_data: dict):
                 on_lead_created(lead_id, brand=brand_key)
             except Exception as e:
                 logger.warning(f"on_lead_created hook failed for lead {lead_id}: {e}")
+            # Fake name ("SweetJ") + real-name email → fix the name once, in
+            # the background (services/name_from_email.py).
+            try:
+                from services.name_from_email import check_lead_soon
+                check_lead_soon(lead_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"name check not started for lead {lead_id}: {e}")
 
     except Exception as e:
         db.rollback()
