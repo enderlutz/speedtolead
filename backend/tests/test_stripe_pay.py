@@ -43,8 +43,10 @@ def _settings(monkeypatch, key="sk_test_x", webhook="whsec_x"):
     monkeypatch.setattr(config, "get_settings", lambda: ns)  # the link base reads config directly
     # The deposit's card-only configuration: none yet, so one is made.
     monkeypatch.setattr(sp, "_deposit_pmc", None)
+    monkeypatch.setattr(sp, "_klarna_pmc", None)
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **k: SimpleNamespace(data=[]), raising=False)
-    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "create", lambda **k: SimpleNamespace(id="pmc_deposit", name=k.get("name")), raising=False)
+    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "create",
+                        lambda **k: SimpleNamespace(id="pmc_klarna" if "Klarna" in k.get("name", "") else "pmc_deposit", name=k.get("name")), raising=False)
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "modify", lambda *a, **k: None, raising=False)
 
 
@@ -541,7 +543,7 @@ def test_apply_for_klarna_opens_stripe_on_klarna_and_falls_back_to_every_method(
 
     def fake_create(**params):
         seen.append(dict(params))
-        if refuse["on"] and "payment_method_types" in params:
+        if refuse["on"] and params.get("payment_method_configuration") == "pmc_klarna":
             raise sp.stripe.InvalidRequestError("klarna is not activated", "payment_method_types")
         return SimpleNamespace(id=f"cs_{len(seen)}", url=f"https://stripe.test/cs_{len(seen)}")
     monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
@@ -553,14 +555,14 @@ def test_apply_for_klarna_opens_stripe_on_klarna_and_falls_back_to_every_method(
     db.commit()
     assert sp.pay_info(full["token"])["klarna"] is True
     sp.start_session(full["token"], sp.SessionBody(method="klarna"))
-    assert seen[-1]["payment_method_types"] == ["klarna"] and "payment_method_configuration" not in seen[-1]
+    assert seen[-1]["payment_method_configuration"] == "pmc_klarna" and "payment_method_types" not in seen[-1]
     # Pay by card instead: every method.
     sp.start_session(full["token"], sp.SessionBody())
-    assert "payment_method_types" not in seen[-1]
+    assert "payment_method_types" not in seen[-1] and "payment_method_configuration" not in seen[-1]
     # Stripe refuses Klarna-only: the usual page opens, the customer is never stuck.
     refuse["on"] = True
     out = sp.start_session(full["token"], sp.SessionBody(method="klarna"))
-    assert out["url"].startswith("https://stripe.test/") and "payment_method_types" not in seen[-1]
+    assert out["url"].startswith("https://stripe.test/") and "payment_method_configuration" not in seen[-1]
     # A deposit never takes Klarna, even if asked.
     dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     refuse["on"] = False

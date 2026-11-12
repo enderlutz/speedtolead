@@ -832,6 +832,47 @@ def _deposit_config(s) -> str | None:
         log_event(None, "stripe_deposit_config_failed", str(e)[:500])
         return _deposit_pmc
 
+# The Klarna button opens Stripe on Klarna alone (Alan, 2026-11-12: "we only
+# want it to show Klarna... really easy for people"). Stripe dropped
+# payment_method_types on Checkout ("no longer supported"), so every Klarna tap
+# since late October opened every method. A saved configuration with only
+# Klarna switched on does the same job, the way the deposit's card-only one does.
+KLARNA_PMC_NAME = "Sterling Klarna only"
+KLARNA_PMC_ON = ("klarna",)
+KLARNA_PMC_OFF = DEPOSIT_PMC_ON + ("affirm", "afterpay_clearpay", "zip", "sunbit")
+_klarna_pmc: str | None = None
+_klarna_pmc_at = 0.0
+
+
+def _klarna_config(s) -> str | None:
+    global _klarna_pmc, _klarna_pmc_at
+    if _klarna_pmc and time.monotonic() - _klarna_pmc_at < DEPOSIT_PMC_REFRESH_S:
+        return _klarna_pmc
+    try:
+        pmc = None
+        for c in s.PaymentMethodConfiguration.list(limit=50).data:
+            if _field(c, "name") == KLARNA_PMC_NAME and _field(c, "active") is not False:
+                pmc = _field(c, "id")
+                break
+        if pmc is None:
+            pmc = _field(s.PaymentMethodConfiguration.create(
+                name=KLARNA_PMC_NAME, klarna={"display_preference": {"preference": "on"}},
+            ), "id")
+            log_event(None, "stripe_klarna_config", f"made {pmc}")
+        for names, pref in ((KLARNA_PMC_ON, "on"), (KLARNA_PMC_OFF, "off")):
+            for m in names:
+                try:
+                    s.PaymentMethodConfiguration.modify(pmc, **{m: {"display_preference": {"preference": pref}}})
+                except Exception as e:  # noqa: BLE001
+                    logger.info("Klarna config: %s %s skipped: %s", m, pref, e)
+        _klarna_pmc, _klarna_pmc_at = pmc, time.monotonic()
+        return _klarna_pmc
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Klarna-only payment method configuration unavailable: %s", e)
+        log_event(None, "stripe_klarna_config_failed", str(e)[:500])
+        return _klarna_pmc
+
+
 # ── Public: the pay page and the after page ───────────────────────────────
 
 def _live_link(db, token: str) -> PayLink:
@@ -1037,7 +1078,9 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             if pmc:
                 params["payment_method_configuration"] = pmc
         elif klarna_only:
-            params["payment_method_types"] = ["klarna"]
+            pmc = _klarna_config(s)
+            if pmc:
+                params["payment_method_configuration"] = pmc
         if lead and lead.contact_email:
             params["customer_email"] = lead.contact_email
         if embedded:
@@ -1058,7 +1101,7 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             except stripe.InvalidRequestError as e:  # type: ignore[attr-defined]
                 # Klarna turned off on the account, or the amount out of its
                 # range: open the usual page with every method instead.
-                if params.pop("payment_method_types", None):
+                if klarna_only and params.pop("payment_method_configuration", None):
                     logger.warning("Stripe refused Klarna-only for %s, opening every method: %s", token, e)
                     log_event(link.lead_id, "stripe_klarna_only_refused", str(e)[:500])
                     session = s.checkout.Session.create(**params)
