@@ -82,28 +82,42 @@ def test_unit_word_does_not_eat_real_words():
 
 # ── Names ─────────────────────────────────────────────────────────────
 
-def test_known_salutation_says_mister_or_missus():
-    assert say_it.speak_name(_lead("jane doe", form={"salutation": "Mrs."})) == "Missus Doe"
-    assert say_it.speak_name(_lead("JOHN Q PUBLIC", form={"salutation": "Mr."})) == "Mister Public"
+def test_always_the_full_name_even_with_a_salutation():
+    assert say_it.speak_name(_lead("jane doe", form={"salutation": "Mrs."})) == "Jane Doe"
+    assert say_it.speak_name(_lead("JOHN Q PUBLIC", form={"salutation": "Mr."})) == "John Q Public"
+    assert say_it.speak_name(_lead("JANE DOE")) == "Jane Doe"
+    assert say_it.speak_name(_lead("jane McDoe")) == "Jane McDoe"
 
 
-def test_no_salutation_says_the_first_name_only():
-    assert say_it.speak_name(_lead("JANE DOE")) == "Jane"
-    assert say_it.speak_name(_lead("jane doe", form={"salutation": "none"})) == "Jane"
-    assert say_it.speak_name(_lead("jane McDoe")) == "Jane"
+def test_name_endings_are_said_out():
+    assert say_it.speak_name(_lead("JOHN Q PUBLIC III")) == "John Q Public the Third"
+    assert say_it.speak_name(_lead("john public jr.")) == "John Public Junior"
 
 
-def test_typed_label_counts():
-    assert say_it.speak_name(_lead("Mrs. Doe")) == "Missus Doe"
+def test_typed_label_is_dropped():
+    assert say_it.speak_name(_lead("Mrs. Jane Doe")) == "Jane Doe"
+
+
+def test_area_from_zip_when_the_address_has_no_town():
+    assert say_it.parts(_lead("jane doe", "123 Elm St 77433"))["address"] == "one twenty-three Elm Street, Cypress"
+    lead = _lead("jane doe", "123 Elm St")
+    lead.zip_code = "77096"
+    assert say_it.parts(lead)["address"] == "one twenty-three Elm Street, Houston"
+    lead.zip_code = "77494"
+    assert say_it.parts(lead)["address"] == "one twenty-three Elm Street, Katy"
+    lead.zip_code = "99999"
+    assert say_it.parts(lead)["address"] == "one twenty-three Elm Street"
+    # A town already in the address wins over the zip.
+    assert say_it.parts(_lead("jane doe", "123 Elm St, Tomball, TX 77433"))["address"] == "one twenty-three Elm Street, Tomball"
 
 
 # ── Whole sentence + overrides ────────────────────────────────────────
 
 def test_parts_join_name_then_address():
     p = say_it.parts(_lead("jane doe", "4914 ELM ST, KATY, TX 77494", {"salutation": "Mrs."}))
-    assert p["name"] == "Missus Doe"
+    assert p["name"] == "Jane Doe"
     assert p["address"] == "forty-nine fourteen Elm Street, Katy"
-    assert p["text"] == "Missus Doe. forty-nine fourteen Elm Street, Katy."
+    assert p["text"] == "Jane Doe. forty-nine fourteen Elm Street, Katy."
     assert '<break' in say_it.tts_text(p["name"], p["address"])
 
 
@@ -114,7 +128,7 @@ def test_say_it_like_overrides_replace_each_part():
     assert p["address"] == "one Odd Lane"
     lead = _lead("zed quux", "1 Odd Ln", {"say_address": "one ODD lane"})
     assert say_it.parts(lead)["address"] == "one ODD lane"
-    assert say_it.parts(lead)["name"] == "Zed"
+    assert say_it.parts(lead)["name"] == "Zed Quux"
 
 
 def test_cache_is_lru():
@@ -173,7 +187,7 @@ def test_no_voice_is_a_503_so_the_page_falls_back(db, monkeypatch):
     r = client.get(f"/api/leads/{lid}/say", headers=_bearer("va"))
     assert r.status_code == 503
     t = client.get(f"/api/leads/{lid}/say-text", headers=_bearer("va")).json()
-    assert t["text"] == "Missus Doe. twenty-three oh ten Oak Ridge Lane, Cypress."
+    assert t["text"] == "Jane Doe. twenty-three oh ten Oak Ridge Lane, Cypress."
     assert t["tts"] is False
 
 
@@ -213,6 +227,6 @@ def test_save_and_clear_overrides(db):
     fd = json.loads(db.get(Lead, lid).form_data)
     assert fd["say_name"] == "jayn DOH" and fd["salutation"] == "Mrs."   # other keys kept
     r = client.put(f"/api/leads/{lid}/say", json={"say_name": ""}, headers=_bearer("va"))
-    assert r.json()["name"] == "Missus Doe"
+    assert r.json()["name"] == "Jane Doe"
     assert r.json()["say_address"] == "twenty three oh ten oak ridge"   # untouched
     assert client.get("/api/leads/nope/say-text", headers=_bearer("va")).status_code == 404

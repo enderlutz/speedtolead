@@ -24,7 +24,6 @@ from services import greeting
 NAME_KEY = "say_name"
 ADDRESS_KEY = "say_address"
 
-# Mr. or Mrs. only (Alan, 2026-11-11); Ms./Miss are said "Missus".
 SPOKEN_LABEL = {"Mr.": "Mister", "Mrs.": "Missus", "Ms.": "Missus", "Miss": "Missus", "Dr.": "Doctor"}
 
 STREET_WORDS = {
@@ -169,19 +168,59 @@ def speak_address(address: str | None) -> str:
 
 
 def speak_name(lead) -> str:
-    """"Mister/Missus Smith" when we know the label (from the call voice or
-    staff, never guessed from the name), else the FIRST name only (Alan,
-    2026-11-11: "if you can't confidently tell... it just has to be their
-    first name")."""
+    """The customer's FULL name, cleaned up (Alan, 2026-11-11: "go back to
+    it just saying the full name"; the VAs are trained to say Mr./Mrs. +
+    last name themselves). Any Mr./Mrs. typed into the name is dropped."""
     if lead is None:
         return ""
-    label = greeting.label(lead)
-    _first, last = greeting.names(getattr(lead, "contact_name", ""))
-    if label and last:
-        return f"{SPOKEN_LABEL.get(label, label)} {last}"
     words = [greeting._clean(w) for w in (getattr(lead, "contact_name", "") or "").split()]
     words = [w for w in words if w and w.lower() not in greeting.LABELS]
-    return _fix_case(words[0]) if words else ""
+    return " ".join(SUFFIXES.get(w.lower().rstrip("."), _fix_case(w)) for w in words)
+
+
+# Name endings said the way people say them ("Milton Mosk the Third").
+SUFFIXES = {"ii": "the Second", "iii": "the Third", "iv": "the Fourth", "jr": "Junior", "sr": "Senior"}
+
+
+# The area each zip is in, said after the street when the address has no
+# city (Alan, 2026-11-11: "77433 would be Cypress"). Every other 770xx zip
+# is Houston. Covers the service area; anything else says no area.
+ZIP_AREAS = {
+    **{z: "Cypress" for z in ("77410", "77429", "77433")},
+    **{z: "Katy" for z in ("77449", "77450", "77491", "77492", "77493", "77494")},
+    **{z: "Tomball" for z in ("77375", "77377")},
+    **{z: "Spring" for z in ("77373", "77379", "77386", "77388", "77389")},
+    **{z: "The Woodlands" for z in ("77380", "77381", "77382")},
+    **{z: "Conroe" for z in ("77301", "77302", "77303", "77304", "77306", "77384", "77385")},
+    **{z: "Magnolia" for z in ("77354", "77355")},
+    **{z: "Montgomery" for z in ("77316", "77356")},
+    **{z: "Humble" for z in ("77338", "77396")},
+    "77346": "Atascocita",
+    **{z: "Kingwood" for z in ("77339", "77345")},
+    "77365": "Porter", "77357": "New Caney", "77362": "Pinehurst",
+    "77447": "Hockley", "77423": "Brookshire", "77441": "Fulshear", "77484": "Waller", "77445": "Hempstead",
+    **{z: "Richmond" for z in ("77406", "77407", "77469")},
+    **{z: "Sugar Land" for z in ("77478", "77479", "77498")},
+    **{z: "Missouri City" for z in ("77459", "77489")},
+    "77477": "Stafford",
+    **{z: "Pearland" for z in ("77581", "77584", "77588")},
+    "77578": "Manvel", "77583": "Rosharon", "77573": "League City",
+    **{z: "Baytown" for z in ("77520", "77521")},
+    "77532": "Crosby",
+}
+
+
+def area_for(lead) -> str:
+    """The town for the lead's zip ("Cypress"), "" when we don't know it."""
+    z = str(getattr(lead, "zip_code", "") or "").strip()[:5]
+    if not ZIP_RE.fullmatch(z):
+        m = re.search(r"\b(\d{5})(?:-\d{4})?\b(?!.*\b\d{5}\b)", getattr(lead, "address", "") or "")
+        z = m.group(1) if m and not (getattr(lead, "address", "") or "").strip().startswith(m.group(1)) else ""
+    if not z:
+        return ""
+    if z in ZIP_AREAS:
+        return ZIP_AREAS[z]
+    return "Houston" if z.startswith("770") else ""
 
 
 def overrides(lead) -> dict:
@@ -197,6 +236,11 @@ def parts(lead) -> dict:
     o = overrides(lead)
     name = o[NAME_KEY] or speak_name(lead)
     address = o[ADDRESS_KEY] or speak_address(getattr(lead, "address", ""))
+    # No town in the address: add the area from the zip ("..., Cypress").
+    if address and not o[ADDRESS_KEY] and "," not in address:
+        area = area_for(lead)
+        if area:
+            address = f"{address}, {area}"
     return {"name": name, "address": address, **o, "text": join(name, address)}
 
 
