@@ -76,7 +76,7 @@ const NAMES: Record<Screen, string> = {
   paid: "Paid in full", score: "How did we do?", sorry: "We'll make it right", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl, onReferFriend, photos, photoReview }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl, onReferFriend, photos, photoReview }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -484,7 +484,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                   <Row k={`Paid today${lender ? ` through ${lender}` : ""}`} v={formatCurrency(amount)} />
                 </>
               )}
-              <div className="border-t border-[#15130F]/10 pt-2"><Row k={`${pkgName || "Fence staining"}${feet ? `, ${feet} ft` : ""}${repairs ? ", repairs" : ""}`} v={formatCurrency(total || amount)} bold /></div>
+              <div className="border-t border-[#15130F]/10 pt-2"><Row k={`${pkgName || "Fence staining"}${repairs ? ", repairs" : ""}`} v={formatCurrency(total || amount)} bold /></div>
               {page ? null : <Row k="Receipt" v="#SFS-20419" />}
             </dl>
           </div>

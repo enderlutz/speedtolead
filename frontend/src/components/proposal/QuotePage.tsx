@@ -21,7 +21,7 @@ export type QuoteReviews = { rating: number | null; total: number; url?: string;
 export type QuoteSender = { name: string; role: string; photo: string };
 
 export function QuotePage({
-  firstName, address, pkgName, pkgOr, color, sides, feet, total, deposit = 250, notes, sender, reviews,
+  firstName, address, pkgName, pkgOr, color, sides, total, deposit = 250, notes, sender, reviews,
   repairs, services, discount, discountLabel, servicesOnly, proposalHref, paidAmount, onPay, page, onClose,
 }: {
   firstName: string; address: string; pkgName: string;
@@ -135,7 +135,7 @@ export function QuotePage({
             <p className="mt-1 font-heading text-[34px] font-bold leading-tight tabular-nums">
               {pkgOr ? `${formatCurrency(pkgOr.total)} or ${formatCurrency(total)}` : formatCurrency(total)}
             </p>
-            <p className="text-[15px] text-[#15130F]/75">{servicesOnly ? (services || []).map((s) => s.name).join(", ") : `Fence staining${feet ? ` · ${feet} ft` : ""}`}</p>
+            <p className="text-[15px] text-[#15130F]/75">{servicesOnly ? (services || []).map((s) => s.name).join(", ") : "Fence staining"}</p>
             {address ? <p className="text-[14px] text-[#15130F]/70">{address}</p> : null}
             <dl className="mt-3 space-y-2 border-t border-[#15130F]/10 pt-3 text-[15px]">
               {servicesOnly ? null : <>

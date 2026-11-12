@@ -61,7 +61,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust, senderName }: {
+export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly, trust, senderName }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Still choosing between two packages (Alan, 2026-11-02): the cheaper
    *  one and the job at it. `pkgName` reads "A or B", `total` is the higher. */
@@ -301,7 +301,7 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
             <div className="min-w-0">
               <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">{confirmed ? "Your start date" : "The date we're holding"}</p>
               <p className="font-heading text-[22px] font-bold leading-tight">{longDate}</p>
-              <p className="mt-1 text-[15px]">{servicesOnly ? jobTitle : `Fence staining${feet ? ` · ${feet} ft` : ""}`}</p>
+              <p className="mt-1 text-[15px]">{servicesOnly ? jobTitle : "Fence staining"}</p>
               <p className="mt-1 flex items-start gap-1.5 text-[14px] text-[#15130F]/75"><MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {address}</p>
             </div>
           </div>
