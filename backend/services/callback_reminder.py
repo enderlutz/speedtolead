@@ -92,6 +92,8 @@ GOODBYE = re.compile(r"\b(bye|goodbye|talk to you|have a (good|great|blessed|nic
 CUTOFF_WAIT_MINUTES = 15
 OIL_KEY = "oil_interest"
 CLOSE_NOW_MINUTES = 90  # an older "close now" is stale; the scheduled call-back covers it
+TECH_KEY = "tech_issue"
+TECH_DAY = (8, 20)  # 8 AM-8 PM: a tech-issue alert goes out the moment it is found; at night it waits for 8 AM
 SUPERSEDE_MINUTES = 20
 # Someone who works and is only free in the evenings is never called before 5
 # (Alan said "around 5-6 PM Wednesday"; Stella wrote 9 AM).
@@ -215,13 +217,15 @@ CLOSE NOW (Alan, 2026-11-08): set "close_now" true when CALLER is not Alan and t
 
 OIL (Alan, 2026-11-09): set "oil" true when the CUSTOMER asked about or asked for an oil-based stain (oil, Ready Seal, Cabot, "penetrates", "soaks in"). Put their own words in "oil_quote". Alan calls these himself to explain it: our photos are all water-based because most Houston fences are pine (pine drinks oil and looks blotchy); on cedar, oil is fine and the same price as Signature.
 
+TECH ISSUE (Alan, 2026-11-12): set "tech_issue" true when CALLER is not Alan and something technical got in the way of this call or the sale: the call dropped or cut off mid-conversation, they couldn't hear each other (breaking up, static, "hello? are you there?", "you cut out"), the customer said our text, link, proposal, booking page or payment link didn't arrive, won't open, or gave an error, or the VA couldn't send something because the system failed. Not when the customer just chose to hang up or said they were busy. Put what happened in "tech_issue_why" in one short line ("call dropped while Amy was reading the packages", "proposal link won't open on his phone"). Alan calls these himself right away.
+
 LEGACY (Alan, 2026-11-08): set "legacy" true when the CUSTOMER showed real interest in Legacy or a solid color (said they want it, leaned to it, asked its price to consider it, or said it's a little too much), and they didn't pay. Not when only our side described it, or they said "not solid". Put their own words in "legacy_quote". When legacy is true and a call back is owed, add this section to the reminder, right after PRICE:
 💎 LEGACY OFFER (only you say this)
 "Legacy for the Signature price, if we get you on the schedule in the next 2 weeks."
 and build SAY 2️⃣ around it. The reason to give: the solid goes on faster for us and lasts longer for them. Never an inventory story, never "20% off". The offer is for a VALSPAR solid only. If they want a Sherwin-Williams solid (WoodScapes, SuperDeck, a custom SW color), lead with the closest Valspar solid match instead; a Sherwin-Williams solid gets a smaller discount that Alan names, never down to the Signature price. If the customer insisted on another brand's solid or an outside color (Behr, Sherwin-Williams, "our own stain"), put that brand in "legacy_own_brand" and leave the LEGACY OFFER section out; write "⚠️ Wants <brand> solid: smaller discount only, you name it" in WHAT IT'S ABOUT instead.
 
 Reply with JSON only:
-{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>", "older": true|false, "close_now": true|false, "close_now_why": "<one line, or empty>", "oil": true|false, "oil_quote": "<customer's words, or empty>"}"""
+{"owed": true|false, "why": "<one short line>", "when": "YYYY-MM-DDTHH:MM" (Houston time, or "" if not owed), "reminder": "<the text, or empty>", "review": "<the review, or empty if Alan made the call>", "legacy": true|false, "legacy_quote": "<customer's words, or empty>", "legacy_own_brand": "<brand they insisted on, or empty>", "older": true|false, "close_now": true|false, "close_now_why": "<one line, or empty>", "oil": true|false, "oil_quote": "<customer's words, or empty>", "tech_issue": true|false, "tech_issue_why": "<one line, or empty>"}"""
 
 
 # ── No answer: Stella books the next try (Alan, 2026-11-08) ──────────────
@@ -370,11 +374,11 @@ A good voicemail, under 40 seconds:
 - "Sterling Fence Staining" said slowly and clearly (not "Fence Sailing", "Fence Lending", "Sterling Fencing")
 - Mr./Mrs. + the right name
 - the reason: their fence staining estimate
-- a reason to call back: the second coat of stain free if they book by Monday, November 16
+- a reason to call back: the second coat of stain free if they book by Thanksgiving, Thursday, November 26
 - the number said twice: 346-589-7877
 - never asks them to do homework (text which sides, send pictures); only call or text back
 
-The script: "Hi Mr. [Last name], this is [name] with Sterling Fence Staining. I'm calling about your fence staining estimate. Right now we're including a second coat of stain for free if you book by Monday, November 16. Call or text me back at 346-589-7877. Again, 346-589-7877. Thank you!"
+The script: "Hi Mr. [Last name], this is [name] with Sterling Fence Staining. I'm calling about your fence staining estimate. Right now we're including a second coat of stain for free if you book by Thanksgiving, Thursday, November 26. Call or text me back at 346-589-7877. Again, 346-589-7877. Thank you!"
 
 If she left no message (only the greeting, a full mailbox, a hang-up), reply {"review": ""}.
 Otherwise reply with JSON only: {"review": "<2-4 short lines, plain text, starting '📩 Voicemail for <customer>:' then ✅ what was right and ❌ what was missing, kind and specific, ending '— Stella'>"}"""
@@ -531,6 +535,27 @@ def _run_for_recording(db, recording, transcript_text: str) -> dict:
         why = (out.get("close_now_why") or out.get("why") or "").strip()
         if _to_alan(f"🔥 CALL THIS CUSTOMER NOW ❗❗❗\n\n👤 {lead.contact_name}\n{why}\n\nThey were close on {caller}'s call. Call before they get the other quote."[:600]):
             record["close_now_sent"] = True
+    # A technical problem on a VA's call (dropped call, can't hear, link won't
+    # open) is Alan's to fix right away (Alan, 2026-11-12: "fire
+    # emoji ... attend to this lead right now because there's a technical issue").
+    if not voicemail and out.get("tech_issue") and caller.lower() != "alan":
+        why = (out.get("tech_issue_why") or out.get("why") or "").strip()
+        record["tech_issue"] = True
+        try:
+            fd3 = json.loads(lead.form_data or "{}")
+            fd3[TECH_KEY] = {"at": datetime.now(timezone.utc).isoformat(), "recording_id": recording.id,
+                             "why": why[:200], "caller": caller}
+            lead.form_data = json.dumps(fd3)
+            db.commit()
+            fd = fd3
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Tech-issue flag failed for %s: %s", lead.id, e)
+        now = now_ct()
+        at = None if TECH_DAY[0] <= now.hour < TECH_DAY[1] else int(pick_slot(now, now, older).timestamp())
+        msg = (f"🔥🔥 TECH ISSUE: CALL NOW ❗❗❗\n\n👤 {lead.contact_name}\n⚠️ {why}\n\n"
+               f"On {caller}'s call. Call them yourself and fix it.")[:600]
+        if _to_alan(msg, scheduled_at=at):
+            record["tech_issue_sent"] = True
     # A customer asking about oil gets Alan's call to explain it (Alan,
     # 2026-11-09, after a cedar-fence customer asked for oil on a VA call).
     if not voicemail and out.get("oil"):

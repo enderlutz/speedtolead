@@ -188,3 +188,45 @@ def test_one_call_is_reviewed_once_even_if_two_threads_reach_it(db, monkeypatch)
         assert cr.run_for_recording(db, rec, "x") == {"skipped": "already being handled"}
     finally:
         cr._IN_FLIGHT.discard("rec-1")
+
+
+# ── Tech issue (Alan, 2026-11-12) ─────────────────────────────────────────
+TECH = {**OUT, "close_now": False, "tech_issue": True, "tech_issue_why": "proposal link won't open on his phone"}
+
+
+def _fire(sent):
+    return [(m, at) for m, at in sent if m.startswith("🔥🔥 TECH ISSUE")]
+
+
+def test_tech_issue_texts_alan_right_away_and_marks_the_lead(db, monkeypatch):
+    import json
+    sent = []
+    _wire(monkeypatch, sent, TECH, datetime(2026, 11, 12, 11, 0, tzinfo=CENTRAL))  # between phone windows: still now
+    lead = _lead(db)
+    out = cr.run_for_recording(db, _rec(db, lead, _iso(minutes=5), 64, False), DONE)
+    assert out.get("tech_issue_sent") is True
+    fire = _fire(sent)
+    assert len(fire) == 1 and fire[0][1] is None
+    assert "Test Customer" in fire[0][0] and "link won't open" in fire[0][0] and "Amy" in fire[0][0]
+    db.refresh(lead)
+    assert json.loads(lead.form_data)[cr.TECH_KEY]["why"].startswith("proposal link")
+
+
+def test_tech_issue_at_night_waits_for_the_morning(db, monkeypatch):
+    sent = []
+    _wire(monkeypatch, sent, TECH, datetime(2026, 11, 12, 21, 30, tzinfo=CENTRAL))
+    lead = _lead(db)
+    cr.run_for_recording(db, _rec(db, lead, _iso(minutes=5), 64, False), DONE)
+    fire = _fire(sent)
+    assert len(fire) == 1 and fire[0][1]
+    when = datetime.fromtimestamp(fire[0][1], CENTRAL)
+    assert when.day == 13 and when.hour == 8
+
+
+def test_no_tech_alert_on_alans_own_call_or_when_not_flagged(db, monkeypatch):
+    for caller, out in (("Alan", TECH), ("Amy", {**TECH, "tech_issue": False})):
+        sent = []
+        _wire(monkeypatch, sent, out, MON_2PM, caller)
+        lead = _lead(db)
+        cr.run_for_recording(db, _rec(db, lead, _iso(minutes=5), 64, False), DONE)
+        assert not _fire(sent), caller
