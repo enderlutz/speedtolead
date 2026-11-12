@@ -1560,6 +1560,14 @@ def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depend
         db.close()
 
 
+def last_after_photo_at(db, lead_id: str) -> str:
+    """When the crew uploaded their last after photo on this job ("" if none).
+    After photos mean finished (Alan): the crew often skips "I'm finished"."""
+    from sqlalchemy import func
+    return db.query(func.max(CompanyCamPhoto.uploaded_at)).filter(
+        CompanyCamPhoto.lead_id == lead_id, CompanyCamPhoto.section.like("%\\_after", escape="\\")).scalar() or ""
+
+
 class DoneBody(BaseModel):
     # Pressure washing: "home_happy" | "called_sent_photos" (PW_FINISH_CHOICES).
     how: str | None = None
@@ -1585,6 +1593,13 @@ def mark_job_done(lead_id: str, body: DoneBody | None = None, user: dict = Depen
             raise HTTPException(400, "Say how the customer signed off first: home and happy, or called and sent photos")
         if not job.completed_at:
             job.completed_at = _now()
+            # Marked from the office after the fact (Alan, 2026-11-12): the job
+            # finished when the crew took their last after photo, not when
+            # someone in the office clicked.
+            if (user or {}).get("role") in ("admin", "va"):
+                last = last_after_photo_at(db, lead_id)
+                if last:
+                    job.completed_at = last
             job.completed_by = _actor(user)
             job.pw_finished_how = how
             job.updated_at = _now()

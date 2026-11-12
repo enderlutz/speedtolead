@@ -1131,3 +1131,32 @@ def test_a_public_job_photo_is_an_after_photo_only(db, monkeypatch):
     for bad in (b_id, "nope"):
         with pytest.raises(HTTPException):
             cc.public_job_photo(bad)
+
+
+def test_office_marking_done_uses_the_last_after_photo(db, monkeypatch):
+    """Alan, 2026-11-12: when the office marks a job finished after the fact,
+    the finish time is the crew's last after photo, not the click. The crew's
+    own tap keeps its own time."""
+    from services import after_pay_hooks
+    monkeypatch.setattr(after_pay_hooks, "alert_alan", lambda m: None)
+    lead = _lead(db)
+    for sec, at in (("stain_before", "2026-11-12T15:00:00+00:00"), ("stain_after", "2026-11-12T20:00:06+00:00"),
+                    ("stain_after", "2026-11-12T20:02:36+00:00"), ("clean_before", "2026-11-12T21:00:00+00:00")):
+        db.add(CompanyCamPhoto(id=str(uuid.uuid4()), lead_id=lead.id, section=sec, seq=1, uploaded_at=at, uploaded_by="Jose"))
+    db.commit()
+    r = cc.mark_job_done(lead.id, user=USER)
+    assert r["job"]["completed_at"] == "2026-11-12T20:02:36+00:00"
+
+    crew_lead = _lead(db, ghl_contact_id="ghl-crew-2")
+    db.add(CompanyCamPhoto(id=str(uuid.uuid4()), lead_id=crew_lead.id, section="stain_after", seq=1,
+                           uploaded_at="2026-11-12T20:02:36+00:00", uploaded_by="Jose"))
+    db.commit()
+    r = cc.mark_job_done(crew_lead.id, user={"sub": "jose", "name": "Jose", "role": "crew"})
+    assert r["job"]["completed_at"] != "2026-11-12T20:02:36+00:00"
+
+
+def test_office_marking_done_with_no_after_photos_uses_now(db, monkeypatch):
+    from services import after_pay_hooks
+    monkeypatch.setattr(after_pay_hooks, "alert_alan", lambda m: None)
+    lead = _lead(db)
+    assert cc.mark_job_done(lead.id, user=USER)["job"]["completed_at"]
