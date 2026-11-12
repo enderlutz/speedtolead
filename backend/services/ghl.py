@@ -1061,11 +1061,17 @@ def update_contact_core_fields(
     address: str | None = None,
     zip_code: str | None = None,
     location_id: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
 ) -> bool:
     """PUT name/phone/email/address1/postalCode on an existing GHL contact.
     Used to mirror dashboard edits of the contact card back to GHL. Pass
     only the fields you want to update — None values are skipped so we
-    don't accidentally blank out a field. Best-effort, 429-retried."""
+    don't accidentally blank out a field. Best-effort, 429-retried.
+
+    `first_name`/`last_name`, when given with `name`, set GHL's name parts
+    exactly instead of splitting `name` at the first space (a two-word
+    first name would otherwise land half in the last name)."""
     if not contact_id:
         return False
     payload: dict = {}
@@ -1073,6 +1079,10 @@ def update_contact_core_fields(
         parts = (name or "").strip().split(maxsplit=1)
         payload["firstName"] = parts[0] if parts else ""
         payload["lastName"] = parts[1] if len(parts) > 1 else ""
+        if first_name is not None:
+            payload["firstName"] = first_name.strip()
+        if last_name is not None:
+            payload["lastName"] = last_name.strip()
         payload["name"] = name or ""
     if phone is not None:
         payload["phone"] = phone or ""

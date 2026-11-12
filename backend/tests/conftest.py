@@ -58,3 +58,9 @@ def _no_real_ghl(monkeypatch):
     monkeypatch.setattr(ghl, "_send_message", lambda *a, **k: True)
     monkeypatch.setattr(ghl, "add_contact_tag", lambda *a, **k: True)
     monkeypatch.setattr(ghl, "add_contact_note", lambda *a, **k: "note-stub")
+    # The new-lead name check (services/name_from_email.py) calls Claude and
+    # renames the GHL contact from a background thread. Intake tests must not
+    # reach either; tests/test_name_from_email.py calls check_lead directly.
+    import services.name_from_email as name_from_email
+
+    monkeypatch.setattr(name_from_email, "check_lead_soon", lambda *a, **k: None)

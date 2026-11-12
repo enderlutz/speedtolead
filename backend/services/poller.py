@@ -634,6 +634,13 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A,
                             on_lead_created(lead_id, brand=cfg.brand)
                         except Exception as e:
                             logger.warning(f"Poller on_lead_created hook failed for {lead_id}: {e}")
+                        # Fake name + real-name email → fix the name once, in
+                        # the background (services/name_from_email.py).
+                        try:
+                            from services.name_from_email import check_lead_soon
+                            check_lead_soon(lead_id)
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(f"Poller name check not started for {lead_id}: {e}")
                     else:
                         logger.info(f"Poller: backfilled lead {lead_id} from {label}/{stage_name}: {name} (no notify — non-intake stage)")
 
