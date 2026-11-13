@@ -1362,6 +1362,32 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         </div>
       ) : null}
 
+      {/* The measurement first (Alan, 2026-11-12: "I still don't see it").
+          Nothing about gallons or the stain order is trusted until it's
+          confirmed, so it sits at the top of the manager view. */}
+      {manager && !pwMode ? (
+        job.measure_confirmed_at ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
+            <p className="text-[15px] font-semibold text-emerald-900">
+              ✓ Measurement confirmed: {Math.round(job.measure_feet || 0)} ft × {job.measure_height || 0} ft = {Math.round(job.sqft || 0).toLocaleString()} sq ft
+              <span className="block text-sm font-normal">by {job.measure_confirmed_by || "the office"}, {new Date(job.measure_confirmed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            </p>
+            <button type="button" onClick={() => setMeasuring(true)} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-300 hover:bg-emerald-100">
+              {tr("Re-confirm real measurement")}
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-amber-50 p-4 ring-2 ring-amber-300">
+            <p className="text-base font-bold text-amber-950">Measurement not confirmed</p>
+            <p className="text-[15px] text-amber-900">Trace the fence, pick the height, save. Until then David won't figure gallons, the stain order or pay from the footage.</p>
+            <button type="button" onClick={() => setMeasuring(true)}
+                    className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-base font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto">
+              <Ruler className="h-5 w-5" />{tr("Confirm real measurement")}
+            </button>
+          </div>
+        )
+      ) : null}
+
       {/* Who's on this job (Alan, 2026-10-16): the crew sees only the jobs
           they're on, nothing else, even by searching. */}
       {manager ? (
