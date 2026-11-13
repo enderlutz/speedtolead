@@ -24,7 +24,7 @@ import {
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt, Waves,
-  Pencil, History,
+  Pencil, History, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -682,8 +682,32 @@ function Checklist({
   ticked: string[];
   onChange: (next: string[]) => void;
 }) {
+  // All ticked folds to one green line (Alan, 2026-11-12: "make it take up
+  // less space once the cleaner checks that off"). Tap it to look again.
+  const [open, setOpen] = useState(false);
+  const allDone = items.length > 0 && items.every((it) => ticked.includes(it.key));
+  if (allDone && !open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 text-left shadow-sm">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 shadow-sm">
+          <Check className="h-3.5 w-3.5 text-white" />
+        </span>
+        <span className="flex-1 text-sm font-semibold text-emerald-900">
+          {isSpanish() ? `Todo hecho (${items.length} de ${items.length})` : `All done (${items.length} of ${items.length})`}
+        </span>
+        <ChevronDown className="h-4 w-4 text-emerald-800" />
+      </button>
+    );
+  }
   return (
     <div className="space-y-1.5">
+      {allDone ? (
+        <button type="button" onClick={() => setOpen(false)}
+                className="flex min-h-10 w-full items-center justify-end gap-1 text-sm font-semibold text-emerald-800">
+          {isSpanish() ? "Ocultar" : "Hide"} <ChevronUp className="h-4 w-4" />
+        </button>
+      ) : null}
       {items.map((it) => {
         const on = ticked.includes(it.key);
         return (
