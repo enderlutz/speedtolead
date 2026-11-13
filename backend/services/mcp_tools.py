@@ -347,6 +347,15 @@ def set_job(db, lead_id: str, color: str = "", package: str = "", sqft: float = 
               "color_confirmed": bool(job.color_confirmed)}
     if color.strip():
         job.color = color.strip()
+        # Link the shelf item too, so "Job done" takes the gallons off the
+        # right stain (Alan, 2026-11-12).
+        try:
+            from api.materials import match_stain
+            item = match_stain(db, job.color)
+            if item:
+                job.final_stain_id = item.id
+        except Exception:
+            pass
     if package.strip():
         pk = package.strip().lower()
         if pk not in ("essential", "signature", "legacy"):

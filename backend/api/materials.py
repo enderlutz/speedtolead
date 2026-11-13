@@ -326,6 +326,40 @@ def _bleach_item(db) -> StainInventoryItem | None:
             .order_by(StainInventoryItem.created_at).first())
 
 
+def _norm(t: str) -> str:
+    return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in (t or "")).split())
+
+
+def match_stain(db, text_: str) -> StainInventoryItem | None:
+    """The shelf item a typed color means, e.g. "Classic Mahogany · Valspar ·
+    Solid" or "Valspar Chocolate Chip solid". The color name has to be in the
+    text, and when the same color comes in more than one finish, the finish
+    has to be named too. Anything unclear returns None, never a guess."""
+    t = _norm(text_)
+    if not t:
+        return None
+    hits = []
+    for item in db.query(StainInventoryItem).filter(StainInventoryItem.finish_type != "bleach").all():
+        name = _norm(item.color_name)
+        if name and f" {name} " in f" {t} ":
+            hits.append(item)
+    if len(hits) <= 1:
+        return hits[0] if hits else None
+    finish_words = {"solid": ("solid",), "semi_solid": ("semi solid",), "semi_transparent": ("semi transparent", "semi"),
+                    "transparent": ("transparent",), "clear": ("clear",)}
+    def says(item):
+        words = finish_words.get(item.finish_type or "", ())
+        if (item.finish_type or "") == "solid":
+            return " solid" in f" {t}" and "semi solid" not in t
+        if (item.finish_type or "") == "transparent":
+            return "transparent" in t and "semi transparent" not in t
+        return any(w in t for w in words)
+    narrowed = [i for i in hits if says(i)]
+    if len(narrowed) > 1:
+        narrowed = [i for i in narrowed if i.active] or narrowed
+    return narrowed[0] if len(narrowed) == 1 else None
+
+
 def apply_job_materials(db, job: CompanyCamJob, actor: str) -> None:
     """Take the job's stain and bleach off the shelf and price them, once.
     Called by "Job done". The caller commits."""
@@ -334,6 +368,16 @@ def apply_job_materials(db, job: CompanyCamJob, actor: str) -> None:
     who = job.lead_id
     stain_cost = bleach_cost = 0.0
     used = float(job.stain_gallons_used or 0)
+    # The color was set as words (a text, the office) and never picked from
+    # the shelf list, so 22 gallons of Classic Mahogany stayed on the books
+    # (Eric Oliver, 2026-11-12). Find the shelf item from the words.
+    if used > 0 and not job.final_stain_id:
+        item = match_stain(db, job.final_color or job.color or "")
+        if item:
+            job.final_stain_id = item.id
+        else:
+            logger.warning("job done: %s used %s gal but '%s' matches no single shelf item",
+                           who, used, job.final_color or job.color)
     if used > 0 and job.final_stain_id:
         item = db.query(StainInventoryItem).filter(StainInventoryItem.id == job.final_stain_id).first()
         if item:
