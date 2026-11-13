@@ -20,9 +20,12 @@ class Settings(BaseSettings):
     # location ids aren't secret; each account needs its own private-
     # integration token (GHL_API_KEY_AT / GHL_API_KEY_AT_WOODLANDS) in Railway.
     ghl_api_key_at: str = ""
-    ghl_location_id_at: str = "Av5xMTGXnCv1YARiyu6Z"
+    ghl_location_id_at: str = "ZE5zWVoXLbod1YLAtGje"  # the new A&T account (~176 contacts), Alan 2026-11-12
     ghl_api_key_at_woodlands: str = ""
-    ghl_location_id_at_woodlands: str = "OfcrbUVpJSYGT3oSRxcs"
+    # "A&T's Pressure Washing Woodlands" is Thomas Sellnau's own account,
+    # not ours (Alan, 2026-11-12: "We don't want any of that"). Left empty so
+    # it is never read.
+    ghl_location_id_at_woodlands: str = ""
 
     # GHL - OLD account credentials moved out of env (2026-06-16). The
     # Painting Upsell import is a one-shot admin action; the API key is
