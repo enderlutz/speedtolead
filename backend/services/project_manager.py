@@ -46,7 +46,10 @@ LATE_START = "08:30"              # first photo after this on the first job of t
 # Alan, 2026-11-06: "Brent always has Mondays off", "I usually don't work
 # Christian on Mondays either".
 DAYS_OFF = {
-    "brentbrown": {"never": [0]},
+    # Brent 11/10: off all day Sat 11/21 (for sure), Thanksgiving 11/25-27;
+    # Tue 11/17 he has to be "up there" at 8:30, earliest on a job 10-10:30.
+    "brentbrown": {"never": [0], "off_dates": ["2026-11-21", "2026-11-25", "2026-11-26", "2026-11-27"],
+                   "late_dates": {"2026-11-17": "check-in at 8:30, earliest on a job 10-10:30"}},
     "christiangarza": {"ask": [0]},
 }
 
@@ -63,9 +66,16 @@ def buy_in_fives(gallons: float) -> int:
 
 
 def day_off_problem(username: str, day: str, rules: dict | None = None) -> str:
-    """'never' / 'ask' / '' for this worker on this YYYY-MM-DD."""
+    """'never' / 'ask' / 'late' / '' for this worker on this YYYY-MM-DD.
+    Besides weekdays, a worker can have dates he told us he's off
+    ("off_dates") or starts late ("late_dates": {date: why}) - Alan,
+    2026-11-13: check every day off a worker gave us before scheduling."""
     from datetime import date
     r = (rules if rules is not None else DAYS_OFF).get((username or "").lower(), {})
+    if day in (r.get("off_dates") or []):
+        return "never"
+    if day in (r.get("late_dates") or {}):
+        return "late"
     wd = date.fromisoformat(day).weekday()
     if wd in r.get("never", []):
         return "never"
@@ -181,6 +191,9 @@ def upcoming(db, today: str) -> list[str]:
             lines.append(f"🚫 {day} {cust}: {who} is on, but he's always off that day")
         elif off == "ask":
             lines.append(f"❓ {day} {cust}: {who} is on. He usually has that day off, OK?")
+        elif off == "late":
+            why = (rules.get((r["username"] or "").lower(), {}).get("late_dates") or {}).get(r["date"], "")
+            lines.append(f"⏰ {day} {cust}: {who} starts late that day ({why})")
         if r["task"] != "staining" or r["helper"] or r["lead_id"] in seen_stain:
             continue
         seen_stain.add(r["lead_id"])
@@ -203,6 +216,46 @@ def upcoming(db, today: str) -> list[str]:
                          f"Buy {buy} and set who picks it up")
         elif on_hand < need and planned:
             lines.append(f"🪣 {day} {cust}: pickup in the notes. Needs ~{need:g} gal (buy in 5s: {buy})")
+    return lines
+
+
+ADDRESS_DAYS = 7   # look this far ahead for a job with no address
+
+
+def missing_addresses(db, today: str) -> list[str]:
+    """Jobs in the next week we can't drive to (Alan, 2026-11-13: Kristen's
+    Saturday windows had no address two days before, and nobody had asked).
+    Calendar jobs (yellow/red) with no location, and crew days on a lead with
+    no address. Each line says who to ask."""
+    from clock import add_days_iso
+    lines: list[str] = []
+    seen: set[str] = set()
+    try:
+        from api.pm_calendar import _rows
+        from database import Lead
+        for r in _rows(db, today, add_days_iso(today, ADDRESS_DAYS)):
+            if r["lead_id"] in seen or r.get("completed_at"):
+                continue
+            lead = db.query(Lead).filter(Lead.id == r["lead_id"]).first()
+            if lead is not None and not (lead.address or "").strip():
+                seen.add(r["lead_id"])
+                day = f"{weekday_label(r['date'], short=True)} {r['date'][5:].replace('-', '/')}"
+                lines.append(f"📍 {day} {_customer(r['name'])}: no address. Ask the customer today")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("missing_addresses (crew days) failed: %s", e)
+    try:
+        from services.google_calendar import list_events
+        evs = list_events(db, time_min=f"{today}T00:00:00-06:00", time_max=f"{add_days_iso(today, ADDRESS_DAYS)}T23:59:59-06:00")
+        for ev in evs:
+            if (ev.get("location") or "").strip() or ev.get("status") == "cancelled":
+                continue
+            d = (ev.get("start") or "")[:10]
+            if not d:
+                continue
+            day = f"{weekday_label(d, short=True)} {d[5:].replace('-', '/')}"
+            lines.append(f"📍 {day} {_first(ev.get('summary') or '', 50)}: calendar has no address. Ask the customer (or whoever sent them) today")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("missing_addresses (calendar) failed: %s", e)
     return lines
 
 
@@ -471,6 +524,9 @@ def nightly_report(db, today: str | None = None) -> list[str]:
         if done:
             t += ("\n" if problems else "") + "All in:\n" + "\n".join(done)
         sections.append(t)
+    where = missing_addresses(db, today)
+    if where:
+        sections.append("📍 MISSING ADDRESSES\n" + "\n".join(where))
     ok = waiting_on_ok(db)
     if ok:
         sections.append("🏁 WAITING ON YOU\n" + "\n".join(ok))

@@ -1060,10 +1060,13 @@ def update_company_cam(
             valid = {o["key"] for o in upsell_options()}
             job.upsells_json = json.dumps([u for u in body.upsells if u in valid])
 
-        # Gallons or the stain corrected after "Job done": re-cost the job so
-        # the shelf and the job's materials cost follow (Alan, 2026-10-19).
-        if job.materials_logged_at and any(v is not None for v in (
-                body.stain_gallons_used, body.bleach_gallons_used, body.final_stain_id)):
+        # The shelf follows the gallons the moment the crew types them, not
+        # at "Job done" (Alan, 2026-11-13: Brent typed 2 gal at Courtney's and
+        # the shelf still said 5). Every later change re-syncs: what this job
+        # took goes back, the new amount comes off, so 3 then 3.5 = 3.5 used.
+        if any(v is not None for v in (
+                body.stain_gallons_used, body.bleach_gallons_used, body.final_stain_id,
+                body.final_color if job.stain_gallons_used else None)):
             from api.materials import apply_job_materials, reverse_job_materials
             reverse_job_materials(db, job, _actor(user))
             apply_job_materials(db, job, _actor(user))

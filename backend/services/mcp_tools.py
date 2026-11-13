@@ -379,6 +379,11 @@ def set_job(db, lead_id: str, color: str = "", package: str = "", sqft: float = 
     if not changed and not made:
         db.rollback()
         return {"name": lead.contact_name, "changed": {}, "note": "Nothing to change."}
+    if "gallons_used" in changed or ("color" in changed and job.stain_gallons_used):
+        # The shelf follows the gallons right away (Alan, 2026-11-13).
+        from api.materials import apply_job_materials, reverse_job_materials
+        reverse_job_materials(db, job, "Alan via Claude")
+        apply_job_materials(db, job, "Alan via Claude")
     _log_change(db, "set_job", lead.id, json.dumps(changed, default=str))
     db.commit()
     return {"name": lead.contact_name, "made_new_card": made, "changed": changed}
@@ -577,7 +582,8 @@ def david_day_off(db, worker: str, weekday: str, kind: str = "never", remove: bo
     kind = (kind or "never").strip().lower()
     if kind not in ("never", "ask"):
         raise ToolError("kind must be never or ask.")
-    rules = {k: {kk: list(vv) for kk, vv in v.items()} for k, v in pm._rules(db).items()}
+    # A deep copy that keeps one-off dates ("off_dates" list, "late_dates" dict).
+    rules = json.loads(json.dumps(pm._rules(db)))
     r = rules.setdefault(user.lower(), {})
     idx = WEEKDAYS.index(wd)
     for k in ("never", "ask"):
@@ -589,8 +595,9 @@ def david_day_off(db, worker: str, weekday: str, kind: str = "never", remove: bo
     what = f"{user}: {'removed ' + wd if remove else kind + ' on ' + wd}"
     _log_change(db, "david_day_off", "", what)
     db.commit()
-    return {"saved": True, "rule": what, "all_days_off": {k: {kk: [WEEKDAYS[i] for i in vv] for kk, vv in v.items()}
-                                                          for k, v in rules.items()}}
+    return {"saved": True, "rule": what,
+            "all_days_off": {k: {kk: ([WEEKDAYS[i] for i in vv] if kk in ("never", "ask") else vv) for kk, vv in v.items()}
+                             for k, v in rules.items()}}
 
 
 def change_log(db, limit: int = 20) -> dict:

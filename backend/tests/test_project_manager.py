@@ -54,3 +54,24 @@ def test_split_texts_packs_under_the_limit_and_numbers_parts():
     assert many[0].endswith("(1/3)") and many[-1].endswith("(3/3)")
     assert all(len(t) <= 100 + len("\n(1/3)") for t in many)
     assert pm.split_texts(header, ["", "  "]) == []
+
+
+def test_missing_addresses_flags_calendar_jobs_with_no_location(db, monkeypatch):
+    """Alan, 2026-11-13: Kristen's Saturday windows had no address and nobody asked."""
+    from services import project_manager as pm
+    import services.google_calendar as gc
+    monkeypatch.setattr(gc, "list_events", lambda db, **kw: [
+        {"summary": "Kristen- Thomas window cleaning job", "location": "", "start": "2026-11-14T09:00:00-06:00", "status": "confirmed"},
+        {"summary": "Robin staining", "location": "935 Gardenia Dr", "start": "2026-11-14T08:00:00-06:00", "status": "confirmed"},
+    ])
+    lines = pm.missing_addresses(db, "2026-11-13")
+    assert len(lines) == 1 and "Kristen" in lines[0] and "no address" in lines[0]
+
+
+def test_days_off_by_date_and_late_starts():
+    from services.project_manager import day_off_problem
+    rules = {"brentbrown": {"never": [0], "off_dates": ["2026-11-21"], "late_dates": {"2026-11-17": "check-in"}}}
+    assert day_off_problem("BrentBrown", "2026-11-21", rules) == "never"
+    assert day_off_problem("BrentBrown", "2026-11-17", rules) == "late"
+    assert day_off_problem("BrentBrown", "2026-11-16", rules) == "never"   # Monday
+    assert day_off_problem("BrentBrown", "2026-11-14", rules) == ""

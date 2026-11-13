@@ -60,3 +60,27 @@ def test_legacy_job_refuses_a_semi_transparent_pick(db, monkeypatch):
         cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id=semi.id), user=user)
     out = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id=solid.id), user=user)
     assert "Solid" in (out.get("job") or out)["final_color"] or "solid" in (out.get("job") or out)["final_color"].lower()
+
+
+def test_typed_gallons_come_off_the_shelf_right_away_and_follow_edits(db, monkeypatch):
+    """Alan, 2026-11-13: the shelf follows the gallons the moment the crew
+    types them, and a later edit (3 -> 3.5) moves it again, no Job done needed."""
+    from api import company_cam as cc
+    from database import Lead
+    wb = _item(db, "Wellington Brown", "semi_transparent", gallons=5.0, cost=25.51)
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Shelf Test", ghl_contact_id=str(uuid.uuid4()))
+    db.add(lead)
+    db.commit()
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    user = {"sub": "u1", "name": "Brent", "role": "admin"}
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(color="Wellington Brown · Valspar · Semi-Transparent"), user=user)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(stain_gallons_used=3.0), user=user)
+    db.refresh(wb)
+    assert wb.gallons == 2.0
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(stain_gallons_used=3.5), user=user)
+    db.refresh(wb)
+    assert wb.gallons == 1.5
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(stain_gallons_used=2.0), user=user)
+    db.refresh(wb)
+    assert wb.gallons == 3.0
