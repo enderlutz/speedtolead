@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, MessageSquare, Phone, PhoneIncoming, PhoneOutgoing, Send } from "lucide-react";
+import { ArrowLeft, ImagePlus, Loader2, MessageSquare, Phone, PhoneIncoming, PhoneOutgoing, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, type CrewLineItem, type CrewLineRow } from "@/lib/api";
 
@@ -64,16 +64,28 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [cell, setCell] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const load = useCallback(() => { api.crewThread(id).then(setT).catch((e) => toast.error(String(e.message || e))); }, [id]);
   useEffect(() => { load(); const i = setInterval(load, 10000); return () => clearInterval(i); }, [load]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [t?.items.length]);
 
+  async function addPhotos(list: FileList | null) {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    setAdding(true);
+    try { const r = await api.crewPhotos(id, files); setPhotos((p) => [...p, ...r.urls].slice(0, 10)); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't add the photo"); }
+    finally { setAdding(false); if (picker.current) picker.current.value = ""; }
+  }
+
   async function send() {
     const body = draft.trim();
-    if (!body) return;
+    if (!body && !photos.length) return;
     setBusy(true);
-    try { await api.crewText(id, body); setDraft(""); load(); }
+    try { await api.crewText(id, body, photos); setDraft(""); setPhotos([]); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Didn't send"); }
     finally { setBusy(false); }
   }
@@ -113,8 +125,16 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
         {(t?.items || []).map((it) => it.kind === "text" ? (
           <div key={it.id} className={it.direction === "outbound" ? "flex justify-end" : "flex justify-start"}>
             <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-[15px] ${it.direction === "outbound" ? "bg-[#15130F] text-[#F8F3E7]" : "bg-muted"}`}>
-              <p className="whitespace-pre-wrap">{it.body}</p>
-              {it.media.map((m) => <a key={m} href={m} target="_blank" rel="noreferrer" className="mt-1 block text-[13px] underline">Picture</a>)}
+              {it.body ? <p className="whitespace-pre-wrap">{it.body}</p> : null}
+              {it.media.length ? (
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  {it.media.map((m) => (
+                    <a key={m} href={m} target="_blank" rel="noreferrer" className="block">
+                      <img src={m} alt="Photo" loading="lazy" className="h-32 w-full rounded-lg object-cover" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
               <p className="mt-0.5 text-[12px] opacity-60">{when(it.at)}</p>
             </div>
           </div>
@@ -135,11 +155,29 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
         ) : null}
         <div ref={end} />
       </div>
+      {photos.length ? (
+        <div className="flex gap-2 overflow-x-auto border-t pt-3">
+          {photos.map((p) => (
+            <div key={p} className="relative shrink-0">
+              <img src={p} alt="To send" className="h-20 w-20 rounded-lg object-cover" />
+              <button type="button" onClick={() => setPhotos((x) => x.filter((y) => y !== p))} aria-label="Remove photo"
+                className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#15130F] text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="flex items-end gap-2 border-t pt-3">
+        <input ref={picker} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
+        <button type="button" onClick={() => picker.current?.click()} disabled={!ready || adding || photos.length >= 10}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-white disabled:opacity-40" aria-label="Add photos">
+          {adding ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+        </button>
         <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} disabled={!ready}
           placeholder={ready ? `Text ${t?.employee.name?.split(" ")[0] || ""}` : "The number isn't connected yet"}
           className="min-h-[48px] flex-1 resize-none rounded-xl border px-3 py-2 text-[16px]" />
-        <button type="button" onClick={send} disabled={!ready || busy || !draft.trim()}
+        <button type="button" onClick={send} disabled={!ready || busy || adding || (!draft.trim() && !photos.length)}
           className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#C9A24A] text-[#15130F] disabled:opacity-40" aria-label="Send">
           <Send className="h-5 w-5" />
         </button>

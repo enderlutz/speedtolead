@@ -15,7 +15,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 
 from api.ideas import require_alan
@@ -156,15 +156,35 @@ def set_phone(employee_id: str, b: PhoneBody, user: dict = Depends(require_alan)
 
 
 class TextBody(BaseModel):
-    body: str
+    body: str = ""
+    media: list[str] = []
+
+
+@router.post("/crew-line/{employee_id}/photo")
+async def upload_photo(employee_id: str, files: list[UploadFile] = File(...), user: dict = Depends(require_alan)):
+    """Photos to send on the crew line: shrunk and stored; the links go with the text."""
+    from services import crew_photos
+    urls = []
+    for f in files[:10]:
+        try:
+            data = crew_photos.shrink(await f.read())
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"{f.filename or 'That file'} isn't a photo we can send")
+        url = crew_photos.store(data, employee_id)
+        if not url:
+            raise HTTPException(status_code=502, detail="Couldn't save the photo")
+        urls.append(url)
+    return {"urls": urls}
 
 
 @router.post("/crew-line/{employee_id}/text")
 def send_text(employee_id: str, b: TextBody, user: dict = Depends(require_alan)):
     if not tw.configured():
         raise HTTPException(status_code=400, detail="The crew line number isn't set up yet")
+    from services import crew_photos
     body = (b.body or "").strip()
-    if not body:
+    media = [m for m in (b.media or []) if crew_photos.is_ours(m)][:10]
+    if not body and not media:
         raise HTTPException(status_code=400, detail="Nothing to send")
     db = get_db()
     try:
@@ -173,7 +193,7 @@ def send_text(employee_id: str, b: TextBody, user: dict = Depends(require_alan))
         if not to:
             raise HTTPException(status_code=400, detail="No phone number for this worker")
         try:
-            r = tw.send_sms(to, body)
+            r = tw.send_sms(to, body, media=media)
         except Exception as ex:  # noqa: BLE001
             # Say Twilio's own reason (2026-11-13: the first test failed with
             # no way to tell why).
@@ -187,7 +207,7 @@ def send_text(employee_id: str, b: TextBody, user: dict = Depends(require_alan))
             logger.warning("crew text failed: %s%s", ex, why)
             raise HTTPException(status_code=502, detail="Twilio didn't take the text" + why)
         db.add(CrewText(id=str(uuid.uuid4()), employee_id=employee_id, phone=to, direction="outbound", body=body,
-                        twilio_sid=r.get("sid", ""), status=r.get("status", "queued"),
+                        media=json.dumps(media), twilio_sid=r.get("sid", ""), status=r.get("status", "queued"),
                         sent_by=user.get("sub", ""), created_at=_now()))
         db.commit()
         return {"ok": True}
@@ -270,15 +290,32 @@ async def whisper(request: Request, who: str = "Crew line."):
     return _xml(f"<Say>{tw.esc(who)}</Say>")
 
 
+def _copy_photos(text_id: str, urls: list[str], employee_id: str) -> None:
+    """Twilio's photo links need Twilio's login; keep our own copy to show."""
+    from services import crew_photos
+    mine = crew_photos.copy_from_twilio(urls, employee_id)
+    db = get_db()
+    try:
+        t = db.query(CrewText).filter(CrewText.id == text_id).first()
+        if t:
+            t.media = json.dumps(mine)
+            db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/twilio/crew/sms")
-async def inbound_sms(request: Request):
+async def inbound_sms(request: Request, background: BackgroundTasks):
     form = await _checked(request)
     db = get_db()
     try:
         e = _by_phone(db, form.get("From", ""))
         media = [form[f"MediaUrl{i}"] for i in range(int(form.get("NumMedia", "0") or 0)) if form.get(f"MediaUrl{i}")]
         body = form.get("Body", "")
-        db.add(CrewText(id=str(uuid.uuid4()), employee_id=e.id if e else "", phone=form.get("From", ""),
+        text_id = str(uuid.uuid4())
+        if media:
+            background.add_task(_copy_photos, text_id, media, e.id if e else "")
+        db.add(CrewText(id=text_id, employee_id=e.id if e else "", phone=form.get("From", ""),
                         direction="inbound", body=body, media=json.dumps(media),
                         twilio_sid=form.get("MessageSid", ""), status="new", created_at=_now()))
         db.commit()

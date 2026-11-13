@@ -1661,7 +1661,19 @@ export const api = {
   /** The crew line (2026-10-30): text and call the crew on the Twilio number. */
   crewLine: () => request<{ ready: boolean; missing: string[]; number: string; crew: CrewLineRow[] }>(`/api/crew-line`),
   crewThread: (id: string) => request<{ employee: { id: string; name: string; phone: string }; items: CrewLineItem[] }>(`/api/crew-line/${encodeURIComponent(id)}`),
-  crewText: (id: string, body: string) => request<{ ok: boolean }>(`/api/crew-line/${encodeURIComponent(id)}/text`, { method: "POST", body: JSON.stringify({ body }) }),
+  crewText: (id: string, body: string, media: string[] = []) => request<{ ok: boolean }>(`/api/crew-line/${encodeURIComponent(id)}/text`, { method: "POST", body: JSON.stringify({ body, media }) }),
+  /** Photos for the crew line (2026-11-13): shrunk + stored, links come back to send. */
+  crewPhotos: async (id: string, files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/crew-line/${encodeURIComponent(id)}/photo`, {
+      method: "POST", body: fd, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((d as { detail?: string }).detail || "Couldn't add the photo");
+    return d as { urls: string[] };
+  },
   crewSetPhone: (id: string, phone: string) => request<{ ok: boolean; phone: string }>(`/api/crew-line/${encodeURIComponent(id)}/phone`, { method: "PUT", body: JSON.stringify({ phone }) }),
   crewCall: (id: string) => request<{ ok: boolean; message: string }>(`/api/crew-line/${encodeURIComponent(id)}/call`, { method: "POST" }),
   /** Alan's ideas playbook (2026-10-30). */
