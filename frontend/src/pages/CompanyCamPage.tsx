@@ -28,7 +28,12 @@ export default function CompanyCamPage() {
     return (
       <div className="mx-auto max-w-3xl space-y-3 p-3 sm:p-5">
         {/* Back to where they came from: PM HQ, or the Company Cam list. */}
-        {new URLSearchParams(window.location.search).get("from") === "pm-hq" ? (
+        {/* Opened from My Schedule: back goes to My Schedule (Alan, 2026-11-12). */}
+        {new URLSearchParams(window.location.search).get("from") === "schedule" ? (
+          <Link to="/my-schedule" className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-4 w-4" /> {tr("My Schedule")}
+          </Link>
+        ) : new URLSearchParams(window.location.search).get("from") === "pm-hq" ? (
           <Link to={pmHqBack()} className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
             <ChevronLeft className="h-4 w-4" /> {tr("Project Manager")}
           </Link>

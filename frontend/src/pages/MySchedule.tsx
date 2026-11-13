@@ -982,7 +982,7 @@ function FixRow({ j }: { j: CamJob }) {
         {j.any_day ? <span className={cn("text-[14px] font-semibold text-red-800")}>{tr("Any day, stop by")}</span> : null}
       </span>
       {j.lead_id ? (
-        <Link to={`/company-cam/${j.lead_id}`} className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug underline-offset-2 hover:underline">{(j.name || tr("Customer")).toLowerCase()}</Link>
+        <Link to={`/company-cam/${j.lead_id}?from=schedule`} className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug underline-offset-2 hover:underline">{(j.name || tr("Customer")).toLowerCase()}</Link>
       ) : <span className="mt-0.5 block text-[16px] font-semibold capitalize leading-snug">{(j.name || "").toLowerCase()}</span>}
       {j.address ? <span className={cn("flex items-center gap-1 truncate text-[14px]", MUTED)}><MapPin className="h-3.5 w-3.5 shrink-0" />{j.address}</span> : null}
       {j.fix_note ? <p className="mt-1 text-[16px] font-bold leading-snug">🔧 {j.fix_note}</p> : null}
@@ -998,7 +998,7 @@ function CamJobRow({ j, nth, showDay }: { j: CamJob & { tasks?: string[] }; nth:
   // The task is a small pill over the name, so the name gets the whole line
   // on a phone (it used to read "Mich…" next to a wide badge).
   return (
-    <Link to={`/company-cam/${j.lead_id}`}
+    <Link to={`/company-cam/${j.lead_id}?from=schedule`}
           className={cn("flex min-h-[60px] items-center gap-2 rounded-xl p-2.5 shadow-sm active:bg-[#E4DCCB]/60", PAPER, RING)}>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5">
