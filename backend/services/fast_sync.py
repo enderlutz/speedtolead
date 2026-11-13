@@ -208,7 +208,8 @@ def _midnight_ms() -> int:
 
 def _locations(db) -> list[str]:
     s = get_settings()
-    locs = [x for x in (s.ghl_location_id, s.ghl_location_id_2) if x]
+    from services.ghl import loc2_pulls_paused
+    locs = [x for x in (s.ghl_location_id, s.ghl_location_id_2) if x and not loc2_pulls_paused(x)]
     return list(dict.fromkeys(locs))
 
 

@@ -146,7 +146,7 @@ def account_names() -> dict:
     from config import get_settings
     s = get_settings()
     out = {}
-    for loc, name in ((getattr(s, "ghl_location_id", ""), "Sterling"), (getattr(s, "ghl_location_id_2", ""), "Sterling (2nd)"),
+    for loc, name in ((getattr(s, "ghl_location_id", ""), "Sterling"), (getattr(s, "ghl_location_id_2", ""), "Woodlands (Thomas)"),
                       (getattr(s, "ghl_location_id_at", ""), "A&T")):
         if loc:
             out[loc] = name

@@ -789,6 +789,8 @@ def _sync_messages_for_lead(db, lead) -> int:
     location_id = lead.ghl_location_id or None
     added = 0
     newest_inbound: tuple[str, str] | None = None     # (created_at, body)
+    if ghl_api.loc2_pulls_paused(location_id):
+        return 0   # Thomas's Woodlands account: no pulls (2026-11-13)
 
     for convo in ghl_api.get_conversations(lead.ghl_contact_id, location_id):
         convo_id = convo.get("id", "")

@@ -653,6 +653,9 @@ def _ingest_calls_for_lead(db, lead) -> dict:
     location_id = (lead.ghl_location_id or "").strip() or None
     if not contact_id:
         return stats
+    from services.ghl import loc2_pulls_paused
+    if loc2_pulls_paused(location_id):
+        return stats   # Thomas's Woodlands account: no pulls (2026-11-13)
 
     conversations = get_conversations(contact_id, location_id)
     for convo in conversations:

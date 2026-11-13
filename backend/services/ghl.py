@@ -92,6 +92,32 @@ def _rate_limit(weight: float = 1.0, max_wait: float = 15.0) -> None:
 # the global bucket. Done at the client layer (not per call-site) so
 # new endpoints added to this file automatically inherit rate-limiting
 # without any caller having to remember to call _rate_limit().
+# Thomas's Woodlands account (ghl_location_id_2) stays configured, but the
+# background checks never read it unless Alan turns it back on (Alan,
+# 2026-11-13: "we can have it there, just don't do any pulls on it").
+# Turn on: system_config ghl_loc2_pulls = "1".
+_loc2_cache: dict = {"at": 0.0, "on": False}
+
+
+def loc2_pulls_paused(location_id: str | None) -> bool:
+    """True when this is the second (Woodlands) account and its pulls are off."""
+    s = get_settings()
+    if not location_id or not s.ghl_location_id_2 or location_id != s.ghl_location_id_2:
+        return False
+    if time.monotonic() - _loc2_cache["at"] > 300:
+        try:
+            from database import SystemConfig, get_db
+            db = get_db()
+            try:
+                _loc2_cache["on"] = SystemConfig.get(db, "ghl_loc2_pulls", "0") == "1"
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            _loc2_cache["on"] = False
+        _loc2_cache["at"] = time.monotonic()
+    return not _loc2_cache["on"]
+
+
 def _counted(resp):
     """Every GHL answer is counted for the usage meter (2026-11-13)."""
     from services import ghl_usage

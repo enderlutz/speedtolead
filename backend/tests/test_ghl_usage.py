@@ -32,3 +32,15 @@ def test_low_allowance_is_flagged():
 def test_path_label_drops_ids():
     assert gu.path_label("https://x.com/contacts/AbC123/tasks") == "contacts/tasks"
     assert gu.path_label("https://x.com/opportunities/search?q=1") == "opportunities/search"
+
+
+def test_second_account_pulls_are_paused_unless_turned_on(monkeypatch):
+    from types import SimpleNamespace
+    from services import ghl
+    monkeypatch.setattr(ghl, "get_settings", lambda: SimpleNamespace(ghl_location_id_2="WOOD"))
+    ghl._loc2_cache.update(at=10**12, on=False)
+    assert ghl.loc2_pulls_paused("WOOD") is True
+    assert ghl.loc2_pulls_paused("STERLING") is False
+    ghl._loc2_cache.update(at=10**12, on=True)
+    assert ghl.loc2_pulls_paused("WOOD") is False
+    ghl._loc2_cache.update(at=0.0, on=False)
