@@ -1615,9 +1615,18 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             <BriefRow icon="📏" label={tr("Measured")} value={job.measure_confirmed_at
               ? `${Math.round(job.measure_feet || 0)} ft × ${job.measure_height || 0} ft = ${Math.round(job.sqft || 0).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"} ✓`
               : tr("Not confirmed yet, ask the office")} />
-            <BriefRow icon="🪣" label={tr("Gallons")} value={job.gallons_needed
-              ? `${job.gallons_needed} ${isSpanish() ? "galones" : "gal"} · ${Math.ceil(job.gallons_needed / 4.53)} ${isSpanish() ? "cubetas" : "buckets"}${job.measure_confirmed_at ? "" : isSpanish() ? " (sin confirmar)" : " (not confirmed)"}`
-              : tr("Not set")} />
+            {/* "1 bucket" could mean a 1-gallon can (Alan, 2026-11-12): say
+                five-gallon buckets, and what the job needs. */}
+            {(() => {
+              const g = job.gallons_needed || 0;
+              const n = Math.ceil(g / 4.53);
+              const es = isSpanish();
+              const v = !g ? tr("Not set")
+                : es ? `Lleva ${n} ${n === 1 ? "cubeta" : "cubetas"} de 5 galones (necesita unos ${g} gal)`
+                  : `Bring ${n} five-gallon ${n === 1 ? "bucket" : "buckets"} (job needs about ${g} gal)`;
+              const unconfirmed = g && !job.measure_confirmed_at ? (es ? " · medida sin confirmar" : " · measurement not confirmed") : "";
+              return <BriefRow icon="🪣" label={tr("Stain to bring")} value={`${v}${unconfirmed}`} />;
+            })()}
             {(() => {
               const fin = finalCount(job);
               const planned = fin || job.repairs || NO_REPAIRS;
@@ -1632,9 +1641,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                 : tr("None")} />;
             })()}
             {!job.no_cleaning ? (
-              <BriefRow icon="🧴" label={tr("Bleach")}
-                        value={job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}`
-                          : data.bleach?.suggest ? `${data.bleach.suggest.gallons} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set")} />
+              <BriefRow icon="🧴" label={tr("Bleach to bring")}
+                        value={(() => {
+                          const b = job.bleach_gallons_to_bring || data.bleach?.suggest?.gallons || 0;
+                          if (!b) return tr("Not set");
+                          return isSpanish() ? `${b} ${b === 1 ? "galón" : "galones"} de cloro` : `${b} ${b === 1 ? "gallon" : "gallons"} of bleach`;
+                        })()} />
             ) : null}
             {withMe.length ? <BriefRow icon="👥" label={tr("With")} value={withMe.join(", ")} /> : null}
           </div>

@@ -692,6 +692,8 @@ export const ES: Record<string, string> = {
   "Fence wash": "Lavado de la cerca",
   "Before you start": "Antes de empezar",
   "Measured": "Medida",
+  "Stain to bring": "Pintura para llevar",
+  "Bleach to bring": "Cloro para llevar",
   "Not confirmed yet, ask the office": "Sin confirmar, pregunta a la oficina",
   "When it's done": "Cuando esté terminado",
   "Every side before you start; mark anything already damaged.": "Todos los lados antes de empezar; marca todo lo que ya esté dañado.",
