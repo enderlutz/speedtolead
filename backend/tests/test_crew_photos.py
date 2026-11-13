@@ -23,9 +23,9 @@ def test_shrink_fits_a_text():
 def test_only_our_photos_get_sent(monkeypatch):
     import services.supabase_storage as st
     monkeypatch.setattr(st, "get_settings", lambda: SimpleNamespace(supabase_url="https://x.supabase.co"))
-    assert crew_photos.is_ours("https://x.supabase.co/storage/v1/object/public/company-cam/crew-line/w/a.jpg")
+    assert crew_photos.is_ours("https://x.supabase.co/storage/v1/object/public/crew-line/photos/w/a.jpg")
     assert not crew_photos.is_ours("https://evil.example/a.jpg")
-    assert not crew_photos.is_ours("https://x.supabase.co/storage/v1/object/public/company-cam/lead1/before/a.jpg")
+    assert not crew_photos.is_ours("https://x.supabase.co/storage/v1/object/public/proposal-pages/lead1/a.jpg")
 
 
 def test_copy_from_twilio_keeps_twilio_link_on_failure(monkeypatch):

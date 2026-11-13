@@ -14,8 +14,9 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-BUCKET = "company-cam"
-PREFIX = "crew-line"
+BUCKET = "crew-line"  # its own public bucket, made on first use
+PREFIX = "photos"
+_ready = False
 MAX_SIDE = 1600
 MAX_BYTES = 900_000  # carriers squeeze anything bigger
 
@@ -37,7 +38,10 @@ def shrink(data: bytes) -> bytes:
 
 def store(data: bytes, employee_id: str) -> str:
     """Save a photo for the crew line; returns its public link ("" if Storage failed)."""
-    from services.supabase_storage import upload_image
+    global _ready
+    from services.supabase_storage import ensure_bucket, upload_image
+    if not _ready:
+        _ready = ensure_bucket(BUCKET, public=True)
     path = f"{PREFIX}/{employee_id or 'unknown'}/{uuid.uuid4().hex}.jpg"
     return upload_image(BUCKET, path, data, "image/jpeg") or ""
 
