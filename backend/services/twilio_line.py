@@ -70,8 +70,11 @@ def _from() -> str:
 
 def send_sms(to: str, body: str, media: list[str] | None = None) -> dict:
     s = get_settings()
-    data: list[tuple[str, str]] = [("To", to), ("From", _from()), ("Body", body)]
-    data += [("MediaUrl", m) for m in (media or [])]
+    # A dict, not a list of pairs: httpx reads a list as raw bytes and crashed
+    # before reaching Twilio (TypeError, 2026-11-13). Several photos = a list value.
+    data: dict = {"To": to, "From": _from(), "Body": body}
+    if media:
+        data["MediaUrl"] = list(media)
     r = httpx.post(f"{API}/Accounts/{_sid()}/Messages.json", data=data, auth=_auth(), timeout=20)
     r.raise_for_status()
     return r.json()
