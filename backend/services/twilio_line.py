@@ -54,14 +54,25 @@ def webhook(path: str, **q) -> str:
 
 def _auth() -> tuple[str, str]:
     s = get_settings()
-    return (s.twilio_account_sid, s.twilio_auth_token)
+    # .strip(): a space or line break pasted into Railway breaks the login
+    # before the request ever reaches Twilio (2026-11-13 crew line test).
+    return ((s.twilio_account_sid or "").strip(), (s.twilio_auth_token or "").strip())
+
+
+def _sid() -> str:
+    return (get_settings().twilio_account_sid or "").strip()
+
+
+def _from() -> str:
+    raw = get_settings().twilio_crew_number or ""
+    return e164(raw) or raw.strip()
 
 
 def send_sms(to: str, body: str, media: list[str] | None = None) -> dict:
     s = get_settings()
-    data: list[tuple[str, str]] = [("To", to), ("From", s.twilio_crew_number), ("Body", body)]
+    data: list[tuple[str, str]] = [("To", to), ("From", _from()), ("Body", body)]
     data += [("MediaUrl", m) for m in (media or [])]
-    r = httpx.post(f"{API}/Accounts/{s.twilio_account_sid}/Messages.json", data=data, auth=_auth(), timeout=20)
+    r = httpx.post(f"{API}/Accounts/{_sid()}/Messages.json", data=data, auth=_auth(), timeout=20)
     r.raise_for_status()
     return r.json()
 
@@ -69,8 +80,8 @@ def send_sms(to: str, body: str, media: list[str] | None = None) -> dict:
 def ring_alan_then(employee_id: str) -> dict:
     """Ring Alan's cell; when he answers, /bridge dials the worker."""
     s = get_settings()
-    r = httpx.post(f"{API}/Accounts/{s.twilio_account_sid}/Calls.json", auth=_auth(), timeout=20, data={
-        "To": s.crew_line_ring_to, "From": s.twilio_crew_number,
+    r = httpx.post(f"{API}/Accounts/{_sid()}/Calls.json", auth=_auth(), timeout=20, data={
+        "To": e164(s.crew_line_ring_to) or s.crew_line_ring_to, "From": _from(),
         "Url": webhook("bridge", employee_id=employee_id), "Method": "POST",
     })
     r.raise_for_status()
@@ -85,7 +96,7 @@ def recording_audio(recording_url: str) -> bytes:
 
 def valid_signature(url: str, params: dict, signature: str) -> bool:
     """Twilio's X-Twilio-Signature: HMAC-SHA1 of the URL plus the sorted form fields."""
-    token = get_settings().twilio_auth_token
+    token = (get_settings().twilio_auth_token or "").strip()
     if not token or not signature:
         return False
     payload = url + "".join(f"{k}{params[k]}" for k in sorted(params))

@@ -182,7 +182,8 @@ def send_text(employee_id: str, b: TextBody, user: dict = Depends(require_alan))
                 j = ex.response.json()  # type: ignore[attr-defined]
                 why = f" (Twilio {j.get('code', '')}: {j.get('message', '')})"
             except Exception:  # noqa: BLE001
-                pass
+                # Never reached Twilio (bad setting, network): say what broke.
+                why = f" ({type(ex).__name__}: {str(ex)[:160]})"
             logger.warning("crew text failed: %s%s", ex, why)
             raise HTTPException(status_code=502, detail="Twilio didn't take the text" + why)
         db.add(CrewText(id=str(uuid.uuid4()), employee_id=employee_id, phone=to, direction="outbound", body=body,
