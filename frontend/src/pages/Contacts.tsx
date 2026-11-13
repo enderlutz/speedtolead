@@ -499,13 +499,15 @@ function SterlingContacts() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        {/* Its own full-width row, big enough to read from across the desk
+            (Alan, 2026-11-12: "it's too small right now"). */}
+        <div className="relative basis-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground" />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search name, phone, email or address…"
-            className="pl-8"
+            className="h-14 pl-12 text-lg md:text-lg"
           />
         </div>
         {([
