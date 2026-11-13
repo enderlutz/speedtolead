@@ -52,10 +52,25 @@ def reminder_message(link: PayLink, lead: Lead | None, sender: str = "Alan") -> 
     hi = greeting.greet(lead)
     amt = hooks.money((link.amount_cents or 0) / 100)
     what = {"balance": "your balance of", "extra": "the extra work,", "full": "your fence,"}.get(link.kind, "your balance of")
-    return (f"{hi}, it's {sender} with Sterling Fence Staining. Just a friendly reminder that {what} {amt} "
+    intro = f"{sender}, the project manager at Sterling" if sender == "Alan" else f"{sender} with Sterling Fence Staining"
+    return (f"{hi}, it's {intro}. Just a friendly reminder that {what} {amt} "
             f"is still open. Here's your link: {hooks.pay_url(link.token)}\n"
             "Card, Apple Pay or bank account. If anything about the job isn't right, just text me back "
             "and I'll take care of it. Thank you!")
+
+
+def reminder_draft(db, link: PayLink, lead: Lead | None, sender: str = "Alan") -> dict:
+    """The reminder to show staff: written from the customer's own words when
+    they texted since the bill went out (Alan, 2026-11-13: Tunisia asked for
+    the invoice and got "just a friendly reminder"), else the preset."""
+    from services import reply_text
+    what = {"balance": "the balance for the finished fence job", "extra": "extra work on the job",
+            "full": "the whole fence job"}.get(link.kind, "the balance for the job")
+    got = reply_text.draft(db, lead, hooks.pay_url(link.token), hooks.money((link.amount_cents or 0) / 100),
+                           what, greeting.greet(lead), sender, since=link.sent_at)
+    if got:
+        return {**got, "from_reply": True}
+    return {"message": reminder_message(link, lead, sender), "their_words": [], "from_reply": False}
 
 
 def send_reminder(db, link: PayLink, lead: Lead | None, message: str) -> tuple[bool, str]:

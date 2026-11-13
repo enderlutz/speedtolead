@@ -2094,6 +2094,10 @@ class CompanyCamPhoto(Base):
     # office ticks it in "More photos from this job" (Alan, 2026-11-01, when
     # a phone failed and the stained fence was only in the before photos).
     customer_shown = Column(Boolean, default=False, nullable=False)
+    # How the office cropped it for the customer (Alan, 2026-11-13: a water
+    # bottle on the lawn): JSON {"x","y","w","h"}, fractions of the photo.
+    # Empty = the whole photo. The original is never changed.
+    customer_crop = Column(Text, default="")
 
     storage_url = Column(Text, default="")
     image_data = deferred(Column(LargeBinary, nullable=True))
@@ -5287,6 +5291,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_shown BOOLEAN NOT NULL DEFAULT FALSE"))
             logger.info("Migration: added company_cam_photos.customer_shown")
+        if "customer_crop" not in ccp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN customer_crop TEXT DEFAULT ''"))
+            logger.info("Migration: added company_cam_photos.customer_crop")
         if "uploaded_sub" not in ccp_cols:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE company_cam_photos ADD COLUMN uploaded_sub TEXT DEFAULT ''"))

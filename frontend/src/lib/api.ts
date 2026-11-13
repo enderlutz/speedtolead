@@ -1452,10 +1452,10 @@ export const api = {
     request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
   /** The preset text for a link, to edit before sending. other: the version for someone else on the job. */
   getPayLinkMessage: (token: string, opts: { name?: string; other?: boolean } = {}) =>
-    request<{ message: string; link: string }>(`/api/pay-links/${token}/message?name=${encodeURIComponent(opts.name || "")}&other=${opts.other ? 1 : 0}`),
+    request<{ message: string; link: string; from_reply?: boolean; their_words?: string[] }>(`/api/pay-links/${token}/message?name=${encodeURIComponent(opts.name || "")}&other=${opts.other ? 1 : 0}`),
   /** A friendly reminder for an unpaid bill (2026-10-30): the text to check, then send. */
   getPayReminder: (token: string) =>
-    request<{ message: string; link: string; can_remind: boolean; reminder_count: number; reminded_at: string }>(`/api/pay-links/${token}/reminder`),
+    request<{ message: string; link: string; can_remind: boolean; reminder_count: number; reminded_at: string; from_reply?: boolean; their_words?: string[] }>(`/api/pay-links/${token}/reminder`),
   sendPayReminder: (token: string, message?: string) =>
     request<{ ok: boolean; reminder_count: number; reminded_at: string }>(`/api/pay-links/${token}/remind`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
   /** Contacts to send a pay link to, by name or phone. */
@@ -4194,7 +4194,9 @@ export const api = {
   resetCompanyCamDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
-                          patch: { side?: string; note?: string; is_damage?: boolean; customer_hidden?: boolean; customer_shown?: boolean }) =>
+                          patch: { side?: string; note?: string; is_damage?: boolean; customer_hidden?: boolean; customer_shown?: boolean;
+                                   /** Fractions of the photo; {} = the whole photo again. */
+                                   customer_crop?: { x: number; y: number; w: number; h: number } | Record<string, never> }) =>
     request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/${photoId}`, {
       method: "PATCH", body: JSON.stringify(patch),
     }),
@@ -4295,6 +4297,8 @@ export interface CompanyCamPhoto {
   customer_hidden?: boolean;
   /** Ticked onto the job-done page from outside the after photos. */
   customer_shown?: boolean;
+  /** The customer's crop as JSON {x,y,w,h} fractions; "" = the whole photo. */
+  customer_crop?: string;
   /** CDN url when Storage is configured, otherwise our own image endpoint. */
   url: string;
   from_storage: boolean;

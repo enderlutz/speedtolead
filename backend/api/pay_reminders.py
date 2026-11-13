@@ -26,7 +26,9 @@ def reminder_text(token: str, user: dict = Depends(require_staff)):
     db = get_db()
     try:
         link, lead = _load(db, token)
-        return {"message": pr.reminder_message(link, lead, pr.sender_name(user)), "link": hooks.pay_url(link.token),
+        d = pr.reminder_draft(db, link, lead, pr.sender_name(user))
+        return {"message": d["message"], "from_reply": d["from_reply"], "their_words": d["their_words"],
+                "link": hooks.pay_url(link.token),
                 "can_remind": pr.can_remind(link), "reminder_count": link.reminder_count or 0,
                 "reminded_at": link.reminded_at or ""}
     finally:

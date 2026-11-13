@@ -302,7 +302,7 @@ export function Compose({ token, who, other = false, name = "", reminder = false
   reminder?: boolean;
   onSend: (message: string | undefined) => Promise<void>; onCancel: () => void;
 }) {
-  const [preset, setPreset] = useState<{ message: string; link: string } | null>(null);
+  const [preset, setPreset] = useState<{ message: string; link: string; from_reply?: boolean; their_words?: string[] } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -312,14 +312,22 @@ export function Compose({ token, who, other = false, name = "", reminder = false
   const missing = !!preset && !msg.includes(preset.link);
   const go = async () => {
     setBusy(true);
-    try { await onSend(preset && msg.trim() === preset.message.trim() ? undefined : msg); }
+    // A text written from their words is sent as shown (the server's
+    // preset is the stock one), so it always goes as an edited text.
+    try { await onSend(preset && !preset.from_reply && msg.trim() === preset.message.trim() ? undefined : msg); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
     finally { setBusy(false); }
   };
-  if (!preset) return <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Loading the text…</p>;
+  if (!preset) return <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Reading their texts and writing it…</p>;
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-semibold text-emerald-800">✏️ {reminder ? "Friendly reminder" : "Text"} to {who}. Tap in the box to change the words, then Send text.</p>
+      {preset.from_reply && preset.their_words?.length ? (
+        <div className="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-sky-900">
+          <p className="font-bold">💬 Written from what they texted:</p>
+          {preset.their_words.map((w, i) => <p key={i} className="mt-0.5 italic">“{w}”</p>)}
+        </div>
+      ) : null}
       <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={5} autoFocus className="w-full rounded-md border-2 border-emerald-500/60 bg-background p-2 text-[15px] leading-snug" />
       {missing ? <p className="text-[11px] font-semibold text-rose-600">The pay link is missing from the text. Put it back or tap Reset, or they can't pay.</p> : null}
       <div className="flex items-center gap-1.5">
@@ -493,6 +501,17 @@ function SharePhotos({ leadId }: { leadId: string }) {
       toast.error("Couldn't save that. Try again.");
     }
   };
+  const saveCrop = async (ph: CompanyCamPhoto, c: Crop | null) => {
+    try {
+      const out = await api.updateCompanyCamPhoto(leadId, ph.id, { customer_crop: c || {} });
+      const fix = (ps: CompanyCamPhoto[]) => ps.map((x) => (x.id === ph.id ? { ...x, customer_crop: out.customer_crop } : x));
+      setPhotos((ps) => fix(ps || []));
+      setMore((ps) => fix(ps));
+      toast.success(c ? "Cropped. That's how they'll see it." : "Showing the whole photo again");
+    } catch {
+      toast.error("Couldn't save the crop. Try again.");
+    }
+  };
   if (photos === null) return null;
   const picked = more.filter((p) => p.customer_shown && !p.customer_hidden);
   const total = picked.length + photos.filter((p) => !p.customer_hidden).length;
@@ -515,7 +534,7 @@ function SharePhotos({ leadId }: { leadId: string }) {
             {photos.map((ph, i) => (
               <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_hidden ? "ring-transparent" : "ring-emerald-500")}>
                 <button type="button" onClick={() => setBig(i, "main")} className="block h-full w-full" title="See it big">
-                  {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", ph.customer_hidden && "opacity-35")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
+                  {thumbs[ph.id] ? <CroppedImg src={thumbs[ph.id]} crop={readCrop(ph)} className={cn("h-full w-full object-cover", ph.customer_hidden && "opacity-35")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
                 </button>
                 <button type="button" onClick={() => void toggle(ph)} aria-pressed={!ph.customer_hidden} aria-label={ph.customer_hidden ? "Show this one to the customer" : "Leave this one out"}
                   className={cn("absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold shadow", ph.customer_hidden ? "bg-white/95 text-muted-foreground" : "bg-emerald-500 text-white")}>
@@ -538,7 +557,7 @@ function SharePhotos({ leadId }: { leadId: string }) {
                 {more.map((ph, i) => (
                   <div key={ph.id} className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-lg ring-2", ph.customer_shown ? "ring-emerald-500" : "ring-transparent")}>
                     <button type="button" onClick={() => setBig(i, "more")} className="block h-full w-full" title="See it big">
-                      {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className={cn("h-full w-full object-cover", !ph.customer_shown && "opacity-60")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
+                      {thumbs[ph.id] ? <CroppedImg src={thumbs[ph.id]} crop={readCrop(ph)} className={cn("h-full w-full object-cover", !ph.customer_shown && "opacity-60")} /> : <span className="block h-full w-full animate-pulse bg-muted" />}
                     </button>
                     <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
                       {SECTION_NAME[ph.section] || ph.section.replace(/_/g, " ")}
@@ -556,19 +575,90 @@ function SharePhotos({ leadId }: { leadId: string }) {
       ) : null}
       {big !== null ? <BigPhotos list={big.set === "main" ? photos : more} at={big.i} thumbs={thumbs} onAt={(i) => setBig(i)}
         picked={(ph) => (big.set === "main" ? !ph.customer_hidden : !!ph.customer_shown)}
-        onToggle={(ph) => void (big.set === "main" ? toggle(ph) : toggleMore(ph))} /> : null}
+        onToggle={(ph) => void (big.set === "main" ? toggle(ph) : toggleMore(ph))} onCrop={saveCrop} /> : null}
     </div>
   );
 }
 
-function BigPhotos({ list, at, thumbs, onAt, picked, onToggle }: {
+type Crop = { x: number; y: number; w: number; h: number };
+function readCrop(ph: CompanyCamPhoto): Crop | null {
+  try { const c = JSON.parse(ph.customer_crop || ""); return c && c.w ? c : null; } catch { return null; }
+}
+/** The photo as the customer will see it: zoomed and shifted, never changed. */
+function CroppedImg({ src, crop, className }: { src: string; crop: Crop | null; className?: string }) {
+  if (!crop) return <img src={src} alt="" className={className} draggable={false} />;
+  return (
+    <span className={cn("relative block overflow-hidden", className)}>
+      <img src={src} alt="" draggable={false} className="absolute left-0 top-0 h-full w-full max-w-none select-none object-cover"
+        style={{ transformOrigin: "0 0", transform: `scale(${1 / crop.w}) translate(${-crop.x * 100}%, ${-crop.y * 100}%)` }} />
+    </span>
+  );
+}
+
+/** Zoom with the slider (or pinch), drag to move, Save. Alan, 2026-11-13:
+ *  "zoom in just a little bit more to kind of cut out the water bottle". */
+function CropTool({ src, start, onSave, onCancel }: { src: string; start: Crop | null; onSave: (c: Crop | null) => Promise<void>; onCancel: () => void }) {
+  const [c, setC] = useState<Crop>(start || { x: 0, y: 0, w: 1, h: 1 });
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  const pinch = useRef<{ d: number; w: number } | null>(null);
+  const clamp = (n: Crop): Crop => {
+    const w = Math.min(1, Math.max(0.2, n.w));
+    return { w, h: w, x: Math.min(1 - w, Math.max(0, n.x)), y: Math.min(1 - w, Math.max(0, n.y)) };
+  };
+  const zoomTo = (w: number) => setC((o) => { const cx = o.x + o.w / 2, cy = o.y + o.h / 2; return clamp({ w, h: w, x: cx - w / 2, y: cy - w / 2 }); });
+  const zoom = Math.round((1 / c.w) * 10) / 10;
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black" onClick={(e) => e.stopPropagation()}>
+      <p className="px-4 py-3 text-center text-sm font-semibold text-white">Zoom in, then drag the photo so the part you don't want is out of the box.</p>
+      <div className="flex min-h-0 flex-1 items-center justify-center px-2">
+        <div ref={box} className="relative inline-block max-h-full max-w-full touch-none overflow-hidden rounded ring-2 ring-white"
+          onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); drag.current = { px: e.clientX, py: e.clientY, x: c.x, y: c.y }; }}
+          onPointerMove={(e) => {
+            const d = drag.current, el = box.current; if (!d || !el || pinch.current) return;
+            const r = el.getBoundingClientRect();
+            setC((o) => clamp({ ...o, x: d.x - ((e.clientX - d.px) / r.width) * o.w, y: d.y - ((e.clientY - d.py) / r.height) * o.h }));
+          }}
+          onPointerUp={() => { drag.current = null; }}
+          onTouchStart={(e) => { if (e.touches.length === 2) { const [a, b] = [e.touches[0], e.touches[1]]; pinch.current = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), w: c.w }; } }}
+          onTouchMove={(e) => { if (e.touches.length === 2 && pinch.current) { const [a, b] = [e.touches[0], e.touches[1]]; const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); zoomTo(pinch.current.w * (pinch.current.d / d)); } }}
+          onTouchEnd={() => { pinch.current = null; }}
+          onWheel={(e) => zoomTo(c.w * (e.deltaY > 0 ? 1.08 : 0.92))}>
+          <img src={src} alt="" draggable={false} className="block max-h-[70vh] max-w-full select-none opacity-0" />
+          <img src={src} alt="" draggable={false} className="absolute left-0 top-0 h-full w-full max-w-none select-none"
+            style={{ transformOrigin: "0 0", transform: `scale(${1 / c.w}) translate(${-c.x * 100}%, ${-c.y * 100}%)` }} />
+        </div>
+      </div>
+      <div className="space-y-3 px-4 py-4">
+        <label className="flex items-center gap-3 text-sm font-semibold text-white">
+          <span className="w-16 tabular-nums">Zoom {zoom}x</span>
+          <input type="range" min={1} max={5} step={0.05} value={1 / c.w} onChange={(e) => zoomTo(1 / Number(e.target.value))} className="h-11 flex-1" />
+        </label>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white">Cancel</button>
+          <button type="button" onClick={() => setC({ x: 0, y: 0, w: 1, h: 1 })} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white">Whole photo</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await onSave(c.w >= 0.999 ? null : c); } finally { setBusy(false); } }}
+            className="h-11 flex-1 rounded-lg bg-emerald-500 px-4 text-sm font-bold text-white disabled:opacity-60">
+            {busy ? "Saving…" : "Save · they'll see it like this"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BigPhotos({ list, at, thumbs, onAt, picked, onToggle, onCrop }: {
   list: CompanyCamPhoto[]; at: number; thumbs: Record<string, string>; onAt: (i: number | null) => void;
   picked: (ph: CompanyCamPhoto) => boolean; onToggle: (ph: CompanyCamPhoto) => void;
+  onCrop: (ph: CompanyCamPhoto, c: Crop | null) => Promise<void>;
 }) {
   const ph = list[at];
+  const [cropping, setCropping] = useState(false);
   const go = (d: number) => { const n = at + d; if (n >= 0 && n < list.length) onAt(n); };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (cropping) return;
       if (e.key === "ArrowLeft") go(-1);
       else if (e.key === "ArrowRight") go(1);
       else if (e.key === "Escape") onAt(null);
@@ -588,8 +678,23 @@ function BigPhotos({ list, at, thumbs, onAt, picked, onToggle }: {
       <div className="flex min-h-0 flex-1 touch-pan-y items-center justify-center px-2" onClick={(e) => e.stopPropagation()}
         onTouchStart={(e) => setX0(e.touches[0].clientX)}
         onTouchEnd={(e) => { if (x0 !== null) { const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1); } setX0(null); }}>
-        {thumbs[ph.id] ? <img src={thumbs[ph.id]} alt="" className="max-h-full max-w-full select-none rounded object-contain" draggable={false} /> : <Loader2 className="h-8 w-8 animate-spin text-white" />}
+        {thumbs[ph.id] ? (readCrop(ph)
+          ? <span className="relative inline-block max-h-full max-w-full overflow-hidden rounded">
+              <img src={thumbs[ph.id]} alt="" draggable={false} className="block max-h-[70vh] max-w-full select-none opacity-0" />
+              <CroppedImg src={thumbs[ph.id]} crop={readCrop(ph)} className="absolute inset-0 h-full w-full" />
+            </span>
+          : <img src={thumbs[ph.id]} alt="" className="max-h-full max-w-full select-none rounded object-contain" draggable={false} />)
+          : <Loader2 className="h-8 w-8 animate-spin text-white" />}
       </div>
+      {thumbs[ph.id] ? (
+        <div className="flex justify-center px-4" onClick={(e) => e.stopPropagation()}>
+          <button type="button" onClick={() => setCropping(true)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white hover:bg-white/25">
+            ✂️ {readCrop(ph) ? "Change the crop" : "Crop"}
+          </button>
+        </div>
+      ) : null}
+      {cropping && thumbs[ph.id] ? <CropTool src={thumbs[ph.id]} start={readCrop(ph)} onCancel={() => setCropping(false)}
+        onSave={async (c) => { await onCrop(ph, c); setCropping(false); }} /> : null}
       <div className="flex items-center justify-between gap-2 px-4 py-4" onClick={(e) => e.stopPropagation()}>
         <button type="button" disabled={at === 0} onClick={() => go(-1)} className="h-11 rounded-lg bg-white/15 px-4 text-sm font-bold text-white disabled:opacity-30">Back</button>
         <button type="button" onClick={() => onToggle(ph)}

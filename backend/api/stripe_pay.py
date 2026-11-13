@@ -453,7 +453,6 @@ def sample_pay_link(lead_id: str = "", user: dict = Depends(require_staff)):
 def pay_link_message(token: str, name: str = "", other: int = 0, user: dict = Depends(require_staff)):
     """The preset text, to edit before sending. other=1 is the version for
     someone else on the job, greeting `name`."""
-    del user
     db = get_db()
     try:
         link = db.query(PayLink).filter(PayLink.token == token).first()
@@ -463,7 +462,19 @@ def pay_link_message(token: str, name: str = "", other: int = 0, user: dict = De
         first = (name or "").split()[0].strip(",.;:") if (name or "").split() else ""
         msg = hooks.message_for_other(link, lead, first) if other else hooks.message_for(link, lead)
         url = hooks.after_url(link.token) if link.kind == "done" else hooks.receipt_url(link.token) if link.status == "paid" else hooks.pay_url(link.token)
-        return {"message": msg, "link": url}
+        # The customer texted and nobody answered (Alan, 2026-11-13: "craft
+        # the invoice based on what the customer's saying"): the bill's text
+        # answers them first. Only for a bill they still have to pay.
+        if not other and link.status == "open" and link.kind in ("balance", "extra", "full"):
+            from services import pay_reminders as pr
+            from services import greeting, reply_text
+            what = {"balance": "the balance for the finished fence job", "extra": "extra work on the job",
+                    "full": "the whole fence job"}[link.kind]
+            got = reply_text.draft(db, lead, url, hooks.money((link.amount_cents or 0) / 100), what,
+                                   greeting.greet(lead), pr.sender_name(user))
+            if got:
+                return {"message": got["message"], "link": url, "from_reply": True, "their_words": got["their_words"]}
+        return {"message": msg, "link": url, "from_reply": False, "their_words": []}
     finally:
         db.close()
 
@@ -1233,7 +1244,11 @@ def _customer_photo_urls(db, link: PayLink) -> list[str]:
     if link.status != "paid" or link.kind not in ("balance", "done", "extra"):
         return []
     from services.company_cam import customer_photos
-    return [p.storage_url or f"/api/pay/{link.token}/photo/{p.id}" for p in customer_photos(db, link.lead_id)]
+    from services.photo_crop import version
+    # A cropped photo always comes through us, so the customer gets the cut one.
+    return [f"/api/pay/{link.token}/photo/{p.id}?v={version(p)}" if version(p)
+            else (p.storage_url or f"/api/pay/{link.token}/photo/{p.id}")
+            for p in customer_photos(db, link.lead_id)]
 
 
 @router.get("/pay/{token}/photo/{photo_id}")
@@ -1250,6 +1265,10 @@ def after_photo(token: str, photo_id: str):
         p = next((x for x in customer_photos(db, link.lead_id) if x.id == photo_id), None)
         if p is None:
             raise HTTPException(status_code=404, detail="Not found")
+        from services.photo_crop import cropped_jpeg
+        cut = cropped_jpeg(p)
+        if cut:
+            return Response(content=cut, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
         if p.storage_url:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(p.storage_url)

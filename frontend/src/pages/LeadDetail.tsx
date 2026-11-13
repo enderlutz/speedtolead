@@ -92,6 +92,24 @@ const PREVIOUSLY_STAINED_OPTIONS = ["Didn't answer", "No", "Yes"];
  * odd label, and Save & Recalculate still writes it back, so a save
  * round-trips it intact.
  */
+/** The customer's height answer onto the estimator's own options (Alan,
+ *  2026-11-13: the form says "6.5ft (Standard with rot board)", the list said
+ *  "6.5ft standard with rot board", so the box came up empty and a 6.5 ft
+ *  fence was priced at 6 ft). What the customer picked is preset, always. */
+function normalizeHeight(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "Didn't answer";
+  if (FENCE_HEIGHT_OPTIONS.includes(s)) return s;
+  const v = s.toLowerCase();
+  if (v.includes("6.5") || v.includes("rot board")) return "6.5ft standard with rot board";
+  if (v.startsWith("8")) return "8ft";
+  if (v.startsWith("7")) return "7ft";
+  if (v.startsWith("6") || v.includes("standard")) return "6ft standard";
+  if (v.includes("not sure")) return "Not sure";
+  if (v.includes("didn")) return "Didn't answer";
+  return s;
+}
+
 function normalizeTimeline(raw: unknown): string {
   const s = String(raw ?? "").trim();
   if (!s) return "";
@@ -698,7 +716,7 @@ export default function LeadDetail() {
       // Estimator fields
       const fd = data.form_data || {};
       setLinearFeet(fd.linear_feet || "");
-      setFenceHeight(fd.fence_height || "Didn't answer");
+      setFenceHeight(normalizeHeight(fd.fence_height));
       setFenceAge(fd.fence_age || "Didn't answer");
       setPreviouslyStained(fd.previously_stained || "Didn't answer");
       setTimeline(normalizeTimeline(fd.service_timeline));
@@ -883,7 +901,7 @@ export default function LeadDetail() {
     lastLoadedEstimateRef.current = estimate.id;
     const inputs = (estimate.inputs || {}) as Record<string, unknown>;
     setLinearFeet(String(inputs.linear_feet ?? ""));
-    setFenceHeight(String(inputs.fence_height ?? "Didn't answer"));
+    setFenceHeight(normalizeHeight(inputs.fence_height));
     setFenceAge(String(inputs.fence_age ?? "Didn't answer"));
     setPreviouslyStained(String(inputs.previously_stained ?? "Didn't answer"));
     setTimeline(normalizeTimeline(inputs.service_timeline));
@@ -1868,7 +1886,19 @@ export default function LeadDetail() {
                 <Field label="Fence height">
                   <select className={selectCls} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
                     {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                    {!FENCE_HEIGHT_OPTIONS.includes(fenceHeight) ? <option value={fenceHeight}>{fenceHeight}</option> : null}
                   </select>
+                  {(() => {
+                    // What the customer said on the form, kept apart from
+                    // what we price (backend: customer_fence_height).
+                    const fd = (lead?.form_data || {}) as Record<string, unknown>;
+                    const said = String(fd.customer_fence_height || (!(estimate?.inputs as Record<string, unknown> | undefined)?._saved_at ? fd.fence_height || "" : ""));
+                    const saidOpt = normalizeHeight(said);
+                    if (!said || saidOpt === "Didn't answer" || saidOpt === "Not sure") return null;
+                    return saidOpt === fenceHeight
+                      ? <p className="mt-1 text-xs font-semibold text-emerald-700">✓ Customer said {said}</p>
+                      : <p className="mt-1 rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">⚠️ Customer said {said}. Only change it if you measured it yourself.</p>;
+                  })()}
                 </Field>
                 <Field label="Fence age">
                   <select className={selectCls} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>

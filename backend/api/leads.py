@@ -1290,6 +1290,12 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
         existing_fd = lead.to_dict()["form_data"]
         prev_confidence = str(existing_fd.get("confidence", ""))
         merged = {**existing_fd, **body.form_data}
+        # Keep the customer's own height answer before the estimator's value
+        # replaces it (Alan, 2026-11-13: a 6.5 ft fence went out at 6 ft), so
+        # the estimator always shows what they said.
+        said = str(existing_fd.get("fence_height") or "").strip()
+        if "customer_fence_height" not in existing_fd and said and not said.lower().startswith(("didn", "not sure")):
+            merged["customer_fence_height"] = said
         new_confidence = str(merged.get("confidence", ""))
         confidence_became_low = (new_confidence == "60" and prev_confidence != "60")
 
