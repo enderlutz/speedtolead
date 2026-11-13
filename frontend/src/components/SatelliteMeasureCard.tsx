@@ -46,6 +46,9 @@ import {
 
 interface Props {
   leadId: string;
+  /** A closed (booked) job: only then does "★ Confirm for the job" show, so
+   *  the VAs pricing new leads never see it (Alan, 2026-11-12). */
+  closedJob?: boolean;
   lat: number;
   lng: number;
   address?: string;
@@ -315,10 +318,28 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false,
 }: Props) {
   const forJob = purpose === "job";
   const navigate = useNavigate();
+  // ★ The real job measurement, right here (Alan, 2026-11-12): flip to
+  // "Confirm for the job", trace, pick the height, Confirm. While it's on,
+  // tracing never touches the estimate's linear feet.
+  const [confirmMode, setConfirmMode] = useState(false);
+  const [confirmHeight, setConfirmHeight] = useState(6);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmed, setConfirmed] = useState<{ feet: number; height: number; by: string; at: string } | null>(null);
+  useEffect(() => {
+    if (forJob || !closedJob || !leadId) return;
+    let live = true;
+    api.getCompanyCam(leadId).then((d) => {
+      const j = d.job;
+      if (!live || !j) return;
+      if (j.measure_confirmed_at) setConfirmed({ feet: j.measure_feet || 0, height: j.measure_height || 0, by: j.measure_confirmed_by || "", at: j.measure_confirmed_at });
+      if (j.measure_height) setConfirmHeight(j.measure_height);
+    }).catch(() => { /* no job card yet: nothing confirmed */ });
+    return () => { live = false; };
+  }, [leadId, forJob, closedJob]);
   const mapDivRef = useRef<HTMLDivElement>(null);
   // The square the VA sees. The map div inside it is twice its size and
   // transformed; the overlay on top takes every gesture.
@@ -396,13 +417,13 @@ export default function SatelliteMeasureCard({
   // A different customer starts clean, so their form never gets the last one's feet.
   useEffect(() => { lastLiveRef.current = 0; anyTracedRef.current = false; }, [leadId]);
   useEffect(() => {
-    if (!onLinearFeet || forJob) return;
+    if (!onLinearFeet || forJob || confirmMode) return;
     const traced = Math.round(viewTotal);
     if (traced === lastLiveRef.current) return;
     lastLiveRef.current = traced;
     if (traced > 0 || anyTracedRef.current) onLinearFeet(Math.round((jobTotal || 0) + viewTotal));
     anyTracedRef.current = traced > 0;
-  }, [viewTotal, jobTotal, onLinearFeet, forJob]);
+  }, [viewTotal, jobTotal, onLinearFeet, forJob, confirmMode]);
   const anyPoints = runs.some((r) => r.points.length > 0);
   // Same object until the tracing changes, so the 3D view only redraws then.
   const lines3d = useMemo(() => runs.map((r, idx) => ({
@@ -1212,7 +1233,7 @@ export default function SatelliteMeasureCard({
       // measuring, like Exolei and Bijan) showed a blank box (Alan, 2026-10-14).
       keepMounted
       icon={Ruler}
-      title={forJob ? "Measure this job" : "Measure & capture"}
+      title={forJob ? "Measure this job" : confirmed ? "Measure & capture ★" : "Measure & capture"}
       // One line (Alan, 2026-10-09: the page had too many words). Each
       // control carries its own tip.
       sub={IS_TOUCH
@@ -1287,6 +1308,57 @@ export default function SatelliteMeasureCard({
         {locateNote ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             {locateNote}
+          </div>
+        ) : null}
+
+        {!forJob && closedJob ? (
+          <div className={confirmMode ? "rounded-xl bg-amber-50 p-3 ring-2 ring-amber-300" : "rounded-xl bg-muted/40 p-2 ring-1 ring-border"}>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg bg-background p-1 ring-1 ring-border" role="tablist" aria-label="What this measuring is for">
+                <button type="button" role="tab" aria-selected={!confirmMode} onClick={() => setConfirmMode(false)}
+                        className={`min-h-10 rounded-md px-3 text-sm font-semibold ${!confirmMode ? "bg-foreground text-background" : "text-muted-foreground"}`}>
+                  For the estimate
+                </button>
+                <button type="button" role="tab" aria-selected={confirmMode} onClick={() => setConfirmMode(true)}
+                        className={`min-h-10 rounded-md px-3 text-sm font-semibold ${confirmMode ? "bg-amber-500 text-white" : "text-muted-foreground"}`}>
+                  ★ Confirm for the job
+                </button>
+              </div>
+              {confirmed ? (
+                <span className="text-sm font-semibold text-emerald-800">
+                  ★ Confirmed: {Math.round(confirmed.feet)} ft × {confirmed.height} ft = {Math.round(confirmed.feet * confirmed.height).toLocaleString()} sq ft
+                  <span className="font-normal text-muted-foreground"> · {confirmed.by || "office"}, {new Date(confirmed.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                </span>
+              ) : <span className="text-sm text-muted-foreground">Job measurement not confirmed yet</span>}
+            </div>
+            {confirmMode ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <p className="w-full text-sm text-amber-900">Trace every side we stain (both sides of a run = trace it twice). This doesn't change the estimate.</p>
+                <span className="text-base font-bold tabular-nums">{Math.round(viewTotal)} ft</span>
+                <span className="text-base">×</span>
+                <select value={confirmHeight} onChange={(e) => setConfirmHeight(Number(e.target.value))} aria-label="Fence height"
+                        className="h-11 rounded-lg border border-border bg-background px-2 text-base font-semibold">
+                  {[4, 5, 6, 6.5, 7, 8, 9, 10].map((h) => <option key={h} value={h}>{h} ft tall</option>)}
+                </select>
+                <span className="text-base font-extrabold tabular-nums">= {Math.round(viewTotal * confirmHeight).toLocaleString()} sq ft</span>
+                <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || viewTotal <= 0}
+                        onClick={async () => {
+                          const feet = Math.round(viewTotal);
+                          const sqft = Math.round(viewTotal * confirmHeight);
+                          setConfirming(true);
+                          try {
+                            await api.updateCompanyCam(leadId, { sqft, measure_feet: feet, measure_height: confirmHeight });
+                            setConfirmed({ feet, height: confirmHeight, by: "you", at: new Date().toISOString() });
+                            setConfirmMode(false);
+                            toast.success(`★ Job measurement confirmed: ${feet} ft × ${confirmHeight} ft = ${sqft.toLocaleString()} sq ft`);
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Couldn't save the job measurement");
+                          } finally { setConfirming(false); }
+                        }}>
+                  {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

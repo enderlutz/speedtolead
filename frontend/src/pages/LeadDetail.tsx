@@ -1766,6 +1766,7 @@ export default function LeadDetail() {
           <div id="est-measure" className="scroll-mt-4">
             <SatelliteMeasureCard
               leadId={lead.id}
+              closedJob={lead.status === "closed"}
               collapsed={!isOpen("measure", true)}
               onToggle={() => toggle("measure", true)}
               lat={lead.lat || 0}
