@@ -92,25 +92,32 @@ def _rate_limit(weight: float = 1.0, max_wait: float = 15.0) -> None:
 # the global bucket. Done at the client layer (not per call-site) so
 # new endpoints added to this file automatically inherit rate-limiting
 # without any caller having to remember to call _rate_limit().
+def _counted(resp):
+    """Every GHL answer is counted for the usage meter (2026-11-13)."""
+    from services import ghl_usage
+    ghl_usage.note(resp)
+    return resp
+
+
 class _RateLimitedClient:
     def __init__(self, client: httpx.Client):
         self._c = client
 
     def get(self, *args, **kwargs):
         _rate_limit()
-        return self._c.get(*args, **kwargs)
+        return _counted(self._c.get(*args, **kwargs))
 
     def post(self, *args, **kwargs):
         _rate_limit()
-        return self._c.post(*args, **kwargs)
+        return _counted(self._c.post(*args, **kwargs))
 
     def put(self, *args, **kwargs):
         _rate_limit()
-        return self._c.put(*args, **kwargs)
+        return _counted(self._c.put(*args, **kwargs))
 
     def delete(self, *args, **kwargs):
         _rate_limit()
-        return self._c.delete(*args, **kwargs)
+        return _counted(self._c.delete(*args, **kwargs))
 
 
 _client = _RateLimitedClient(_raw_client)

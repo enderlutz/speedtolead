@@ -14,6 +14,7 @@ import type { GhlStageDiff, OppValueBackfillStatus, GCalAttendeeBackfillResult, 
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import PermissionsManager from "@/components/PermissionsManager";
 import ChatbotSettings from "@/components/ChatbotSettings";
+import GhlUsageCard from "@/components/GhlUsageCard";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import PromotionSettingsCard from "@/components/PromotionSettingsCard";
 import ProposalInteractiveCard from "@/components/ProposalInteractiveCard";
@@ -204,6 +205,7 @@ export default function Settings() {
       <h1 className="text-lg sm:text-2xl font-semibold tracking-tight">
         Settings
       </h1>
+      {canManageUsers ? <GhlUsageCard /> : null}
 
       {canManageUsers && (
         <div className="inline-flex border rounded-md">

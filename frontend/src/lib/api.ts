@@ -1451,6 +1451,8 @@ export const api = {
   sendPayLink: (token: string, message?: string) =>
     request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
   /** The preset text for a link, to edit before sending. other: the version for someone else on the job. */
+  /** GHL daily API allowance used today (2026-11-13). Admin. */
+  getGhlUsage: () => request<GhlUsage>("/api/ghl/usage"),
   getPayLinkMessage: (token: string, opts: { name?: string; other?: boolean } = {}) =>
     request<{ message: string; link: string; from_reply?: boolean; their_words?: string[] }>(`/api/pay-links/${token}/message?name=${encodeURIComponent(opts.name || "")}&other=${opts.other ? 1 : 0}`),
   /** A friendly reminder for an unpaid bill (2026-10-30): the text to check, then send. */
@@ -6873,3 +6875,13 @@ export type CrewLineRow = { id: string; name: string; role: string; phone: strin
 export type CrewLineItem =
   | { kind: "text"; id: string; direction: string; body: string; media: string[]; status: string; at: string }
   | { kind: "call"; id: string; direction: string; seconds: number; transcript: string; status: string; at: string };
+
+export interface GhlUsage {
+  day: string;
+  our_requests_today: number;
+  refused_today: number;
+  accounts: { account: string; limit: number; left: number; used: number; share_left: number | null; at: string; low: boolean }[];
+  top_endpoints: { endpoint: string; requests: number }[];
+  since: string;
+  last_at: string;
+}

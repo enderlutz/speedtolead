@@ -539,6 +539,14 @@ def nightly_report(db, today: str | None = None) -> list[str]:
         if fills:
             t += "\nI filled in:\n" + "\n".join(fills)
         sections.append(t)
+    try:
+        from services import ghl_usage
+        g = ghl_usage.report_lines(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ghl usage lines failed: %s", e)
+        g = []
+    if g:
+        sections.append("📡 GOHIGHLEVEL API\n" + "\n".join(g))
     learned = learned_today(db, today)
     if learned:
         sections.append(learned)

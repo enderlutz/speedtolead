@@ -26,6 +26,18 @@ from services.ghl import GHL_BASE, _headers
 logger = logging.getLogger(__name__)
 
 
+def _ghl_get(*args, **kwargs):
+    """httpx.get, counted for the GHL usage meter (2026-11-13)."""
+    import httpx as _httpx
+    r = _httpx.get(*args, **kwargs)
+    try:
+        from services import ghl_usage
+        ghl_usage.note(r)
+    except Exception:  # noqa: BLE001
+        pass
+    return r
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -60,7 +72,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
     # --- Probe 1: list conversations for this contact ---
     convo_id_for_step_2 = None
     try:
-        r = httpx.get(
+        r = _ghl_get(
             f"{GHL_BASE}/conversations/search",
             params={"contactId": contact_id, "limit": 20},
             headers=headers,
@@ -91,7 +103,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
     first_call_message_id: str | None = None
     if convo_id_for_step_2:
         try:
-            r = httpx.get(
+            r = _ghl_get(
                 f"{GHL_BASE}/conversations/{convo_id_for_step_2}/messages",
                 params={"limit": 50},
                 headers=headers,
@@ -137,7 +149,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
 
     # --- Probe 3: speculative direct calls endpoint ---
     try:
-        r = httpx.get(
+        r = _ghl_get(
             f"{GHL_BASE}/conversations/calls",
             params={"contactId": contact_id, "limit": 20},
             headers=headers,
@@ -158,7 +170,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
         # 4 — single message detail endpoint. Some GHL accounts return the
         #     recordingUrl ONLY here, not in the list response.
         try:
-            r = httpx.get(
+            r = _ghl_get(
                 f"{GHL_BASE}/conversations/messages/{first_call_message_id}",
                 headers=headers,
                 timeout=15,
@@ -197,7 +209,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
                 f"/locations/{location_id}/recording" if location_id
                 else f"{GHL_BASE}/conversations/messages/{first_call_message_id}/recording"
             )
-            r = httpx.get(url_5, headers=headers, timeout=20)
+            r = _ghl_get(url_5, headers=headers, timeout=20)
             out["probes"].append({
                 "name": "5_recording_endpoint",
                 "url": url_5,
@@ -218,7 +230,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
                 f"/locations/{location_id}/transcription" if location_id
                 else f"{GHL_BASE}/conversations/messages/{first_call_message_id}/transcription"
             )
-            r = httpx.get(url_6, headers=headers, timeout=15)
+            r = _ghl_get(url_6, headers=headers, timeout=15)
             out["probes"].append({
                 "name": "6_transcription_endpoint",
                 "url": url_6,
@@ -744,7 +756,7 @@ def _fetch_recording_audio(message_id: str, location_id: str | None) -> bytes | 
             # Fallback when somehow a lead has no location_id — unlikely
             # but don't crash on it.
             url = f"{GHL_BASE}/conversations/messages/{message_id}/recording"
-        r = httpx.get(url, headers=_headers(location_id), timeout=60)
+        r = _ghl_get(url, headers=_headers(location_id), timeout=60)
         if r.status_code != 200:
             logger.warning(
                 f"GHL recording fetch HTTP {r.status_code} for msg {message_id}: "
