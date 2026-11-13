@@ -40,3 +40,23 @@ def test_job_done_takes_typed_color_off_the_shelf(db):
     assert job.final_stain_id == m.id
     assert m.gallons == 3.0
     assert round(job.stain_cost, 2) == round(22 * 25.54, 2)
+
+
+def test_legacy_job_refuses_a_semi_transparent_pick(db, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from api import company_cam as cc
+    from database import Lead
+    semi = _item(db, "Chocolate Chip", "semi_transparent")
+    solid = _item(db, "Chocolate Chip", "solid")
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Legacy Test", ghl_contact_id=str(uuid.uuid4()))
+    db.add(lead)
+    db.commit()
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    user = {"sub": "u1", "name": "Alan", "role": "admin"}
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(package="legacy"), user=user)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id=semi.id), user=user)
+    out = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id=solid.id), user=user)
+    assert "Solid" in (out.get("job") or out)["final_color"] or "solid" in (out.get("job") or out)["final_color"].lower()

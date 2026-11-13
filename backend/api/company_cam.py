@@ -848,6 +848,14 @@ def update_company_cam(
                 item = db.query(StainInventoryItem).filter(StainInventoryItem.id == sid).first()
                 if not item:
                     raise HTTPException(400, "That stain isn't in the inventory")
+                # Legacy is a solid (Alan, 2026-11-12: Oscar Chavez's Legacy
+                # job got saved as Chocolate Chip semi-transparent). A
+                # see-through stain on a Legacy job is a wrong tap, so it's
+                # refused; if the customer really changed, the office changes
+                # the package first.
+                pkg = (body.package or job.package or "").strip().lower()
+                if pkg == "legacy" and (item.finish_type or "") in ("semi_transparent", "transparent", "clear"):
+                    raise HTTPException(400, "This is a Legacy job, so the stain is a solid. Pick the solid version of the color, or ask the office.")
                 # Colour, brand and opacity, never the name alone.
                 job.final_color = stain_label(item)
                 job.color = job.final_color
