@@ -1582,9 +1582,31 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           <div className="mt-1 divide-y divide-black/10">
             {myDay?.task ? <BriefRow icon="📅" label={tr("Today")} value={taskLabel(myDay.task)} /> : null}
             {(job.briefing || "").trim() ? <BriefRow icon="🛒" label={tr("Pick up")} value={job.briefing || ""} /> : null}
-            <BriefRow icon="🎨" label={tr("Color")} value={chosenStain ? `${chosenStain}${job.color_shown_at || job.color_confirmed ? " ✓" : ""}` : tr("Not picked yet")} />
+            {/* Everything confirmed lands here on its own (Alan, 2026-11-12):
+                the color the office set, the confirmed measurement, the
+                gallons as buckets, and the repairs with the spare pickets. */}
+            <BriefRow icon="🎨" label={tr("Color")} value={(chosenStain || (job.final_color || job.color || "").trim())
+              ? `${chosenStain || (job.final_color || job.color)}${job.color_shown_at || job.color_confirmed ? " ✓" : ""}` : tr("Not picked yet")} />
             <BriefRow icon="🧱" label={tr("Sides")} value={sidesLabel(estimate_sides) || tr("See the scope")} />
-            <BriefRow icon="🪣" label={tr("Gallons")} value={job.gallons_needed ? String(job.gallons_needed) : tr("Not set")} />
+            <BriefRow icon="📏" label={tr("Measured")} value={job.measure_confirmed_at
+              ? `${Math.round(job.measure_feet || 0)} ft × ${job.measure_height || 0} ft = ${Math.round(job.sqft || 0).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"} ✓`
+              : tr("Not confirmed yet, ask the office")} />
+            <BriefRow icon="🪣" label={tr("Gallons")} value={job.gallons_needed
+              ? `${job.gallons_needed} ${isSpanish() ? "galones" : "gal"} · ${Math.ceil(job.gallons_needed / 4.53)} ${isSpanish() ? "cubetas" : "buckets"}${job.measure_confirmed_at ? "" : isSpanish() ? " (sin confirmar)" : " (not confirmed)"}`
+              : tr("Not set")} />
+            {(() => {
+              const fin = finalCount(job);
+              const planned = fin || job.repairs || NO_REPAIRS;
+              const ex: Repairs = !fin && job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
+              const sum: Repairs = { ...planned, counts: Object.fromEntries(["pickets", "rotboard", "cap", "rail", "posts"].map((k) => [k, (planned.counts[k] || 0) + (ex.counts[k] || 0)])) };
+              const words = repairWords(sum);
+              const n = sum.counts.pickets || 0;
+              // Spare pickets (Alan, 2026-11-12): need + 15%, at least 2 more.
+              const bring = n ? Math.max(Math.ceil(n * 1.15), n + 2) : 0;
+              return <BriefRow icon="🔨" label={tr("Repairs")} value={words.length
+                ? `${words.join(", ")}${bring ? (isSpanish() ? ` · lleva ${bring} tablas` : ` · bring ${bring} pickets`) : ""}`
+                : tr("None")} />;
+            })()}
             {!job.no_cleaning ? (
               <BriefRow icon="🧴" label={tr("Bleach")}
                         value={job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}`
