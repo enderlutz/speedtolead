@@ -608,6 +608,8 @@ export const ES: Record<string, string> = {
   "Fence replacement": "Cambio de cerca",
   "Numbered drawings": "Dibujos numerados",
   "Measure & capture": "Medir y capturar",
+  "Confirm real measurement": "Confirmar la medida real",
+  "Re-confirm real measurement": "Volver a confirmar la medida real",
   "Fence scope drawing (latest)": "Dibujo del alcance (el más reciente)",
   "Drone view (latest)": "Vista de dron (la más reciente)",
   "Scope photo (latest)": "Foto del alcance (la más reciente)",

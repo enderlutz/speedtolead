@@ -4393,6 +4393,7 @@ export interface CompanyCamJob {
   /** Extra repairs the customer agreed to on site, and when they said yes. */
   extras?: { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
   extras_confirmed_at?: string; extras_confirmed_by?: string;
+  measure_feet?: number; measure_height?: number; measure_confirmed_at?: string; measure_confirmed_by?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;

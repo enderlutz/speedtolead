@@ -1805,14 +1805,31 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                 Measure & capture (Google Earth, Street View for the height);
                 the back arrow there comes right back here, and a new
                 measurement shows up above as a choice. */}
+            {/* The real measurement before the job (Alan, 2026-11-12): trace,
+                pick the height, save. It never touches the estimate, and the
+                job (and David) knows it's confirmed. */}
+            {job.measure_confirmed_at ? (
+              <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+                ✓ Confirmed: {Math.round(job.measure_feet || 0)} ft × {job.measure_height || 0} ft
+                <span className="block text-[13px] font-normal">by {job.measure_confirmed_by || "the office"}, {new Date(job.measure_confirmed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              </p>
+            ) : (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 ring-1 ring-amber-200">
+                Not confirmed yet. Confirm the real measurement before the job.
+              </p>
+            )}
             <button type="button" onClick={() => setMeasuring(true)}
-                    className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
-              <Ruler className="h-4 w-4" />{tr("Measure this job")}
+                    className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+              <Ruler className="h-4 w-4" />{job.measure_confirmed_at ? tr("Re-confirm real measurement") : tr("Confirm real measurement")}
             </button>
             {measuring ? (
-              <JobMeasureDialog leadId={leadId} startHeight={data.measure_options?.height_ft || 6} current={job.sqft}
+              <JobMeasureDialog leadId={leadId} startHeight={job.measure_height || data.measure_options?.height_ft || 6} current={job.sqft}
                                 onClose={() => setMeasuring(false)}
-                                onUse={(v) => { setMeasuring(false); void patch({ sqft: v }); toast.success(`${v.toLocaleString()} sq ft saved for this job`); }} />
+                                onUse={(v, feet, height) => {
+                                  setMeasuring(false);
+                                  void patch({ sqft: v, measure_feet: feet, measure_height: height });
+                                  toast.success(`Confirmed: ${feet.toLocaleString()} ft × ${height} ft = ${v.toLocaleString()} sq ft for this job`);
+                                }} />
             ) : null}
             </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
@@ -3183,7 +3200,7 @@ function PayHistory({ leadId, version }: { leadId: string; version: string }) {
  *  pick the height, and the total feet × height replaces the job's square
  *  footage. */
 function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
-  leadId: string; startHeight: number; current: number; onClose: () => void; onUse: (sqft: number) => void;
+  leadId: string; startHeight: number; current: number; onClose: () => void; onUse: (sqft: number, feet: number, height: number) => void;
 }) {
   const [lead, setLead] = useState<{ lat: number; lng: number; address: string; zip: string; name: string } | null>(null);
   // Saved photos' feet plus what's traced on the map right now: confirming
@@ -3209,7 +3226,7 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Ruler className="h-5 w-5 text-primary" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">Measure this job{lead?.name ? `: ${lead.name}` : ""}</p>
+            <p className="truncate text-sm font-bold">Confirm real measurement{lead?.name ? `: ${lead.name}` : ""}</p>
             <p className="truncate text-[11px] text-muted-foreground">Trace each side you stain (both sides of a run: trace it twice), pick the height, tap Use. A photo is optional.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"><X className="h-5 w-5" /></button>
@@ -3239,8 +3256,8 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
                 : <span className="text-muted-foreground">Trace the fence on the map. The feet show up here.</span>}
               {current ? <span className="ml-2 text-sm text-muted-foreground">Now: {Math.round(current).toLocaleString()} sq ft</span> : null}
             </p>
-            <Button disabled={!sqft} onClick={() => onUse(sqft)} className="min-h-11">
-              <Check className="mr-1 h-4 w-4" />Use {sqft ? `${sqft.toLocaleString()} sq ft` : "it"}
+            <Button disabled={!sqft} onClick={() => onUse(sqft, feet || 0, height)} className="min-h-11">
+              <Check className="mr-1 h-4 w-4" />Save {sqft ? `${sqft.toLocaleString()} sq ft` : ""} as the job measurement
             </Button>
           </div>
         </div>

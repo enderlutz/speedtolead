@@ -1160,3 +1160,27 @@ def test_office_marking_done_with_no_after_photos_uses_now(db, monkeypatch):
     monkeypatch.setattr(after_pay_hooks, "alert_alan", lambda m: None)
     lead = _lead(db)
     assert cc.mark_job_done(lead.id, user=USER)["job"]["completed_at"]
+
+
+def test_confirm_real_measurement_sets_sqft_and_who(db, monkeypatch):
+    """Alan, 2026-11-12: trace + height + save = the job's real measurement,
+    stamped with who and when, and the estimate is never touched."""
+    from api import company_cam as cc
+    from database import CompanyCamJob, Lead
+    import uuid
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Test Measure", ghl_contact_id=str(uuid.uuid4()))
+    db.add(lead); db.commit()
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    out = cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=1620, measure_feet=270, measure_height=6),
+                                user={"sub": "u1", "name": "Alan", "role": "admin"})
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert job.sqft == 1620 and job.measure_feet == 270 and job.measure_height == 6
+    assert job.measure_confirmed_at and job.measure_confirmed_by
+    assert (out.get("job") or out)["measure_confirmed_at"]
+    # A plain sqft edit doesn't claim a confirmation.
+    lead2 = Lead(id=str(uuid.uuid4()), contact_name="Test Plain", ghl_contact_id=str(uuid.uuid4()))
+    db.add(lead2); db.commit()
+    cc.update_company_cam(lead2.id, cc.CompanyCamPatch(sqft=900), user={"sub": "u1", "name": "Alan", "role": "admin"})
+    j2 = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead2.id).first()
+    assert j2.sqft == 900 and not j2.measure_confirmed_at

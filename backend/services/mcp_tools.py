@@ -171,6 +171,11 @@ def job_card(db, lead_id: str) -> dict:
         return {"name": lead.contact_name, "job": None, "note": "No job card yet."}
     return {"name": lead.contact_name, "job": {
         "sqft": j.sqft, "gallons_needed": j.gallons_needed, "gallons_used": j.stain_gallons_used,
+        # Alan's "Confirm real measurement" on the job page; empty = not
+        # confirmed yet, so ask him before trusting sq ft (2026-11-12).
+        "measurement_confirmed": (
+            f"{(j.measure_feet or 0):g} ft x {(j.measure_height or 0):g} ft by {j.measure_confirmed_by} {j.measure_confirmed_at[:10]}"
+            if j.measure_confirmed_at else ""),
         "package": j.package, "color": j.final_color or j.color,
         "color_confirmed": bool(j.color_confirmed),
         "cleaning_notes": j.cleaning_notes or "", "staining_notes": j.staining_notes or "",

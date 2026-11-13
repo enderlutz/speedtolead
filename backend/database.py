@@ -1929,6 +1929,13 @@ class CompanyCamJob(Base):
     crew_json = Column(Text, default="[]")
     neighbor_sent_at = Column(Text, default="")
     extras_confirmed_at = Column(Text, default="")
+    # The office's real measurement before the job (Alan, 2026-11-12: "Save,
+    # and then it's actual job measurement. That way we don't have to tell
+    # the AI every single time"). Never touches the estimate.
+    measure_feet = Column(Float, default=0.0)
+    measure_height = Column(Float, default=0.0)
+    measure_confirmed_at = Column(Text, default="")
+    measure_confirmed_by = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
@@ -5236,6 +5243,10 @@ def _run_migrations():
             ("neighbor_sent_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_by", "TEXT DEFAULT ''"),
+            ("measure_feet", "DOUBLE PRECISION DEFAULT 0"),
+            ("measure_height", "DOUBLE PRECISION DEFAULT 0"),
+            ("measure_confirmed_at", "TEXT DEFAULT ''"),
+            ("measure_confirmed_by", "TEXT DEFAULT ''"),
             ("completed_at", "TEXT DEFAULT ''"),
             ("completed_by", "TEXT DEFAULT ''"),
             ("no_cleaning", "BOOLEAN DEFAULT FALSE"),

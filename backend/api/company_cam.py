@@ -503,6 +503,10 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "pickets_marked_by": job.pickets_marked_by or "",
         "extras": _repairs(job, job.extras_json or ""),
         "extras_confirmed_at": job.extras_confirmed_at or "",
+        "measure_feet": job.measure_feet or 0,
+        "measure_height": job.measure_height or 0,
+        "measure_confirmed_at": job.measure_confirmed_at or "",
+        "measure_confirmed_by": job.measure_confirmed_by or "",
         "extras_confirmed_by": job.extras_confirmed_by or "",
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
@@ -693,6 +697,10 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
 
 class CompanyCamPatch(BaseModel):
     sqft: float | None = None
+    # Sent with sqft by "Confirm real measurement": the traced feet and the
+    # height, so the job says who confirmed it and when.
+    measure_feet: float | None = None
+    measure_height: float | None = None
     # Drops a manual gallon override and goes back to following the footage.
     recalc_gallons: bool | None = None
     gallons_needed: float | None = None
@@ -783,6 +791,15 @@ def update_company_cam(
             # leave the crew with the old stain order.
             if not job.gallons_edited:
                 job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+        if body.measure_feet is not None and body.measure_height is not None and body.measure_feet > 0 and body.measure_height > 0:
+            job.measure_feet = float(body.measure_feet)
+            job.measure_height = float(body.measure_height)
+            job.sqft = round(job.measure_feet * job.measure_height)
+            job.sqft_edited = True
+            if not job.gallons_edited:
+                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+            job.measure_confirmed_at = _now()
+            job.measure_confirmed_by = _actor(user)
         if body.gallons_needed is not None:
             job.gallons_needed = max(0.0, float(body.gallons_needed))
             job.gallons_edited = True
