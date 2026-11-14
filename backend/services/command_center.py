@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -206,7 +207,53 @@ def scorecard(ctx: _Ctx) -> dict:
                        "note": " + ".join(r["sources"])} for r in ctx.owed()["rows"]],
         "unmatched_quickbooks": ctx.owed().get("unmatched_quickbooks", 0.0),
         "collected_stripe": m["collected"]["stripe"], "collected_quickbooks": m["collected"]["quickbooks"],
+        **_pw_month(ctx, m["start"]),
     }
+
+
+_MONEY = re.compile(r"\$\s?([\d,]+(?:\.\d{2})?)")
+_TOTAL = re.compile(r"total[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)", re.I)
+
+
+def _pw_price(summary: str, description: str) -> float | None:
+    """The job's price from its calendar event: a "total $X" line, else the
+    biggest $ in the title. None when the event has no price."""
+    for text in (description or "", summary or ""):
+        m = _TOTAL.search(text)
+        if m:
+            return float(m.group(1).replace(",", ""))
+    vals = [float(v.replace(",", "")) for v in _MONEY.findall(summary or "")]
+    if vals:
+        return max(vals)
+    notes = {float(v.replace(",", "")) for v in _MONEY.findall(description or "")}
+    return notes.pop() if len(notes) == 1 else None
+
+
+def _pw_month(ctx: _Ctx, start: str) -> dict:
+    """A&T pressure washing / window jobs this month (Alan, 2026-11-14: "a
+    little red section" on Booked). Read from the red (tomato) A&T events on
+    the Google Calendar, kept apart from the fence numbers."""
+    from calendar import monthrange
+    y, mth = int(start[:4]), int(start[5:7])
+    end = f"{start[:8]}{monthrange(y, mth)[1]:02d}"
+    try:
+        from services.google_calendar import list_events
+        evs = list_events(ctx.db, time_min=f"{start}T00:00:00-06:00", time_max=f"{end}T23:59:59-06:00")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("command center: calendar read failed: %s", e)
+        return {"pw_list": [], "pw_total": 0.0, "pw_known": False}
+    rows = []
+    for ev in evs:
+        if ev.get("status") == "cancelled":
+            continue
+        if ev.get("color_id") != "11" and ev.get("service_type") != "power_washing":
+            continue
+        title = (ev.get("summary") or "").replace("A&T's Pressure Washing · ", "")
+        price = _pw_price(ev.get("summary") or "", ev.get("description") or "")
+        rows.append({"lead_id": "", "name": title[:90], "date": (ev.get("start") or "")[:10],
+                     "amount": price or 0.0, "note": "price not on the event" if price is None else ""})
+    rows.sort(key=lambda r: r["date"])
+    return {"pw_list": rows, "pw_total": round(sum(r["amount"] for r in rows), 2), "pw_known": True}
 
 
 def _collected_list(ctx: _Ctx, start: str, end: str) -> list[dict]:

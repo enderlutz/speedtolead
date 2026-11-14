@@ -70,6 +70,22 @@ function Rows({ rows, empty }: { rows: DetailRow[]; empty: string }) {
   );
 }
 
+/** A&T pressure washing & windows, kept apart from the fence numbers in red
+ *  (Alan, 2026-11-14: "make it like a little red section"). */
+function PwSection({ s }: { s: S }) {
+  if (!s.pw_known && !s.pw_list?.length) return null;
+  return (
+    <div className="mt-4 rounded-lg border border-red-300 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-red-800 dark:text-red-200">A&T pressure washing &amp; windows (not in the fence total)</p>
+        <span className="text-base font-bold tabular-nums text-red-800 dark:text-red-200">{money(s.pw_total)}</span>
+      </div>
+      <p className="mb-2 text-sm text-red-900/80 dark:text-red-200/80">From the red A&T events on the Google Calendar this month, including the jobs Thomas sends. A job with no price on its event shows $0 until the price is added.</p>
+      <Rows rows={s.pw_list} empty="No A&T jobs on the calendar this month." />
+    </div>
+  );
+}
+
 function Detail({ k, s, onClose }: { k: Key; s: S; onClose: () => void }) {
   const goalWords = s.goal_set
     ? `The goal you set for this month: ${money(s.goal)}.`
@@ -78,7 +94,10 @@ function Detail({ k, s, onClose }: { k: Key; s: S; onClose: () => void }) {
     booked: {
       title: "Booked this month",
       what: <>Every customer who <b>paid us anything for the first time this month</b> (a $250 deposit, Klarna, or a bill), counted once at the <b>full job price</b>. It includes jobs not done yet. It does <b>not</b> include held days with no deposit, or jobs nobody has paid on. A deposit in November and the balance in December counts once, in November.</>,
-      list: <Rows rows={s.booked_list} empty="Nobody yet this month." />,
+      list: <>
+        <Rows rows={s.booked_list} empty="Nobody yet this month." />
+        <PwSection s={s} />
+      </>,
       to: "/money", toLabel: "Open Money → Revenue",
     },
     collected: {
@@ -143,6 +162,9 @@ export default function Scorecard({ s }: { s: S }) {
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
       <Tile label="Booked this month" value={money(s.booked)} active={open === "booked"} onClick={() => pick("booked")}>
         <Change now={s.booked} before={s.booked_last_to_date} />
+        {s.pw_list?.length ? (
+          <span className="text-sm font-semibold text-red-700 dark:text-red-400">+ A&T washing {money(s.pw_total)} ({s.pw_list.length})</span>
+        ) : null}
       </Tile>
       <Tile label="Collected this month" value={money(s.collected)} active={open === "collected"} onClick={() => pick("collected")}>
         <Change now={s.collected} before={s.collected_last_to_date} />

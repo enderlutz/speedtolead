@@ -65,3 +65,11 @@ def test_actions_and_alerts(db):
     assert "$950 in balances overdue" in texts
     held_day = next(x for x in d["week"]["days"] if x["date"] == add_days_iso(today, 2))
     assert held_day["held_unpaid"] == ["Hal Held"]
+
+
+def test_pressure_washing_price_from_the_calendar_event():
+    from services.command_center import _pw_price
+    assert _pw_price("A&T · House, windows & driveway · Elmo", "Thank you! Your price: $1,125. Card fee waived.") == 1125.0
+    assert _pw_price("Jennie | Gutters $275 + rinse driveway", "tipped $204 on $796 in May") == 275.0
+    assert _pw_price("Window job", "Total: $640 (windows $400 + screens $240)") == 640.0
+    assert _pw_price("Kristen- Thomas window cleaning job", "") is None

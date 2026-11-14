@@ -26,6 +26,10 @@ export interface Scorecard {
   unmatched_quickbooks: number;
   collected_stripe: number;
   collected_quickbooks: number;
+  /** A&T pressure washing / windows this month, from the red calendar events. */
+  pw_list: DetailRow[];
+  pw_total: number;
+  pw_known: boolean;
 }
 
 export interface DetailRow {
