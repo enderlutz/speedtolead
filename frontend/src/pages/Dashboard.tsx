@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api, type KPIs, type PendingEstimate, type ActivityEvent, type CorrectionRequest, type ContactRow, getCurrentUser } from "@/lib/api";
+import { api, canSeeRevenue, type KPIs, type PendingEstimate, type ActivityEvent, type CorrectionRequest, type ContactRow, getCurrentUser } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import WrappedModal from "@/components/WrappedModal";
 import RecentPaymentsCard from "@/components/RecentPaymentsCard";
 import PendingDepositsCard from "@/components/PendingDepositsCard";
 import { NoEstimateQueue } from "@/components/NoEstimateQueue";
+import CommandCenter from "@/components/command/CommandCenter";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -42,6 +43,11 @@ export default function Dashboard() {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [crewSummary, setCrewSummary] = useState<{ active_count: number; total_unpaid_balance: number; w9_missing_count: number; w9_missing_30d_count: number } | null>(null);
   const isAdmin = getCurrentUser()?.role === "admin";
+  // The owner's command center (Alan, 2026-11-14) for the people who see
+  // money; everyone else keeps the page as it was.
+  const [cmd, setCmd] = useState(() => canSeeRevenue());
+  const [cmdKey, setCmdKey] = useState(0);
+  const hideCmd = useCallback(() => setCmd(false), []);
   const [filter, setFilter] = useState<PipelineFilter>(() => {
     const saved = (typeof window !== "undefined" && localStorage.getItem(FILTER_KEY)) as PipelineFilter | null;
     return saved || "v2";
@@ -100,7 +106,10 @@ export default function Dashboard() {
   };
 
   useSSE(useCallback((event) => {
-    if (["new_lead", "estimate_sent", "customer_reply", "proposal_viewed", "nudge_sent", "correction_requested"].includes(event.type)) refreshAll();
+    if (["new_lead", "estimate_sent", "customer_reply", "proposal_viewed", "nudge_sent", "correction_requested"].includes(event.type)) {
+      refreshAll();
+      setCmdKey((k) => k + 1);
+    }
     if (event.type === "new_lead") playNewLeadSound();
     if (event.type === "nudge_sent" && (event.data.count as number) >= 3) playUrgentSound();
     if (event.type === "correction_requested") {
@@ -123,7 +132,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Track progress toward doubling sales</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{cmd ? "What needs a decision today" : "Track progress toward doubling sales"}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
@@ -162,6 +171,14 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {cmd && <CommandCenter onUnavailable={hideCmd} refreshKey={cmdKey} />}
+      {cmd && (
+        <div className="border-t pt-5">
+          <h2 className="font-heading text-lg font-semibold">Work lists</h2>
+          <p className="text-sm text-muted-foreground">The lists that were on this page before, unchanged.</p>
+        </div>
+      )}
 
       {/* Everyone without an estimate, first thing on the page (Alan, 2026-10-11). */}
       <NoEstimateQueue />
@@ -231,8 +248,8 @@ export default function Dashboard() {
 
       {/* HOT leads banner */}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+      {/* KPI Cards (the command center's scorecard replaces these for the owner) */}
+      {!cmd && <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <GradientKPI icon={Users} title="Leads This Month" value={kpis?.leads_this_month ?? 0} change={kpis?.leads_change_pct} gradient="from-blue-500 to-blue-600" />
         <GradientKPI icon={Send} title="Estimates Sent" value={kpis?.estimates_sent ?? 0} change={kpis?.estimates_sent_change_pct} gradient="from-emerald-500 to-emerald-600" />
         <GradientKPI icon={TrendingUp} title="Close Rate" value={kpis?.close_rate != null ? `${kpis.close_rate}%` : "—"} gradient="from-violet-500 to-violet-600" />
@@ -258,7 +275,7 @@ export default function Dashboard() {
             <p className="text-[10px] text-muted-foreground mt-1">{kpis?.goal_progress_pct ?? 0}% complete</p>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
         {/* Pending Action Queue */}

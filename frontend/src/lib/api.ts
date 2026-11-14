@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import type { CommandCenter as CommandCenterData } from "@/components/command/types";
 
 import { API_BASE } from "@/lib/apiBase";
 
@@ -2032,6 +2033,8 @@ export const api = {
   moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
   // Money → Overview (2026-10-27): booked, collected and owed from Stripe + QuickBooks.
   moneyOverview: () => request<MoneyOverview>(`/api/money/overview`),
+  /** The Dashboard command center (Alan, 2026-11-14). Money people only. */
+  commandCenter: (fresh = false) => request<CommandCenterData>(`/api/dashboard/command${fresh ? "?fresh=true" : ""}`),
   /** The three numbers + the money watch, saved every day (Alan, 2026-10-29). */
   getScoreboard: () => request<Scoreboard>(`/api/scoreboard`),
   saveScoreboard: () => request<Scoreboard>(`/api/scoreboard/save`, { method: "POST" }),
