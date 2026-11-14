@@ -8,8 +8,8 @@ actual updated totals"). Read from where the money really lands today:
              in, plus what QuickBooks says was paid on its invoices by the
              invoice date (QuickBooks' payment date isn't synced). Stripe
              payments never go to QuickBooks, so nothing counts twice.
-  Owed       open QuickBooks balances plus balance/extra links sent through
-             Stripe and not paid yet.
+  Owed       money on FINISHED jobs only: open balance/extra links and
+             QuickBooks balances over $300; never a deposit or financing link.
 
 The old Accounting math read scheduled_jobs, which stopped being written on
 2026-09-01; that's why its "collected" showed deposits only.
@@ -55,16 +55,88 @@ def collected(db, start: str, end: str) -> dict:
             "deposits": round(deposits, 2), "payments": count}
 
 
-def owed(db) -> dict:
-    """What's billed and not paid yet, right now."""
-    qb_rows = [i for i in _qb_live(db).all() if float(i.balance or 0) > 0.005]
-    qb = sum(float(i.balance or 0) for i in qb_rows)
+# What a customer can owe us (Alan, 2026-11-14): money on a job we've DONE.
+#   - A $250 deposit link is never owed: the job hasn't happened.
+#   - A "full" link (pay in full / financing on the proposal) is never owed.
+#   - QuickBooks deposit invoices ($300 or less) are never owed.
+#   - A balance on a job that isn't finished yet isn't owed yet.
+#   - Never more than what's left on the job after what they've paid.
+OWED_KINDS = ("balance", "extra", "done")
+DEPOSIT_MAX = 300.0
+
+
+def _finished_ids(db) -> set[str]:
+    from database import CompanyCamJob, CompanyCamPhoto
+    done = {lid for (lid, at) in db.query(CompanyCamJob.lead_id, CompanyCamJob.completed_at).all() if (at or "").strip()}
+    done |= {lid for (lid,) in db.query(CompanyCamPhoto.lead_id).filter(CompanyCamPhoto.section == "stain_after").distinct()}
+    return done
+
+
+def _paid_by_lead(db) -> dict[str, float]:
+    out: dict[str, float] = defaultdict(float)
+    for lid, c in db.query(CustomerPayment.lead_id, CustomerPayment.amount_cents).all():
+        out[lid] += (c or 0) / 100
+    for lid, paid in db.query(QuickbooksInvoice.lead_id, QuickbooksInvoice.amount_paid).filter(QuickbooksInvoice.status != "void").all():
+        if lid:
+            out[lid] += float(paid or 0)
+    return out
+
+
+def owed_rows(db) -> list[dict]:
+    """Every customer who owes us, one row each, biggest first."""
     test = _test_leads(db)
-    links = [l for l in db.query(PayLink).filter(PayLink.status == "open", PayLink.kind.in_(["balance", "extra", "full"])).all()
-             if l.lead_id not in test]
-    st = sum((l.amount_cents or 0) / 100 for l in links)
-    return {"total": round(qb + st, 2), "quickbooks": round(qb, 2), "quickbooks_count": len(qb_rows),
-            "stripe": round(st, 2), "stripe_count": len(links)}
+    finished = _finished_ids(db)
+    paid = _paid_by_lead(db)
+    values = {r["lead_id"]: r["value"] for r in booked_customers(db) if r.get("lead_id")}
+    names = {}
+    rows: dict[str, dict] = {}
+
+    def add(lid, name, amount, source, since):
+        r = rows.setdefault(lid, {"lead_id": lid, "name": name, "amount": 0.0, "sources": [], "since": since})
+        r["amount"] += amount
+        r["sources"].append(source)
+        if since and (not r["since"] or since < r["since"]):
+            r["since"] = since
+
+    for l in db.query(PayLink).filter(PayLink.status == "open", PayLink.kind.in_(OWED_KINDS)).all():
+        if l.lead_id in test or l.lead_id not in finished:
+            continue
+        if l.lead_id not in names:
+            lead = db.query(Lead).filter(Lead.id == l.lead_id).first()
+            names[l.lead_id] = (lead.contact_name if lead else "") or ""
+        add(l.lead_id, names[l.lead_id], (l.amount_cents or 0) / 100, "Stripe link", (l.sent_at or l.created_at or "")[:10])
+    for i in _qb_live(db).all():
+        bal = float(i.balance or 0)
+        if bal <= 0.005 or float(i.total_amount or 0) <= DEPOSIT_MAX:
+            continue
+        # Only invoices tied to a customer in the app with a finished job. The
+        # unlinked ones (staff tests, old imports) are listed apart, never owed.
+        if not i.lead_id or i.lead_id in test or i.lead_id not in finished:
+            continue
+        add(i.lead_id, i.customer_name or "", bal, "QuickBooks", (i.txn_date or "")[:10])
+    out = []
+    for lid, r in rows.items():
+        v = values.get(lid)
+        if v:   # never more than what's left on the job
+            r["amount"] = min(r["amount"], max(v - paid.get(lid, 0.0), 0.0))
+        r["amount"] = round(r["amount"], 2)
+        if r["amount"] > 1:
+            r["sources"] = sorted(set(r["sources"]))
+            out.append(r)
+    return sorted(out, key=lambda r: -r["amount"])
+
+
+def owed(db) -> dict:
+    """What finished-job customers still owe, right now."""
+    rows = owed_rows(db)
+    st = [r for r in rows if "Stripe link" in r["sources"]]
+    qb = [r for r in rows if "QuickBooks" in r["sources"]]
+    return {"total": round(sum(r["amount"] for r in rows), 2),
+            "quickbooks": round(sum(r["amount"] for r in qb), 2), "quickbooks_count": len(qb),
+            "stripe": round(sum(r["amount"] for r in st), 2), "stripe_count": len(st), "rows": rows,
+            # QuickBooks balances not tied to anyone in the app: shown to check, never owed.
+            "unmatched_quickbooks": round(sum(float(i.balance or 0) for i in _qb_live(db).all()
+                                              if not i.lead_id and float(i.balance or 0) > 0.005), 2)}
 
 
 def overview(db, today: date | None = None) -> dict:

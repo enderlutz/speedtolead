@@ -55,7 +55,7 @@ export default function ActionCenter({ items }: { items: ActionItem[] }) {
             {g.label} <span className="tabular-nums opacity-70">{counts[g.key]}</span>
           </button>
         ))}
-        {red > 0 && <span className="ml-auto text-sm font-semibold text-red-700 dark:text-red-400">{red} overdue</span>}
+        {red > 0 && <span className="ml-auto text-sm font-semibold text-red-700 dark:text-red-400">{red} urgent</span>}
       </div>
 
       <ul className="space-y-2">

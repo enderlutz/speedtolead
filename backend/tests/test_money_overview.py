@@ -1,6 +1,6 @@
 """Money overview (Alan, 2026-10-27: "it's not showing the actual updated
 totals"): collected = Stripe payments + what QuickBooks marked paid, by the
-Houston day; owed = open QuickBooks balances + unpaid Stripe balance links;
+Houston day; owed = money on finished jobs only (2026-11-14);
 voided invoices and test leads never count."""
 import sys
 from pathlib import Path
@@ -36,9 +36,26 @@ def test_collected_is_stripe_plus_quickbooks_paid_and_skips_voids_and_tests(db):
     assert mo.collected(db, "2026-09-01", "2026-09-30")["total"] == 700.0
 
 
-def test_owed_is_open_quickbooks_balances_plus_unpaid_stripe_links(db):
+def _owed(db):
+    o = mo.owed(db)
+    return {k: o[k] for k in ("total", "quickbooks", "stripe", "unmatched_quickbooks")}
+
+
+def test_owed_counts_only_finished_jobs_never_deposits_or_financing(db):
+    """Alan, 2026-11-14: a $250 deposit and a financing / pay-in-full link
+    are never owed, and nothing is owed on a job we haven't done yet."""
+    from database import CompanyCamJob
     _seed(db)
-    assert mo.owed(db) == {"total": 800.0, "quickbooks": 500.0, "quickbooks_count": 1, "stripe": 300.0, "stripe_count": 1}
+    db.add(PayLink(token="dep", lead_id="A", kind="deposit", amount_cents=25000, status="open", created_at="2026-10-20", answers="{}"))
+    db.add(PayLink(token="fin", lead_id="A", kind="full", amount_cents=180000, status="open", created_at="2026-10-20", answers="{}"))
+    db.commit()
+    # Ann's job isn't done: nothing owed. QuickBooks' balance isn't tied to
+    # anyone in the app, so it's shown apart, never owed.
+    assert _owed(db) == {"total": 0, "quickbooks": 0, "stripe": 0, "unmatched_quickbooks": 500.0}
+    # Job done: only the balance link counts (not the deposit or financing link).
+    db.add(CompanyCamJob(id="j1", lead_id="A", completed_at="2026-10-25T20:00:00+00:00"))
+    db.commit()
+    assert _owed(db) == {"total": 300.0, "quickbooks": 0, "stripe": 300.0, "unmatched_quickbooks": 500.0}
 
 
 def test_overview_has_the_month_the_year_and_each_month(db):
@@ -46,4 +63,4 @@ def test_overview_has_the_month_the_year_and_each_month(db):
     o = mo.overview(db, today=date(2026, 10, 27))
     assert o["month"]["collected"]["total"] == 2750.0
     assert [m["label"] for m in o["months"]][-2:] == ["Sep", "Oct"] and o["months"][-1]["collected"] == 2750.0
-    assert o["ytd"]["collected"]["total"] == 3450.0 and o["owed"]["total"] == 800.0
+    assert o["ytd"]["collected"]["total"] == 3450.0 and o["owed"]["total"] == 0   # no finished jobs

@@ -111,8 +111,16 @@ class _Ctx:
         # A lead with a day held (or given) is past "new": it had a price and a talk.
         self.booked_ids = {lid for (lid,) in db.query(Booking.lead_id).filter(Booking.status != "cancelled").all()}
         self._buckets = None
+        self._owed = None
         self._scheduled = None
         self._jobs: dict | None = None
+
+    def owed(self) -> dict:
+        """Money owed on finished jobs only (services.money_overview.owed)."""
+        if self._owed is None:
+            from services.money_overview import owed
+            self._owed = owed(self.db)
+        return self._owed
 
     def scheduled(self) -> list[dict]:
         if self._scheduled is None:
@@ -188,7 +196,38 @@ def scorecard(ctx: _Ctx) -> dict:
         "pace": m["pace"], "last_month": m["last_month"],
         "owed": ov["owed"]["total"],
         "avg_job": round(booked / jobs, 2) if jobs else None,
+        # What's behind each number, for the tiles' "what is this" panel.
+        "booked_list": sorted(
+            [{"lead_id": r["lead_id"], "name": r["name"], "date": r["first_paid"], "amount": r["value"]}
+             for r in ctx.customers if m["start"] <= r["first_paid"] <= ctx.today],
+            key=lambda r: r["date"], reverse=True),
+        "collected_list": _collected_list(ctx, m["start"], ctx.today),
+        "owed_list": [{"lead_id": r["lead_id"], "name": r["name"], "date": r["since"], "amount": r["amount"],
+                       "note": " + ".join(r["sources"])} for r in ctx.owed()["rows"]],
+        "unmatched_quickbooks": ctx.owed().get("unmatched_quickbooks", 0.0),
+        "collected_stripe": m["collected"]["stripe"], "collected_quickbooks": m["collected"]["quickbooks"],
     }
+
+
+def _collected_list(ctx: _Ctx, start: str, end: str) -> list[dict]:
+    """Every payment counted in "Collected this month", newest first."""
+    from database import CustomerPayment, QuickbooksInvoice
+    lo, _ = day_bounds_utc(start)
+    _, hi = day_bounds_utc(end)
+    out = []
+    for p in ctx.db.query(CustomerPayment).filter(CustomerPayment.created_at >= lo, CustomerPayment.created_at < hi).all():
+        if p.lead_id not in ctx.leads:
+            continue
+        kind = {"deposit": "Deposit", "balance": "Final balance", "full": "Paid in full", "extra": "Extra"}.get(p.kind, p.kind or "Payment")
+        out.append({"lead_id": p.lead_id, "name": ctx.name(p.lead_id), "date": (p.created_at or "")[:10],
+                    "amount": round((p.amount_cents or 0) / 100, 2), "note": f"{kind} · {p.method or 'card'} · Stripe"})
+    for i in (ctx.db.query(QuickbooksInvoice).filter(QuickbooksInvoice.status != "void",
+                                                     QuickbooksInvoice.txn_date >= start, QuickbooksInvoice.txn_date <= end).all()):
+        paid = float(i.amount_paid if i.amount_paid is not None else (i.total_amount or 0) - (i.balance or 0))
+        if paid > 0.005:
+            out.append({"lead_id": i.lead_id or "", "name": i.customer_name or "", "date": (i.txn_date or "")[:10],
+                        "amount": round(paid, 2), "note": "QuickBooks invoice (by invoice date)"})
+    return sorted(out, key=lambda r: r["date"], reverse=True)
 
 
 # ── 2. Action center ─────────────────────────────────────────────────────
@@ -262,15 +301,15 @@ def actions(ctx: _Ctx) -> list[dict]:
                          since=_t(b.sent_at or b.created_at), priority="red" if soon else "amber",
                          action="Collect deposit", now=now))
 
-    # Balance links sent and not paid.
-    for p in db.query(PayLink).filter(PayLink.status == "open", PayLink.kind.in_(["balance", "full", "extra"])).all():
-        if p.lead_id not in ctx.leads:
-            continue
-        since = _t(p.sent_at or p.created_at)
+    # Money owed on a FINISHED job (never a deposit or financing link, never
+    # a job that hasn't happened: Alan, 2026-11-14).
+    for r in ctx.owed()["rows"]:
+        since = _t(r["since"] + "T12:00:00+00:00") if r.get("since") else None
         old = since and now - since > timedelta(days=OVERDUE_DAYS)
-        out.append(_item("balance", "Final balance not paid" + (" (overdue)" if old else ""), p.lead_id,
-                         ctx.name(p.lead_id), amount=(p.amount_cents or 0) / 100, since=since,
-                         priority="red" if old else "amber", action="Collect payment", now=now))
+        out.append(_item("balance", "Job done, balance not paid" + (" (overdue)" if old else ""), r["lead_id"],
+                         r["name"] or ctx.name(r["lead_id"]), amount=r["amount"], since=since,
+                         priority="red" if old else "amber", action="Collect payment", now=now,
+                         detail=" + ".join(r["sources"])))
 
     # Requote asked for on the proposal.
     for c in db.query(EstimateCorrectionRequest).filter(EstimateCorrectionRequest.resolved_at.is_(None)).all():
@@ -280,12 +319,13 @@ def actions(ctx: _Ctx) -> list[dict]:
                          since=_t(c.requested_at), priority="red", action="Fix estimate", now=now,
                          detail=(c.text or "")[:120]))
 
-    # Go-backs (Jobs to fix): a complaint or something left to finish.
+    # Go-backs (Jobs to fix). Alan's rule: we do them when a crew is already
+    # in the area, never out of the way, so they're information, not urgent.
     for f in db.query(FixJob).filter((FixJob.done_at.is_(None)) | (FixJob.done_at == "")).all():
         out.append(_item("go_back", "Go-back: " + ((f.description or "something to fix")[:80]), f.lead_id or "",
                          (ctx.name(f.lead_id) if f.lead_id in ctx.leads else (f.name or "")), since=_t(f.created_at),
-                         priority="amber" if f.date else "red", action="Put it on a day" if not f.date else "View job",
-                         href="/pm-hq", now=now, detail=f"On {_day_label(f.date)}" if f.date else "Not on a day yet"))
+                         priority="blue", action="View go-backs", href="/pm-hq", now=now,
+                         detail=f"On {_day_label(f.date)}" if f.date else "Do it when a crew is in the area"))
 
     # Crew finished (stain-after photos in) and nobody tapped "Job done".
     ids = {x for (x,) in db.query(CompanyCamPhoto.lead_id).filter(CompanyCamPhoto.section == "stain_after").distinct()}
@@ -504,33 +544,29 @@ def marketing(ctx: _Ctx) -> dict:
 
 def collections(ctx: _Ctx) -> dict:
     from database import Booking, PayLink, QuickbooksInvoice
-    from services.money_overview import owed
-    now = ctx.now
     deposits = []
     for b in ctx.db.query(Booking).filter(Booking.status == "held", Booking.date >= ctx.today).all():
         if b.lead_id in ctx.paid_ids or b.lead_id not in ctx.leads:
             continue
         deposits.append({"lead_id": b.lead_id, "name": ctx.name(b.lead_id), "amount": 250.0,
                          "job_value": (b.total_cents or 0) / 100, "due": b.date[:10], "status": "Day held, unpaid"})
+    ow = ctx.owed()
     balances = []
-    for p in ctx.db.query(PayLink).filter(PayLink.status == "open", PayLink.kind.in_(["balance", "full", "extra"])).all():
-        if p.lead_id not in ctx.leads:
-            continue
-        sent = _t(p.sent_at or p.created_at)
-        days = (now - sent).days if sent else None
-        balances.append({"lead_id": p.lead_id, "name": ctx.name(p.lead_id), "amount": (p.amount_cents or 0) / 100,
-                         "sent": (p.sent_at or p.created_at or "")[:10], "days": days,
-                         "overdue": bool(days is not None and days > OVERDUE_DAYS),
-                         "status": "Viewed" if p.view_count else ("Sent" if p.sent_at else "Not sent")})
+    for r in ow["rows"]:
+        d = r.get("since") or ""
+        days = (date.fromisoformat(ctx.today) - date.fromisoformat(d)).days if d else None
+        balances.append({"lead_id": r["lead_id"], "name": r["name"], "amount": r["amount"], "sent": d, "days": days,
+                         "overdue": bool(days is not None and days > OVERDUE_DAYS), "status": " + ".join(r["sources"])})
+    # QuickBooks balances not tied to anyone in the app: shown to check only.
     qb = []
     for i in ctx.db.query(QuickbooksInvoice).filter(QuickbooksInvoice.status != "void").all():
         bal = float(i.balance or 0)
-        if bal <= 0.005:
+        if bal <= 0.005 or i.lead_id:
             continue
         d = (i.txn_date or "")[:10]
         days = (date.fromisoformat(ctx.today) - date.fromisoformat(d)).days if d else None
-        qb.append({"lead_id": i.lead_id or "", "name": i.customer_name or "", "amount": round(bal, 2), "sent": d,
-                   "days": days, "overdue": bool(days is not None and days > 30), "status": "QuickBooks"})
+        qb.append({"lead_id": "", "name": i.customer_name or "", "amount": round(bal, 2), "sent": d,
+                   "days": days, "overdue": False, "status": "QuickBooks, not matched"})
     # Due this week: jobs on the calendar in the next 7 days with money left.
     paid = ctx.paid_by_lead()
     due_week = []
@@ -541,7 +577,7 @@ def collections(ctx: _Ctx) -> dict:
         left = round(float(r["value"] or 0) - paid.get(r["lead_id"], 0.0), 2)
         if left > 1:
             due_week.append({"lead_id": r["lead_id"], "name": r["name"], "amount": left, "due": r["scheduled_on"]})
-    o = owed(ctx.db)
+    o = ow
     # QuickBooks balances are shown, not counted as overdue: billing moved to
     # Stripe in Oct 2026 and many old QuickBooks balances were paid another
     # way and never marked.

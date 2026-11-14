@@ -20,6 +20,20 @@ export interface Scorecard {
   last_month: number;
   owed: number;
   avg_job: number | null;
+  booked_list: DetailRow[];
+  collected_list: DetailRow[];
+  owed_list: DetailRow[];
+  unmatched_quickbooks: number;
+  collected_stripe: number;
+  collected_quickbooks: number;
+}
+
+export interface DetailRow {
+  lead_id: string;
+  name: string;
+  date: string;
+  amount: number;
+  note?: string;
 }
 
 export interface ActionItem {

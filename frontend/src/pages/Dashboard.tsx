@@ -1,43 +1,26 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api, canSeeRevenue, type KPIs, type PendingEstimate, type ActivityEvent, type CorrectionRequest, type ContactRow, getCurrentUser } from "@/lib/api";
+import { api, canSeeRevenue, type KPIs, type CorrectionRequest, getCurrentUser } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Zap, CheckCircle2, AlertCircle, HardHat, Sparkles, PartyPopper } from "lucide-react";
+import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, AlertCircle, HardHat, Sparkles, PartyPopper } from "lucide-react";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 import WrappedModal from "@/components/WrappedModal";
 import RecentPaymentsCard from "@/components/RecentPaymentsCard";
 import PendingDepositsCard from "@/components/PendingDepositsCard";
-import { NoEstimateQueue } from "@/components/NoEstimateQueue";
 import CommandCenter from "@/components/command/CommandCenter";
-
-const PRIORITY_CLS: Record<string, string> = {
-  HOT: "bg-red-500/10 text-red-600 border-red-200",
-  HIGH: "bg-orange-500/10 text-orange-600 border-orange-200",
-  MEDIUM: "bg-blue-500/10 text-blue-600 border-blue-200",
-  LOW: "bg-gray-500/10 text-gray-500 border-gray-200",
-};
-
-const APPROVAL_CLS: Record<string, { bg: string; text: string; label: string }> = {
-  green: { bg: "bg-emerald-500/10", text: "text-emerald-700", label: "Ready" },
-  yellow: { bg: "bg-amber-500/10", text: "text-amber-700", label: "Add-ons" },
-  red: { bg: "bg-red-500/10", text: "text-red-700", label: "Review" },
-};
 
 type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
 
 export default function Dashboard() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
-  const [recentFills, setRecentFills] = useState<ContactRow[]>([]);
-  const [pending, setPending] = useState<PendingEstimate[]>([]);
-  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [notifCount, setNotifCount] = useState(0);
   const [corrections, setCorrections] = useState<CorrectionRequest[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -62,10 +45,6 @@ export default function Dashboard() {
   const refreshAll = useCallback(() => {
     const apiFilter = filter === "all" ? undefined : filter;
     api.getKPIs(apiFilter).then(setKpis).catch(console.error);
-    // Most recent form fills: someone who comes back is a new lead again (Alan, 2026-10-11).
-    api.listContacts({ sort: "intake", customers_only: true, limit: 10 }).then((p) => setRecentFills(p.contacts)).catch(console.error);
-    api.getPendingAction(apiFilter).then(setPending).catch(console.error);
-    api.getRecentActivity(10, apiFilter).then(setActivity).catch(console.error);
     api.getNotificationCount().then((d) => setNotifCount(d.count)).catch(console.error);
     api.listCorrectionRequests("pending").then(setCorrections).catch(console.error);
     if (isAdmin) {
@@ -123,8 +102,6 @@ export default function Dashboard() {
     }
   }, [refreshAll]));
 
-  const greenReady = pending.filter((p) => p.approval_status === "green");
-  const redReview = pending.filter((p) => p.approval_status === "red");
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
@@ -176,12 +153,10 @@ export default function Dashboard() {
       {cmd && (
         <div className="border-t pt-5">
           <h2 className="font-heading text-lg font-semibold">Work lists</h2>
-          <p className="text-sm text-muted-foreground">The lists that were on this page before, unchanged.</p>
+          <p className="text-sm text-muted-foreground">Deposits, payments and requotes. New leads with no estimate are on Contacts.</p>
         </div>
       )}
 
-      {/* Everyone without an estimate, first thing on the page (Alan, 2026-10-11). */}
-      <NoEstimateQueue />
 
       {/* Deposits pending (QuickBooks invoices and 7-day Stripe links) and
           the money that landed: the daily who-to-call, right under the
@@ -276,124 +251,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-        {/* Pending Action Queue */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2 px-5 pt-5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" />
-                Pending Action
-              </CardTitle>
-              {pending.length > 0 && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">{pending.length}</span>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {pending.length === 0 ? (
-              <div className="flex flex-col items-center py-6 text-muted-foreground">
-                <CheckCircle2 className="h-8 w-8 mb-2 text-emerald-400" />
-                <p className="text-sm font-medium">All caught up</p>
-              </div>
-            ) : (
-              <div className="space-y-1 max-h-[320px] overflow-y-auto">
-                {[...greenReady, ...pending.filter((p) => p.approval_status === "yellow"), ...redReview].map((est) => {
-                  const cfg = APPROVAL_CLS[est.approval_status] || APPROVAL_CLS.red;
-                  return (
-                    <Link
-                      key={est.id}
-                      to={`/leads/${est.lead_id}`}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{est.contact_name || "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground truncate">{est.address || "No address"}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {est.pipeline_version === "v1" && (
-                          <Badge className="text-[10px] border-0 bg-yellow-100 text-yellow-800" title="Lead is on the legacy GHL pipeline — export to the new pipeline before sending">
-                            Needs Export
-                          </Badge>
-                        )}
-                        <Badge className={`text-[10px] border-0 ${cfg.bg} ${cfg.text}`}>{cfg.label}</Badge>
-                        <Badge className={`text-[10px] border ${PRIORITY_CLS[est.priority] || ""}`}>{est.priority}</Badge>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Activity Feed */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2 px-5 pt-5">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Bell className="h-4 w-4 text-primary" />
-              Recent Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {activity.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">No activity yet</p>
-            ) : (
-              <div className="space-y-3 max-h-[320px] overflow-y-auto">
-                {activity.map((ev) => (
-                  <div key={ev.id} className="flex items-start gap-3 text-sm">
-                    <div className="h-2 w-2 rounded-full bg-primary mt-2 shrink-0 ring-4 ring-primary/10" />
-                    <div className="min-w-0">
-                      <p className="text-xs leading-relaxed">{ev.detail}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(ev.created_at)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent leads */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2 px-5 pt-5">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Most recent form fills</CardTitle>
-            <Link to="/contacts" className="text-xs text-primary hover:underline font-medium">View all</Link>
-          </div>
-        </CardHeader>
-        <CardContent className="px-5 pb-5">
-          {recentFills.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">No form fills yet</p>
-          ) : (
-            <div className="space-y-0.5">
-              {recentFills.map((c) => (
-                <Link
-                  key={c.id}
-                  to={c.lead_id ? `/leads/${c.lead_id}` : `/contacts?q=${encodeURIComponent(c.phone || c.name || "")}`}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors gap-1 group"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                      {c.name || c.phone || "Unknown"}
-                      {c.intake_count > 1 ? <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">came back ×{c.intake_count}</span> : null}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">{c.address || "No address"}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {c.estimate_sent
-                      ? <Badge variant="secondary" className="text-[10px] py-0">estimate sent</Badge>
-                      : <Badge variant="outline" className="text-[10px] py-0 border-amber-400 text-amber-700">needs estimate</Badge>}
-                    <span className="text-[10px] text-muted-foreground w-14 text-right">{timeAgo(c.last_intake_at || c.date_added)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

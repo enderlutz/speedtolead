@@ -2,7 +2,7 @@
 comes back, and the main cases land where the owner will look."""
 from datetime import datetime, timedelta, timezone
 
-from database import Booking, Lead, PayLink
+from database import Booking, CompanyCamJob, Lead, PayLink
 
 
 def _iso(dt):
@@ -34,6 +34,15 @@ def test_actions_and_alerts(db):
     db.add(Lead(id="bal1", contact_name="Bea Balance", address="3 Ash St", created_at=_iso(now - timedelta(days=30))))
     db.add(PayLink(token="p1", lead_id="bal1", kind="balance", amount_cents=95000, status="open",
                    created_at=_iso(now - timedelta(days=10)), sent_at=_iso(now - timedelta(days=10))))
+    db.add(CompanyCamJob(id="cj1", lead_id="bal1", completed_at=_iso(now - timedelta(days=11))))   # the job is done
+    # Not owed (Alan, 2026-11-14): a financing / pay-in-full link, and a
+    # balance on a job that hasn't happened yet.
+    db.add(Lead(id="fin1", contact_name="Fran Finance", address="4 Fir St", created_at=_iso(now - timedelta(days=30))))
+    db.add(PayLink(token="p2", lead_id="fin1", kind="full", amount_cents=150000, status="open",
+                   created_at=_iso(now - timedelta(days=20)), sent_at=_iso(now - timedelta(days=20))))
+    db.add(Lead(id="early1", contact_name="Ed Early", address="5 Elm St", created_at=_iso(now - timedelta(days=30))))
+    db.add(PayLink(token="p3", lead_id="early1", kind="balance", amount_cents=80000, status="open",
+                   created_at=_iso(now - timedelta(days=20)), sent_at=_iso(now - timedelta(days=20))))
     # A test lead never shows.
     db.add(Lead(id="t1", contact_name="Test Person", address="9 Test", is_test=True, created_at=_iso(now)))
     db.commit()
@@ -43,7 +52,8 @@ def test_actions_and_alerts(db):
     assert kinds[("new_lead", "new1")]["priority"] == "red"      # over 15 minutes, nobody called
     assert kinds[("deposit", "held1")]["priority"] == "red"      # held within 3 days, unpaid
     assert kinds[("balance", "bal1")]["priority"] == "red"       # 10 days > 7: overdue
-    assert not any(a["lead_id"] == "t1" for a in d["actions"])
+    assert not any(a["lead_id"] in ("t1", "fin1", "early1") for a in d["actions"])
+    assert d["scorecard"]["owed"] == 950.0
     assert d["actions"][0]["priority"] == "red"
 
     c = d["collections"]

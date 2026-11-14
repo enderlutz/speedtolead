@@ -27,9 +27,9 @@ export default function CollectionsCard({ c }: { c: Collections }) {
   const [tab, setTab] = useState<Tab>("deposits");
   const tabs: { key: Tab; label: string; n: number }[] = [
     { key: "deposits", label: "Deposits due", n: c.deposits.length },
-    { key: "balances", label: "Balances out", n: c.balances.length },
+    { key: "balances", label: "Owed (job done)", n: c.balances.length },
     { key: "week", label: "Due this week", n: c.due_this_week.length },
-    { key: "qb", label: "QuickBooks", n: c.quickbooks_count },
+    { key: "qb", label: "QuickBooks to check", n: c.quickbooks_count },
   ];
   return (
     <div className="space-y-3">
@@ -37,10 +37,10 @@ export default function CollectionsCard({ c }: { c: Collections }) {
         <Sum label="Deposits due" v={c.deposits_total} />
         <Sum label="Due from this week's jobs" v={c.due_this_week_total} />
         <Sum label="Overdue (7+ days)" v={c.overdue_total} tone={c.overdue_total > 0 ? "red" : undefined} />
-        <Sum label="Stripe balances out" v={c.stripe_open_total} />
+        <Sum label="Owed on finished jobs" v={c.owed_total} />
       </div>
       <p className="text-sm text-muted-foreground">
-        Total owed {money(c.owed_total)}, of which {money(c.quickbooks_open_total)} is old QuickBooks balances, many likely paid another way and not marked.
+        Owed on finished jobs: {money(c.owed_total)}. Deposit and financing links are never counted as owed. QuickBooks still shows {money(c.quickbooks_open_total)} on invoices not tied to anyone in the app (old ones and tests); not counted, check them in QuickBooks.
       </p>
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => (
