@@ -251,7 +251,8 @@ export function BookingInvite({ firstName, address, pkgName, pkgOr, color, sides
             </div>
           ) : trust ? (
             <TrustPay showBbb={BBB_BADGE_LIVE || !page} trust={trust} firstName={firstName} longDate={longDate} total={total} totalOr={pkgOr?.total} dep={dep} paying={paying} onPay={pay}
-              holdUntil={holdUntil} />
+              holdUntil={holdUntil} klarna={!!klarna} financing={financing} onFinance={() => void finance()}
+              saving={(discount || 0) + (repairsDiscount || 0)} savingLabel={discountLabel && !repairsDiscount ? discountLabel : ""} />
           ) : (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white shadow-md">
               <div className="flex items-center gap-3">
@@ -472,9 +473,12 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
  *  sum, one tap to pay, and what protects them. The no-refund rule is said
  *  before they pay, in small calm words under the button (it has to be seen
  *  before payment for a card dispute to go our way). */
-function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onPay, holdUntil, showBbb }: {
+function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onPay, holdUntil, showBbb, klarna, financing, onFinance, saving, savingLabel }: {
   trust: BookingTrust; firstName: string; longDate: string; total: number; totalOr?: number; dep: number;
   paying: boolean; onPay: () => void; holdUntil: Date; showBbb: boolean;
+  // Klarna beside the $250 with the face on top (Alan, 2026-11-13: a Klarna
+  // booking showed the face or Klarna, never both).
+  klarna?: boolean; financing?: boolean; onFinance?: () => void; saving?: number; savingLabel?: string;
 }) {
   const first = trust.name.split(" ")[0];
   const r = trust.reviews;
@@ -501,6 +505,7 @@ function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onP
         <div>
           <p className="font-heading text-[24px] font-bold leading-tight">Let&rsquo;s save your date</p>
           <p className="mt-1 text-[16px] leading-snug">Your {formatCurrency(dep).replace(".00", "")} saves the day for you. <b>It comes off your total. It&rsquo;s not extra.</b></p>
+          {saving ? <p className="mt-2 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-[14px] font-bold text-emerald-800 ring-1 ring-emerald-200">You&rsquo;re saving {formatCurrency(saving)}{savingLabel ? ` · ${savingLabel}` : ""}</p> : null}
         </div>
 
         {/* The money, as a little sum they can check. */}
@@ -510,11 +515,21 @@ function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onP
           <div className="mt-1.5 flex justify-between gap-3 border-t border-[#15130F]/10 pt-1.5 text-[#15130F]/80"><dt>After the job is done</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(Math.max(0, totalOr - dep))} or ` : ""}{formatCurrency(Math.max(0, total - dep))}</dd></div>
         </dl>
 
-        <button type="button" onClick={onPay}
-          className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl text-[18px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
+        <button type="button" onClick={onPay} disabled={paying || financing}
+          className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl text-[18px] font-bold text-[#15130F] shadow-md active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
           <Lock className="h-5 w-5" /> {paying ? "Opening…" : `Save my date · ${formatCurrency(dep).replace(".00", "")}`}
         </button>
         <p className="-mt-1.5 text-center text-[14px] text-[#15130F]/70">Apple Pay, card or bank · secure checkout by Stripe</p>
+        {klarna ? (
+          <div className="space-y-1.5">
+            <p className="text-center text-[14px] font-semibold text-[#15130F]/60">or</p>
+            <button type="button" onClick={onFinance} disabled={paying || financing}
+              className="flex h-16 w-full items-center justify-center gap-1.5 rounded-2xl bg-[#FFB3C7] text-[18px] font-bold text-black shadow-md active:scale-[0.98] disabled:opacity-70">
+              {financing ? "Opening…" : <><span className="font-black tracking-tight">Klarna.</span> Pay over time</>}
+            </button>
+            <p className="text-center text-[14px] leading-snug text-[#15130F]/70">{klarnaLine(total)}. Either one confirms your date; Klarna pays the whole job, {formatCurrency(total)}.</p>
+          </div>
+        ) : null}
 
         {/* What protects them. */}
         <ul className="space-y-2.5 text-[15px] leading-snug">
