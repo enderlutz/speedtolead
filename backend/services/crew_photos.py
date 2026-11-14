@@ -36,14 +36,24 @@ def shrink(data: bytes) -> bytes:
     return out
 
 
-def store(data: bytes, employee_id: str) -> str:
-    """Save a photo for the crew line; returns its public link ("" if Storage failed)."""
+# Videos a worker texts in (Alan, 2026-11-13: a video showed Twilio's login
+# box). Kept as they came; the thread plays them.
+VIDEO_EXT = {"video/mp4": "mp4", "video/quicktime": "mov", "video/3gpp": "3gp", "video/3gpp2": "3g2",
+             "video/webm": "webm", "video/mpeg": "mpg"}
+
+
+def store(data: bytes, employee_id: str, ext: str = "jpg", content_type: str = "image/jpeg") -> str:
+    """Save a photo (or video) for the crew line; returns its public link ("" if Storage failed)."""
     global _ready
     from services.supabase_storage import ensure_bucket, upload_image
     if not _ready:
         _ready = ensure_bucket(BUCKET, public=True)
-    path = f"{PREFIX}/{employee_id or 'unknown'}/{uuid.uuid4().hex}.jpg"
-    return upload_image(BUCKET, path, data, "image/jpeg") or ""
+    path = f"{PREFIX}/{employee_id or 'unknown'}/{uuid.uuid4().hex}.{ext}"
+    return upload_image(BUCKET, path, data, content_type) or ""
+
+
+def is_twilio(url: str) -> bool:
+    return "api.twilio.com" in (url or "")
 
 
 def is_ours(url: str) -> bool:
@@ -57,12 +67,19 @@ def copy_from_twilio(urls: list[str], employee_id: str) -> list[str]:
     from services import twilio_line as tw
     out = []
     for u in urls:
+        if not is_twilio(u):
+            out.append(u)  # already ours
+            continue
         try:
             r = httpx.get(u, auth=tw._auth(), timeout=30, follow_redirects=True)
             r.raise_for_status()
+            ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+            if ctype in VIDEO_EXT:
+                out.append(store(r.content, employee_id, VIDEO_EXT[ctype], ctype) or u)
+                continue
             try:
                 data = shrink(r.content)
-            except Exception:  # noqa: BLE001 - not a picture we can read (video, pdf): keep as is
+            except Exception:  # noqa: BLE001 - not a picture we can read (pdf, vcard): keep as is
                 out.append(u)
                 continue
             out.append(store(data, employee_id) or u)

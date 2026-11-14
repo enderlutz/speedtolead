@@ -128,7 +128,11 @@ function Thread({ id, ready, onBack }: { id: string; ready: boolean; onBack: () 
               {it.body ? <p className="whitespace-pre-wrap">{it.body}</p> : null}
               {it.media.length ? (
                 <div className="mt-1 grid grid-cols-2 gap-1.5">
-                  {it.media.map((m) => (
+                  {it.media.map((m) => /\.(mp4|mov|3gp|3g2|webm|mpg)(\?|$)/i.test(m) ? (
+                    <video key={m} src={m} controls playsInline preload="metadata" className="col-span-2 max-h-80 w-full rounded-lg bg-black" />
+                  ) : m.includes("api.twilio.com") ? (
+                    <p key={m} className="col-span-2 text-[13px] opacity-70">Saving this one… it shows on the next refresh.</p>
+                  ) : (
                     <a key={m} href={m} target="_blank" rel="noreferrer" className="block">
                       <img src={m} alt="Photo" loading="lazy" className="h-32 w-full rounded-lg object-cover" />
                     </a>

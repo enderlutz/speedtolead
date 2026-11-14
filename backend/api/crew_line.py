@@ -113,9 +113,14 @@ def threads(user: dict = Depends(require_alan)):
 
 
 @router.get("/crew-line/{employee_id}")
-def thread(employee_id: str, user: dict = Depends(require_alan)):
+def thread(employee_id: str, background: BackgroundTasks, user: dict = Depends(require_alan)):
     db = get_db()
     try:
+        # Anything still on a Twilio link (needs Twilio's login, e.g. a video
+        # before 2026-11-13) gets copied over; the next refresh shows it.
+        for t in db.query(CrewText).filter(CrewText.employee_id == employee_id,
+                                           CrewText.media.like("%api.twilio.com%")).all():
+            background.add_task(_copy_photos, t.id, json.loads(t.media or "[]"), employee_id)
         e = _worker(db, employee_id)
         if not e:
             raise HTTPException(status_code=404, detail="Not on the crew list")
