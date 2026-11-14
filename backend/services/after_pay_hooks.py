@@ -160,6 +160,11 @@ def alert_alan(message: str) -> None:
 
 # ── The text that carries the link ────────────────────────────────────────
 
+# Every customer text opens with who it's from (Alan, 2026-11-13: the plain
+# bill text said only "Good evening Mrs. Patton, your fence staining is done").
+INTRO = "it's Alan, the project manager at Sterling"
+
+
 def receipt_url(token: str) -> str:
     return pay_url(token).replace("/pay/", "/receipt/")
 
@@ -170,21 +175,21 @@ def message_for(link: PayLink, lead: Lead | None) -> str:
     url = pay_url(link.token)
     if link.status == "paid" and link.kind in ("balance", "full", "extra"):
         # Paid by check or cash: the text is the receipt.
-        return (f"{hi}, it's Sterling Fence Staining. We got your payment of {amt}, thank you! "
+        return (f"{hi}, {INTRO}. We got your payment of {amt}, thank you! "
                 f"Here's your receipt: {receipt_url(link.token)}")
     if link.kind == "deposit":
-        return (f"{hi}, it's Sterling Fence Staining. Here's your link to reserve your dates with the {amt} deposit: {url}\n"
+        return (f"{hi}, {INTRO}. Here's your link to reserve your dates with the {amt} deposit: {url}\n"
                 "Card, Apple Pay or Google Pay. Reply here with any questions.")
     if link.kind == "balance":
         how = "Card, Apple Pay or bank account." if link.no_financing else "Card, or split it with Klarna."
-        return (f"{hi}, your fence staining is done! Here's the link for your balance of {amt}: {url}\n"
+        return (f"{hi}, {INTRO}. Your fence staining is done! Here's the link for your balance of {amt}: {url}\n"
                 f"{how} Thank you for choosing Sterling.")
     if link.kind == "extra":
-        return f"{hi}, it's Sterling Fence Staining. Here's the link for the extra work we talked about, {amt}: {url}"
+        return f"{hi}, {INTRO}. Here's the link for the extra work we talked about, {amt}: {url}"
     if link.kind == "done":
-        return (f"{hi}, your fence staining is done and you're all paid up. Thank you! "
+        return (f"{hi}, {INTRO}. Your fence staining is done and you're all paid up. Thank you! "
                 f"One quick thing when you have a minute: {after_url(link.token)}")
-    return (f"{hi}, it's Sterling Fence Staining. Here's your link to pay for your fence staining, {amt}: {url}\n"
+    return (f"{hi}, {INTRO}. Here's your link to pay for your fence staining, {amt}: {url}\n"
             + ("Card, Apple Pay or bank account." if link.no_financing else "Card, or pay over time with Klarna."))
 
 
@@ -196,7 +201,7 @@ def message_for_other(link: PayLink, lead: Lead | None, name: str) -> str:
     amt = money((link.amount_cents or 0) / 100)
     where = f" at {lead.address.split(',')[0]}" if lead and lead.address else ""
     what = "deposit to reserve the dates" if link.kind == "deposit" else "invoice"
-    return (f"{hi}, it's Sterling Fence Staining. Here's the {what} for {whose} fence{where}, {amt}: {pay_url(link.token)}\n"
+    return (f"{hi}, {INTRO}. Here's the {what} for {whose} fence{where}, {amt}: {pay_url(link.token)}\n"
             "Reply here with any questions.")
 
 

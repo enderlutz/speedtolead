@@ -457,7 +457,7 @@ def test_a_link_can_be_texted_to_the_husband_only_if_he_is_a_contact(db, monkeyp
     assert r["sent_to"] == "Sam" and r["sent_at"]
     cid, msg, loc = sent[0]
     assert cid == "c-sam" and loc == "LOC"
-    assert msg.startswith(f"{greeting.time_greeting()} Sam, it's Sterling Fence Staining. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")
+    assert msg.startswith(f"{greeting.time_greeting()} Sam, it's Alan, the project manager at Sterling. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")
 
 
 def test_search_a_contact_or_create_one_then_send(db, monkeypatch):
