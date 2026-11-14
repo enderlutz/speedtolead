@@ -60,7 +60,29 @@ def new_words(msgs: list, since: str | None = None, now: datetime | None = None)
     last_out = max((_ts(m.created_at) for m in msgs if m.direction == "outbound" and _ts(m.created_at)), default=None)
     if last_out and last_out > floor:
         floor = last_out
-    return [m for m in msgs if m.direction == "inbound" and (_ts(m.created_at) or floor) > floor]
+    out = [m for m in msgs if m.direction == "inbound" and (_ts(m.created_at) or floor) > floor]
+    return [m for m in out if same_day(m, now) or about_the_job(m.body)]
+
+
+# Only today's words, or older words about the finished job or paying
+# (Alan, 2026-11-13: Krista's bill opened with "You're very welcome, glad
+# that works!", her answer to a scheduling text four days earlier).
+JOB_WORDS = ("stain", "fence", "look", "done", "finish", "great", "love", "beautiful", "amazing", "happy",
+             "thank", "pay", "invoice", "bill", "balance", "owe", "receipt", "zelle", "venmo", "cash app",
+             "card", "check", "cash", "link", "picket", "color", "wrong", "missed", "spot", "drip")
+
+
+def same_day(m, now: datetime | None = None) -> bool:
+    from clock import to_ct
+    t = _ts(m.created_at)
+    if not t:
+        return False
+    return to_ct(t).date() == to_ct(now or datetime.now(timezone.utc)).date()
+
+
+def about_the_job(body: str | None) -> bool:
+    b = (body or "").lower()
+    return any(w in b for w in JOB_WORDS)
 
 
 TASK = """You write one text message from a fence staining company to a customer, about a bill.
