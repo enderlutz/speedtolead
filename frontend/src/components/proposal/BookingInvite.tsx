@@ -505,12 +505,18 @@ function TrustPay({ trust, firstName, longDate, total, totalOr, dep, paying, onP
         <div>
           <p className="font-heading text-[24px] font-bold leading-tight">Let&rsquo;s save your date</p>
           <p className="mt-1 text-[16px] leading-snug">Your {formatCurrency(dep).replace(".00", "")} saves the day for you. <b>It comes off your total. It&rsquo;s not extra.</b></p>
-          {saving ? <p className="mt-2 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-[14px] font-bold text-emerald-800 ring-1 ring-emerald-200">You&rsquo;re saving {formatCurrency(saving)}{savingLabel ? ` · ${savingLabel}` : ""}</p> : null}
         </div>
 
         {/* The money, as a little sum they can check. */}
         <dl className="rounded-2xl bg-[#F8F3E7] p-3.5 text-[16px]">
-          <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(totalOr)} or ${formatCurrency(total)}` : formatCurrency(total)}</dd></div>
+          {/* The discount as its own line under the job (Alan, 2026-11-13:
+              "your job, then military discount −$60.64, then today $250"). */}
+          {saving && !totalOr ? <>
+            <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="text-right tabular-nums">{formatCurrency(total + saving)}</dd></div>
+            <div className="mt-1.5 flex justify-between gap-3 font-semibold text-emerald-800"><dt>{savingLabel || "Discount"}</dt><dd className="text-right tabular-nums">−{formatCurrency(saving)}</dd></div>
+          </> : (
+            <div className="flex justify-between gap-3"><dt>Your job</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(totalOr)} or ${formatCurrency(total)}` : formatCurrency(total)}</dd></div>
+          )}
           <div className="mt-1.5 flex justify-between gap-3 font-bold"><dt>Today</dt><dd className="tabular-nums">{formatCurrency(dep)}</dd></div>
           <div className="mt-1.5 flex justify-between gap-3 border-t border-[#15130F]/10 pt-1.5 text-[#15130F]/80"><dt>After the job is done</dt><dd className="text-right tabular-nums">{totalOr ? `${formatCurrency(Math.max(0, totalOr - dep))} or ` : ""}{formatCurrency(Math.max(0, total - dep))}</dd></div>
         </dl>
