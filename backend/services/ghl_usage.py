@@ -62,10 +62,43 @@ def _account(resp) -> str:
     return "main"
 
 
+_restored = False
+
+
+def _restore(day: str) -> None:
+    """After a restart, pick up today's saved numbers instead of starting at
+    0 (Alan, 2026-11-13: the meter read 1,691 at night after a deploy)."""
+    global _restored
+    _restored = True
+    try:
+        from database import get_db
+        db = get_db()
+        try:
+            old = saved(db)
+        finally:
+            db.close()
+        if old.get("day") == day:
+            with _lock:
+                if not _state["day"] or _state["day"] == day:
+                    _state["total"] = int(old.get("total") or 0) + int(_state["total"] if _state["day"] == day else 0)
+                    _state["refused"] = int(old.get("refused") or 0) + int(_state["refused"] if _state["day"] == day else 0)
+                    paths = dict(old.get("paths") or {})
+                    for k, v in (_state["paths"] if _state["day"] == day else {}).items():
+                        paths[k] = paths.get(k, 0) + v
+                    _state["paths"] = paths
+                    _state["accounts"] = {**(old.get("accounts") or {}), **_state["accounts"]}
+                    _state["first_at"] = old.get("first_at") or _state["first_at"]
+                    _state["day"] = day
+    except Exception:  # noqa: BLE001
+        logger.debug("ghl_usage restore failed", exc_info=True)
+
+
 def note(resp) -> None:
     """Count one GHL response. Never raises."""
     try:
         day = _today()
+        if not _restored:
+            _restore(day)
         with _lock:
             if _state["day"] != day:
                 _state.update(day=day, total=0, refused=0, paths={}, first_at=_now_iso())

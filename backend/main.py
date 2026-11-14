@@ -50,6 +50,35 @@ async def _poller_loop():
         await asyncio.sleep(300)
 
 
+def _poll_minutes(key: str, default: int) -> int:
+    """How often a safety-net check runs, from system_config (Alan,
+    2026-11-13: the two rotations were ~70% of a 200k/day GHL allowance while
+    fast_sync already pulls every changed conversation within a minute).
+    Change the row to retune without a deploy; 5 is the floor."""
+    try:
+        from database import SystemConfig
+        db = get_db()
+        try:
+            return max(5, int(SystemConfig.get(db, key, "") or default))
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        return default
+
+
+async def _email_sweep_loop():
+    """Email replies, every 5 minutes (split out of the message rotation
+    when that slowed to every 30, 2026-11-13)."""
+    await asyncio.sleep(150)
+    while True:
+        try:
+            from services.email_replies import sweep_once as email_sweep
+            await asyncio.to_thread(email_sweep)
+        except Exception as e:
+            logger.error(f"Email reply sweep error: {e}")
+        await asyncio.sleep(300)
+
+
 async def _message_poller_loop():
     """Background task: pull text threads for open leads, a slice every 5 min.
 
@@ -67,14 +96,8 @@ async def _message_poller_loop():
             )
         except Exception as e:
             logger.error(f"Message poller error: {e}")
-        # An email arrives as our own quoted text; fetch what the customer
-        # actually wrote (services/email_replies.py).
-        try:
-            from services.email_replies import sweep_once as email_sweep
-            await asyncio.to_thread(email_sweep)
-        except Exception as e:
-            logger.error(f"Email reply sweep error: {e}")
-        await asyncio.sleep(300)
+        # Safety net only: fast_sync pulls changed conversations every minute.
+        await asyncio.sleep(60 * _poll_minutes("message_poller_minutes", 30))
 
 
 async def _contact_mirror_loop():
@@ -241,11 +264,10 @@ async def _call_recording_poller_loop():
             await asyncio.to_thread(poll_ghl_call_recordings)
         except Exception as e:
             logger.error(f"Call recording poller error: {e}")
-        # 10 min between polls. Calls aren't time-critical — the rest
-        # of the dashboard (proposal-viewed SMS, call disposition UI)
-        # is what drives Alan's real-time behavior. The pipeline here
-        # is for downstream analytics.
-        await asyncio.sleep(600)
+        # Safety net only (was every 10 min): fast_sync pulls a call's
+        # conversation within a minute and again 3 minutes later for the
+        # recording.
+        await asyncio.sleep(60 * _poll_minutes("call_poller_minutes", 30))
 
 
 async def _transcribe_backlog_loop():
@@ -835,6 +857,7 @@ async def lifespan(app: FastAPI):
     if get_settings().enable_message_poller:
         msg_poller = asyncio.create_task(_message_poller_loop())
         logger.info("Message poller enabled")
+    email_sweep_loop = asyncio.create_task(_email_sweep_loop())  # noqa: F841
     # Mirrors the whole GHL contact list into `contacts` (and gives every
     # contact an inert lead row) so the message and call pollers can reach
     # people who never had an opportunity card — 469 of 1,972 on 2026-09-29.
