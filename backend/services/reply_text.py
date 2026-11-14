@@ -67,9 +67,10 @@ def new_words(msgs: list, since: str | None = None, now: datetime | None = None)
 # Only today's words, or older words about the finished job or paying
 # (Alan, 2026-11-13: Krista's bill opened with "You're very welcome, glad
 # that works!", her answer to a scheduling text four days earlier).
-JOB_WORDS = ("stain", "fence", "look", "done", "finish", "great", "love", "beautiful", "amazing", "happy",
-             "thank", "pay", "invoice", "bill", "balance", "owe", "receipt", "zelle", "venmo", "cash app",
-             "card", "check", "cash", "link", "picket", "color", "wrong", "missed", "spot", "drip")
+JOB_WORDS = ("looks great", "looks good", "looks amazing", "looks beautiful", "look great", "love it", "loved it", "love the",
+             "beautiful", "amazing", "great job", "good job", "nice job", "excellent", "turned out",
+             "invoice", "bill", "balance", "how much do i owe", "what do i owe", "receipt", "paid", "pay you", "pay the",
+             "zelle", "venmo", "cash app", "wrong", "missed", "drip", "touch up", "touch-up", "overspray", "not happy")
 
 
 def same_day(m, now: datetime | None = None) -> bool:

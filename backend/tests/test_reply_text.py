@@ -74,3 +74,10 @@ def test_older_text_about_the_job_still_counts():
 def test_same_day_text_counts_whatever_it_says():
     msgs = [m("inbound", "Ok sounds good", "2026-11-13T15:00:00+00:00")]
     assert [x.body for x in reply_text.new_words(msgs, now=NOW)] == ["Ok sounds good"]
+
+
+def test_old_thank_you_on_scheduling_is_not_used():
+    """Krista again: "Sounds perfect. Thank you." (11/9, scheduling) shaped her 11/13 bill."""
+    msgs = [m("outbound", "We're on for tomorrow morning", "2026-11-09T00:26:00+00:00"),
+            m("inbound", "Sounds perfect. Thank you.", "2026-11-09T13:57:00+00:00")]
+    assert reply_text.new_words(msgs, now=NOW) == []
