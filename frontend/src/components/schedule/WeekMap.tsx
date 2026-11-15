@@ -44,6 +44,13 @@ function pinIcon(p: PmMapPin): L.DivIcon {
   return L.divIcon({ html, className: "", iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -40] });
 }
 
+/** A finished job (stained, or marked Job done) comes off the map by itself
+ *  (Alan, 2026-11-14), unless there's still a job to fix there or Alan put it
+ *  on by hand. Their names stay listed under the map. */
+function isFinished(p: PmMapPin): boolean {
+  return p.status === "done" && !p.added && !p.days.some((d) => d.task === "fix" && !d.done);
+}
+
 /** Zoom to fit every pin whenever the set of pins changes. */
 function FitPins({ pts }: { pts: [number, number][] }) {
   const map = useMap();
@@ -71,8 +78,9 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
     return () => { live = false; };
   }, [start, end, refreshKey, tick]);
 
-  const shown = useMemo(() => (pins || []).filter((p) => !p.hidden), [pins]);
-  const hiddenPins = useMemo(() => (pins || []).filter((p) => p.hidden), [pins]);
+  const finished = useMemo(() => (pins || []).filter(isFinished), [pins]);
+  const shown = useMemo(() => (pins || []).filter((p) => !p.hidden && !isFinished(p)), [pins]);
+  const hiddenPins = useMemo(() => (pins || []).filter((p) => p.hidden && !isFinished(p)), [pins]);
   const placed = useMemo(() => shown.filter((p) => p.lat != null && p.lng != null), [shown]);
   const missing = useMemo(() => shown.filter((p) => p.lat == null || p.lng == null), [shown]);
   const pts = useMemo(() => placed.map((p) => [p.lat!, p.lng!] as [number, number]), [placed]);
@@ -95,10 +103,10 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
         <div>
           <p className="flex items-center gap-1.5 font-semibold"><MapPin className="h-4 w-4 text-primary" />Where they are</p>
           <p className="text-sm text-muted-foreground">
-            Every job on these days is here by itself, and every job to fix at a customer's. Tap a pin to hide it this week.
+            Every job on these days that isn't finished is here by itself, and every job to fix at a customer's. Finished jobs come off on their own. Tap a pin to hide it this week.
           </p>
           <p className="text-sm text-muted-foreground">
-            Name only = nothing done yet · 🧽 = cleaned · <span className="font-semibold text-green-700">✓</span> = cleaned and stained · <span className="font-bold text-red-600">✕</span> = a job to fix (shows every week until it's done)
+            Name only = nothing done yet · 🧽 = cleaned · <span className="font-bold text-red-600">✕</span> = a job to fix (shows every week until it's done)
           </p>
         </div>
         {!pins ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -146,6 +154,11 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
             </button>
           ))}
         </div>
+      ) : null}
+      {finished.length ? (
+        <p className="text-sm text-muted-foreground">
+          <span className="font-semibold text-green-700">✓</span> Finished, off the map: {finished.map((p) => p.name || "(no name)").join(", ")}
+        </p>
       ) : null}
       {missing.length ? (
         <p className="text-sm text-amber-800">

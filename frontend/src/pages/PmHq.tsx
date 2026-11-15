@@ -129,7 +129,7 @@ export default function PmHq() {
   // Week and Month use the whole screen so seven days have room for names
   // (Alan, 2026-10-21: "I can't see the customer's name" on Week). The other
   // calendar views get a little more than the rest, for the list beside them.
-  const wide = tab === "calendar" && ["week", "month"].includes(parseView(params.get("view")));
+  const wide = tab === "calendar" && ["week", "2week", "month"].includes(parseView(params.get("view")));
   return (
     <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : tab === "calendar" || tab === "google" ? "max-w-7xl" : "max-w-5xl")}>
       <div>
@@ -303,6 +303,7 @@ function TodayView({ fixes, crew, canEdit, actions }: { fixes: FixJob[]; crew: {
 //   day       the picked day, with the editing (DayPanel)
 //   3day      the picked day and the two after it
 //   week      Monday → Sunday of the picked day's week
+//   2week     that week and the next, stacked one over the other
 //   month     the picked day's month
 // Jobs have no clock time, only a date and a morning order, so every view
 // shows them the way Google shows all-day events.
@@ -323,6 +324,7 @@ function CalendarView() {
       case "day": return { start: day, end: day };
       case "3day": return { start: day, end: plusDays(day, 2) };
       case "week": { const mon = startOfWeek(day); return { start: mon, end: plusDays(mon, 6) }; }
+      case "2week": { const mon = startOfWeek(day); return { start: mon, end: plusDays(mon, 13) }; }
       case "month": { const g = monthGrid(day); return { start: g[0], end: g[g.length - 1] }; }
       default: return { start: plusDays(day, -7 - 28 * before), end: plusDays(day, 35 + 28 * after) };
     }
@@ -419,7 +421,7 @@ function CalendarView() {
   // From Today, the arrows step into the Day view of yesterday or tomorrow.
   const step = (n: -1 | 1) => view === "today" ? set({ view: "day", day: plusDays(today, n) }) : set({
     day: view === "month" ? addMonths(day, n)
-      : plusDays(day, n * (view === "day" ? 1 : view === "3day" ? 3 : view === "week" ? 7 : 28)),
+      : plusDays(day, n * (view === "day" ? 1 : view === "3day" ? 3 : view === "week" ? 7 : view === "2week" ? 14 : 28)),
   });
   const goToday = () => { setExt({ anchor: today, before: 0, after: 0 }); set({ day: today }); };
 
@@ -453,13 +455,22 @@ function CalendarView() {
                   <AddToDay key={addDay} day={addDay} crew={crew} pwOptions={pwOptions} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
                 </div>
               ) : null}
-              <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
-                            onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={false}
-                            canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                            fixesByDay={fixesByDay} onMoveFix={(f, to) => void moveFix(f, to)} onOpenFix={(f) => { if (f.date) pickDay(f.date); }} whoOf={who}
-                            openFixes={openFixes(dayList(range.start, view === "week" ? 7 : 3))} />
-              {/* The week's customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
-              {view === "week" ? <WeekMap start={range.start} end={range.end} refreshKey={[days, fixes]} /> : null}
+              {/* 2 weeks = two week rows, this week over the next (Alan, 2026-11-14). */}
+              {(view === "2week" ? [range.start, plusDays(range.start, 7)] : [range.start]).map((from, i) => {
+                const n = view === "3day" ? 3 : 7;
+                return (
+                  <div key={from} className="space-y-1">
+                    {view === "2week" ? <p className="px-1 text-sm font-semibold text-muted-foreground">{from === startOfWeek(today) ? "This week · " : from === plusDays(startOfWeek(today), 7) ? "Next week · " : ""}{rangeLabel("week", from, from, plusDays(from, 6), today)}</p> : null}
+                    <MultiDayView dates={dayList(from, n)} byDay={byDay} today={today} Link={JobLink}
+                                  onPickDay={pickDay} maxChips={view === "3day" ? undefined : 6} stacked={view !== "3day"} showPay={false}
+                                  canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onReorder={(d, ids) => void reorderDay(d, ids)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                                  fixesByDay={fixesByDay} onMoveFix={(f, to) => void moveFix(f, to)} onOpenFix={(f) => { if (f.date) pickDay(f.date); }} whoOf={who}
+                                  openFixes={i === 0 ? openFixes(dayList(range.start, view === "2week" ? 14 : n)) : []} />
+                  </div>
+                );
+              })}
+              {/* The customers on a map, to schedule while looking at it (Alan, 2026-10-25). */}
+              {view === "week" || view === "2week" ? <WeekMap start={range.start} end={range.end} refreshKey={[days, fixes]} /> : null}
             </>
           )}
         </div>

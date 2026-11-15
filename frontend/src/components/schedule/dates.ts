@@ -12,13 +12,15 @@ import type { PmDay } from "@/lib/api";
 // Today is a view of the calendar, not a tab of its own (Alan, 2026-10-27):
 // the live board of today's jobs. The page opens on Week, "the best way I
 // can actually see everything at once".
-export type ScheduleView = "today" | "day" | "3day" | "week" | "month" | "schedule";
+export type ScheduleView = "today" | "day" | "3day" | "week" | "2week" | "month" | "schedule";
 
 export const VIEWS: { key: ScheduleView; label: string }[] = [
   { key: "today", label: "Today" },
   { key: "day", label: "Day" },
   { key: "3day", label: "3 days" },
   { key: "week", label: "Week" },
+  // Two weeks stacked, this one over the next (Alan, 2026-11-14).
+  { key: "2week", label: "2 weeks" },
   { key: "month", label: "Month" },
   { key: "schedule", label: "List" },
 ];
@@ -100,6 +102,7 @@ export function rangeLabel(view: ScheduleView, anchor: string, start: string, en
     case "day": return fmt(anchor, { weekday: "short", month: "short", day: "numeric" }) + (otherYear ? `, ${year(anchor)}` : "");
     case "3day": return spanLabel(start, end, otherYear);
     case "week": return spanLabel(start, end, true);
+    case "2week": return spanLabel(start, end, true);
     case "month": return monthLong(anchor);
     default: return monthsLabel(start, end);
   }
