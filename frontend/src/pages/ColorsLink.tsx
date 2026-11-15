@@ -13,15 +13,41 @@ import { COLOR_BOARD, type BoardColor } from "@/content/stain-colors";
 
 const PHONE = "(346) 589-7877";
 
-export default function ColorsLink({ embedded = false }: { embedded?: boolean }) {
+// One package's colors only (Alan, 2026-11-14): /colors/legacy for a customer
+// already on the Legacy who just needs to pick a solid color (Daninu), and
+// /colors/signature for the semi-transparent line. A few plain lines on what
+// the package is, then only its colors. Still no prices.
+type Line = "legacy" | "signature";
+const LINES: Record<Line, { finish: BoardColor["finish"]; title: string; what: string[] }> = {
+  legacy: {
+    finish: "solid",
+    title: "Legacy colors",
+    what: [
+      "The Legacy is our longest-lasting finish. It's a solid stain: more color and sealer in every coat, so it covers the wood evenly and hides the small marks and knots.",
+      "Two coats, every board brushed in by hand. It usually lasts 5 to 8 years.",
+    ],
+  },
+  signature: {
+    finish: "semi-transparent",
+    title: "Signature colors",
+    what: [
+      "The Signature is our most popular finish. It's a semi-transparent stain: it adds color and protection and still lets the wood grain show through.",
+      "Two coats, every board brushed in by hand. It usually lasts 4 to 5 years.",
+    ],
+  },
+};
+
+export default function ColorsLink({ embedded = false, line }: { embedded?: boolean; line?: Line }) {
   const [open, setOpen] = useState<BoardColor | null>(null);
+  const pick = line ? LINES[line] : null;
+  const colors = pick ? COLOR_BOARD.filter((c) => c.finish === pick.finish) : COLOR_BOARD;
 
   useEffect(() => {
     if (embedded) return;
     const prev = document.title;
-    document.title = "Our colors · Sterling Fence Staining";
+    document.title = `${pick ? pick.title : "Our colors"} · Sterling Fence Staining`;
     return () => { document.title = prev; };
-  }, [embedded]);
+  }, [embedded, pick]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,18 +65,25 @@ export default function ColorsLink({ embedded = false }: { embedded?: boolean })
         </header>
         <div className="mt-4 h-px w-full bg-[#C9972F]/60" />
 
-        <h1 className="mt-7 font-heading text-[40px] font-bold leading-none sm:text-[48px]">Our colors</h1>
+        <h1 className="mt-7 font-heading text-[40px] font-bold leading-none sm:text-[48px]">{pick ? pick.title : "Our colors"}</h1>
+        {pick ? pick.what.map((t) => <p key={t} className="mt-3 text-[17px] leading-relaxed text-[#333]">{t}</p>) : null}
         <p className="mt-3 text-[17px] leading-relaxed text-[#333]">
           Every color here is on a real fence we stained. Tap one to see it bigger.
           Text us the name of the one you like.
         </p>
-        <p className="mt-2 text-[15px] leading-relaxed text-[#555]">
-          <strong className="font-semibold text-[#1a1a1a]">Semi-transparent</strong> lets the wood grain show through.{" "}
-          <strong className="font-semibold text-[#1a1a1a]">Solid</strong> is one even color that covers everything.
-        </p>
+        {pick ? (
+          <p className="mt-2 text-[15px] leading-relaxed text-[#555]">
+            Not sure? Our crew brings sample sticks on cleaning day and holds them up to your fence, so you can see each one in your own light.
+          </p>
+        ) : (
+          <p className="mt-2 text-[15px] leading-relaxed text-[#555]">
+            <strong className="font-semibold text-[#1a1a1a]">Semi-transparent</strong> lets the wood grain show through.{" "}
+            <strong className="font-semibold text-[#1a1a1a]">Solid</strong> is one even color that covers everything.
+          </p>
+        )}
 
         <ul className="mt-7 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3">
-          {COLOR_BOARD.map((c) => (
+          {colors.map((c) => (
             <li key={c.key}>
               <button
                 type="button"
@@ -69,7 +102,7 @@ export default function ColorsLink({ embedded = false }: { embedded?: boolean })
                 </div>
                 <div className="mt-2 min-h-[44px]">
                   <div className="text-[17px] font-semibold leading-tight">{c.name}</div>
-                  <div className="text-[15px] text-[#555]">{c.finish}</div>
+                  {pick ? null : <div className="text-[15px] text-[#555]">{c.finish}</div>}
                 </div>
               </button>
             </li>

@@ -222,7 +222,7 @@ function AppLayout() {
     location.pathname.startsWith("/pay/") ||
     location.pathname.startsWith("/after/") ||
     location.pathname.startsWith("/b/") ||
-    location.pathname === "/colors" ||
+    location.pathname === "/colors" || location.pathname.startsWith("/colors/") ||
     location.pathname.startsWith("/r/") ||
     location.pathname.startsWith("/receipt/") ||
     location.pathname.startsWith("/legal/");
@@ -254,6 +254,8 @@ function AppLayout() {
         <Route path="/b/:token" element={<BookingPage />} />
         {/* The colours board we text contractors (Alan, 2026-11-07). No login. */}
         <Route path="/colors" element={<ColorsLink />} />
+        <Route path="/colors/legacy" element={<ColorsLink line="legacy" />} />
+        <Route path="/colors/signature" element={<ColorsLink line="signature" />} />
         <Route path="/r/:code" element={<ReferralPage />} />
         <Route path="/receipt/:token" element={<ReceiptPage />} />
         <Route path="/legal/eula" element={<Eula />} />
