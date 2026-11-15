@@ -179,26 +179,26 @@ export default function Dashboard() {
 
       {/* Requote requests — top priority alert */}
       {corrections.length > 0 && (
-        <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 shadow-sm">
+        <div className="rounded-xl border-2 border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/60 p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
-            <AlertCircle className="h-5 w-5 text-red-600" />
-            <p className="font-bold text-sm text-red-800">
+            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-300" />
+            <p className="font-bold text-sm text-red-800 dark:text-red-300">
               {corrections.length} requote request{corrections.length > 1 ? "s" : ""} need attention
             </p>
           </div>
           <div className="space-y-2">
             {corrections.map((cr) => (
-              <div key={cr.id} className="flex items-start gap-3 bg-white rounded-lg p-3 border border-red-200">
+              <div key={cr.id} className="flex items-start gap-3 bg-card rounded-lg p-3 border border-red-200 dark:border-red-800">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-[#1C2235]">{cr.contact_name || "Unknown"}</p>
+                    <p className="text-sm font-semibold text-foreground">{cr.contact_name || "Unknown"}</p>
                     <span className="text-xs text-muted-foreground">{timeAgo(cr.requested_at)}</span>
                     {cr.escalated_at && (
                       <Badge className="text-[10px] bg-red-600 text-white">Escalated</Badge>
                     )}
                   </div>
                   {cr.address && <p className="text-xs text-muted-foreground truncate">{cr.address}</p>}
-                  <p className="text-sm text-[#1C2235] mt-1.5 italic">"{cr.text}"</p>
+                  <p className="text-sm text-foreground mt-1.5 italic">"{cr.text}"</p>
                 </div>
                 <div className="flex flex-col gap-1.5 shrink-0">
                   <Link to={`/leads/${cr.lead_id}`}>
@@ -269,7 +269,7 @@ function GradientKPI({ icon: Icon, title, value, change, gradient, href }: {
         </div>
         <div className="text-xl sm:text-2xl font-bold tracking-tight">{value}</div>
         {change !== undefined && (
-          <p className={`text-[10px] sm:text-xs mt-1 font-medium ${change >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+          <p className={`text-[10px] sm:text-xs mt-1 font-medium ${change >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"}`}>
             {change >= 0 ? "+" : ""}{change}% vs last mo
           </p>
         )}
@@ -278,3 +278,4 @@ function GradientKPI({ icon: Icon, title, value, change, gradient, href }: {
   );
   return href ? <Link to={href}>{content}</Link> : content;
 }
+

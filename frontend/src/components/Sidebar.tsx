@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
+import ThemeToggle from "@/components/ThemeToggle";
 import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Lightbulb, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare, Clock } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
@@ -269,6 +270,7 @@ function SidebarFooter() {
 
   return (
     <div className="px-4 py-4 border-t border-sidebar-border shrink-0">
+      <ThemeToggle />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <div className="h-7 w-7 rounded-full bg-sidebar-accent flex items-center justify-center text-[10px] font-bold text-sidebar-foreground shrink-0">
@@ -378,3 +380,4 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     </>
   );
 }
+

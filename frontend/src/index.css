@@ -63,6 +63,7 @@
 }
 
 :root {
+    color-scheme: light;
     /* Brand swatches. The ivory is the logo's own background, so the logo
        sits on it with no visible edge. */
     --brand-ivory: #F8F3E7;
@@ -110,6 +111,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: oklch(0.16 0.01 70);
     --foreground: oklch(0.97 0.008 85);
     --card: oklch(0.21 0.01 70);
@@ -156,6 +158,9 @@
   html {
     @apply font-sans;
     }
+  .dark body {
+    background-image: none;
+    }
   h1, h2, h3 {
     @apply font-heading;
     }
@@ -172,3 +177,4 @@ html { touch-action: manipulation; }
 @media (hover: none) {
   .hover\:shadow-md:hover { box-shadow: none; }
 }
+

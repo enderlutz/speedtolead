@@ -182,8 +182,8 @@ const CONFIDENCE_OPTIONS = [
 // Three states, three colours, carried through the whole page: green is
 // always "go", amber is always "waiting on something", red is always "stop".
 const APPROVAL_CONFIG = {
-  green:  { label: "Ready to send",         icon: CheckCircle2, cls: "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-900", chip: "from-emerald-500 to-teal-600" },
-  yellow: { label: "Add-ons pending",       icon: Hourglass,    cls: "border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900",     chip: "from-amber-500 to-orange-600" },
+  green:  { label: "Ready to send",         icon: CheckCircle2, cls: "border-emerald-300 dark:border-emerald-800 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-900 dark:text-emerald-300", chip: "from-emerald-500 to-teal-600" },
+  yellow: { label: "Add-ons pending",       icon: Hourglass,    cls: "border-amber-300 dark:border-amber-800 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900 dark:text-amber-300",     chip: "from-amber-500 to-orange-600" },
   // Was "Owner review required" in red — Alan, 2026-10-08: heavy for what
   // it is. The reason underneath still says exactly what to look at.
   red:    { label: "Something to think about", icon: Lightbulb,    cls: "border-gold/50 bg-gradient-to-r from-ivory to-card text-walnut",                chip: "from-gold to-bronze" },
@@ -285,13 +285,13 @@ function SinceEstimateCard({ info, discovery }: {
   discovery?: LeadDetailType["discovery_call"];
 }) {
   const STATUS = {
-    running: { dot: "bg-emerald-500 animate-pulse", cls: "border-emerald-300 bg-emerald-50 text-emerald-900",
+    running: { dot: "bg-emerald-500 animate-pulse", cls: "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300",
       title: "Follow-ups running", sub: "Still in Estimate Sent, so the GHL texts keep going." },
-    stopped: { dot: "bg-slate-400", cls: "border-slate-300 bg-slate-50 text-slate-800",
+    stopped: { dot: "bg-slate-400", cls: "border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-800 dark:text-slate-300",
       title: "Follow-ups stopped", sub: `Moved to ${info.stage_name || "another stage"}, which ends them.` },
-    not_started: { dot: "bg-amber-500", cls: "border-amber-300 bg-amber-50 text-amber-900",
+    not_started: { dot: "bg-amber-500", cls: "border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300",
       title: "No follow-ups", sub: "Sent without the follow-up tag. Nobody is chasing this one but us." },
-    waiting: { dot: "bg-sky-500", cls: "border-sky-300 bg-sky-50 text-sky-900",
+    waiting: { dot: "bg-sky-500", cls: "border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/60 text-sky-900 dark:text-sky-300",
       title: "Follow-ups start with the send", sub: "Scheduled — the tag goes on when the estimate does." },
   }[info.status];
   return (
@@ -306,7 +306,7 @@ function SinceEstimateCard({ info, discovery }: {
       </div>
       {discovery ? (
         <p className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium",
-          discovery.done ? "bg-emerald-50 text-emerald-800" : "bg-muted/50 text-muted-foreground")}>
+          discovery.done ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300" : "bg-muted/50 text-muted-foreground")}>
           <Phone className="h-3.5 w-3.5" />
           {discovery.done
             ? `Discovery call before the estimate${discovery.mid_call_send ? " — sent while on the phone" : ""}`
@@ -343,9 +343,9 @@ function ObjectionsPanel({
   const after = objections.filter((o) => o.timing === "after_estimate");
   const before = objections.filter((o) => o.timing !== "after_estimate");
   const tone = (cat: string) =>
-    cat === "opt_out" ? "border-red-300 bg-red-50 text-red-900"
-      : categories[cat]?.winnable === false ? "border-slate-300 bg-slate-50 text-slate-800"
-      : "border-amber-300 bg-amber-50 text-amber-950";
+    cat === "opt_out" ? "border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/60 text-red-900 dark:text-red-300"
+      : categories[cat]?.winnable === false ? "border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-800 dark:text-slate-300"
+      : "border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 text-amber-950";
   const scan = async () => {
     setScanning(true);
     try {
@@ -374,7 +374,7 @@ function ObjectionsPanel({
               confident" — not a faint "maybe" on some rows and nothing on
               the rest. Not confident is the pile to check first. */}
           <span className={cn("rounded-full px-1.5 text-[9px] font-bold uppercase tracking-wide leading-4",
-            o.confidence === "low" ? "bg-black/10 opacity-80" : "bg-emerald-600/15 text-emerald-900")}>
+            o.confidence === "low" ? "bg-black/10 opacity-80" : "bg-emerald-600/15 text-emerald-900 dark:text-emerald-300")}>
             {o.confidence === "low" ? "Not confident" : "Confident"}
           </span>
           <span className="text-[10px] opacity-70">
@@ -1280,12 +1280,12 @@ export default function LeadDetail() {
     messages.some((m) => m.direction === "inbound" && (m.created_at || "") > askedAt);
   const addressChase = !asked ? null
     : hasHouseNumber(lead.address)
-      ? { replied: true, tone: "bg-emerald-50 text-emerald-800",
+      ? { replied: true, tone: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300",
           text: `Full address received — the follow-up for it can stop.` }
       : repliedSinceAsk
-        ? { replied: true, tone: "bg-sky-50 text-sky-900",
+        ? { replied: true, tone: "bg-sky-50 dark:bg-sky-950/60 text-sky-900 dark:text-sky-300",
             text: `${firstName} replied since we asked — check their message for the full address and update it here.` }
-        : { replied: false, tone: "bg-amber-50 text-amber-900",
+        : { replied: false, tone: "bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300",
             text: `Following up with ${firstName} for their full address — the GHL automation is texting them`
               + (askedAt ? ` (asked ${timeAgo(askedAt)}${lead.form_data?.address_asked_by ? ` by ${lead.form_data.address_asked_by}` : ""})` : "")
               + `. Nothing to do until they reply.` };
@@ -1458,7 +1458,7 @@ export default function LeadDetail() {
           <ListenButton leadId={lead.id} className="mt-1" />          {/* New-customer pricing (Alan, 2026-11-04): so nobody quotes the
               old number on the phone. The estimate already includes it. */}
           {(lead.price_uplift_pct || 0) > 0 ? (
-            <span className="mt-0.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
+            <span className="mt-0.5 inline-flex items-center rounded-full border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300"
               title="Brand-new customer: every price is higher, and their estimate already includes it">
               New customer pricing (+{lead.price_uplift_pct}%)
             </span>
@@ -1502,7 +1502,7 @@ export default function LeadDetail() {
                   setPracticing(false);
                 }
               }}
-              className="border-rose-500/40 text-rose-700 hover:bg-rose-500/10"
+              className="border-rose-500/40 text-rose-700 dark:text-rose-300 hover:bg-rose-500/10"
             >
               {practicing ? (
                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -1896,8 +1896,8 @@ export default function LeadDetail() {
                     const saidOpt = normalizeHeight(said);
                     if (!said || saidOpt === "Didn't answer" || saidOpt === "Not sure") return null;
                     return saidOpt === fenceHeight
-                      ? <p className="mt-1 text-xs font-semibold text-emerald-700">✓ Customer said {said}</p>
-                      : <p className="mt-1 rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">⚠️ Customer said {said}. Only change it if you measured it yourself.</p>;
+                      ? <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">✓ Customer said {said}</p>
+                      : <p className="mt-1 rounded bg-amber-100 dark:bg-amber-950/60 px-2 py-1 text-xs font-bold text-amber-900 dark:text-amber-300">⚠️ Customer said {said}. Only change it if you measured it yourself.</p>;
                   })()}
                 </Field>
                 <Field label="Fence age">
@@ -1941,9 +1941,9 @@ export default function LeadDetail() {
 
               {/* Confidence Note — shown when not confident */}
               {confidencePct === "60" && (
-                <Field label={<span className="text-rose-600">Why are you not confident?</span>}>
+                <Field label={<span className="text-rose-600 dark:text-rose-300">Why are you not confident?</span>}>
                   <textarea
-                    className="w-full border border-rose-200 rounded-xl px-3 py-2 text-sm bg-rose-50/30 focus:outline-none focus:ring-2 focus:ring-rose-300 min-h-[60px]"
+                    className="w-full border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2 text-sm bg-rose-50/30 dark:bg-rose-950/60 focus:outline-none focus:ring-2 focus:ring-rose-300 min-h-[60px]"
                     placeholder="Explain why you're not confident in this measurement..."
                     value={confidenceNote}
                     onChange={(e) => setConfidenceNote(e.target.value)}
@@ -1962,7 +1962,7 @@ export default function LeadDetail() {
                   <button
                     type="button"
                     onClick={() => setFenceSides(answerSides)}
-                    className="text-[11px] font-semibold text-violet-700 underline underline-offset-2 hover:text-violet-900"
+                    className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 underline underline-offset-2 hover:text-violet-900"
                   >
                     Use their answer
                   </button>
@@ -1978,7 +1978,7 @@ export default function LeadDetail() {
                 <Field label="Additional services">
                   <Input placeholder="e.g. gate painting, pressure washing" value={additionalServices} onChange={(e) => setAdditionalServices(e.target.value)} />
                   {additionalServices && additionalServices.toLowerCase() !== "none" && (
-                    <label className="flex items-center gap-2 text-xs mt-1.5 cursor-pointer text-emerald-700">
+                    <label className="flex items-center gap-2 text-xs mt-1.5 cursor-pointer text-emerald-700 dark:text-emerald-300">
                       <input
                         type="checkbox"
                         checked={Boolean(lead?.form_data?.addons_handled)}
@@ -2108,7 +2108,7 @@ export default function LeadDetail() {
                             <span className="ml-1 opacity-80 tabular-nums">· {formatCurrency(sigPrice)}</span>
                           )}
                           <span className={`ml-1 text-[9px] uppercase tracking-wide ${
-                            isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600" : e.status === "pending" ? "text-amber-600" : "text-muted-foreground"
+                            isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600 dark:text-emerald-300" : e.status === "pending" ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"
                           }`}>
                             {e.status === "sent" ? "Sent" : e.status === "pending" ? "Pending" : e.status}
                           </span>
@@ -2182,12 +2182,12 @@ export default function LeadDetail() {
 
               {/* Send disabled — old pipeline */}
               {lead.pipeline_version === "v1" && (
-                <div className="rounded-xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 p-3">
+                <div className="rounded-xl border-2 border-red-300 dark:border-red-800 bg-gradient-to-r from-red-50 to-rose-50 p-3">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-300 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm font-semibold text-red-800">Send disabled — old pipeline</p>
-                      <p className="text-xs text-red-700 mt-0.5">
+                      <p className="text-sm font-semibold text-red-800 dark:text-red-300">Send disabled — old pipeline</p>
+                      <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
                         The old GHL account is no longer reachable, so SMS won't deliver to the customer.
                         Use the <span className="font-semibold">Export to New Pipeline</span> card below first, then send from there.
                       </p>
@@ -2198,12 +2198,12 @@ export default function LeadDetail() {
 
               {/* After-hours warning */}
               {isAfterHours() && sendWhen !== "pick" && lead.pipeline_version !== "v1" && (
-                <div className="rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-3">
+                <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-gradient-to-r from-amber-50 to-orange-50 p-3">
                   <div className="flex items-start gap-2">
-                    <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    <Clock className="h-4 w-4 text-amber-600 dark:text-amber-300 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-amber-800">It's late — consider scheduling</p>
-                      <p className="text-xs text-amber-600 mt-0.5">Customers respond better to messages received between 8-9 AM</p>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">It's late — consider scheduling</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-300 mt-0.5">Customers respond better to messages received between 8-9 AM</p>
                     </div>
                   </div>
                 </div>
@@ -2240,7 +2240,7 @@ export default function LeadDetail() {
                     </div>
                   ) : null}
                   <ScopeDrawingPicker leadId={lead.id} value={scopeDrawing} onChange={setScopeDrawing} />
-                  {scopeDrawing ? <p className="mt-1 text-[11px] text-muted-foreground">Confirmed. It's frozen with these prices when you send.</p> : <p className="mt-1 text-[11px] font-semibold text-amber-800">Tap a drawing to confirm it. The send waits for this.</p>}
+                  {scopeDrawing ? <p className="mt-1 text-[11px] text-muted-foreground">Confirmed. It's frozen with these prices when you send.</p> : <p className="mt-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300">Tap a drawing to confirm it. The send waits for this.</p>}
                 </div>
               ) : null}
               <Field label="Send via">
@@ -2306,7 +2306,7 @@ export default function LeadDetail() {
                       spells out both times for anyone working outside Houston,
                       because the field means Houston time wherever you are. */}
                   {scheduledDate && (
-                    <p className="text-xs text-blue-800">
+                    <p className="text-xs text-blue-800 dark:text-blue-300">
                       {dayHeader(scheduledDate)}
                       {scheduledTime && <> · {bothClocks(centralToUTC(scheduledDate, scheduledTime))}</>}
                     </p>
@@ -2373,7 +2373,7 @@ export default function LeadDetail() {
                       className="rounded border-input"
                     />
                     Estimated in Person
-                    {autoDetected && <span className="text-[10px] text-emerald-600">· auto-detected</span>}
+                    {autoDetected && <span className="text-[10px] text-emerald-600 dark:text-emerald-300">· auto-detected</span>}
                   </label>
                 );
               })() : null}
@@ -2808,7 +2808,7 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
     <Card id="chatbot">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-amber-600" /> Chatbot Messages
+          <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-300" /> Chatbot Messages
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -2824,11 +2824,11 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
                 )}
               </Button>
             ) : (
-              <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
-                <p className="text-xs font-semibold text-violet-700 mb-1.5 flex items-center gap-1">
+              <div className="bg-violet-50 dark:bg-violet-950/60 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+                <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 mb-1.5 flex items-center gap-1">
                   <WandSparkles className="h-3 w-3" /> AI Summary
                 </p>
-                <div className="text-sm text-violet-900 whitespace-pre-line">{summary}</div>
+                <div className="text-sm text-violet-900 dark:text-violet-300 whitespace-pre-line">{summary}</div>
               </div>
             )}
           </div>
@@ -2841,7 +2841,7 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
             {messages.map((msg) => (
               <div key={msg.id}>
                 {msg.is_escalated && (
-                  <div className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1 mb-1">
+                  <div className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 rounded px-2 py-1 mb-1">
                     <AlertTriangle className="h-3 w-3" />
                     Escalated: {msg.escalation_reason || "Could not answer"}
                   </div>
@@ -2850,8 +2850,8 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
                   msg.direction === "user"
                     ? "bg-muted mr-auto"
                     : msg.direction === "human"
-                    ? "bg-blue-50 border border-blue-200 ml-auto text-right"
-                    : "bg-amber-50 border border-amber-200 ml-auto text-right"
+                    ? "bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 ml-auto text-right"
+                    : "bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 ml-auto text-right"
                 }`}>
                   <p className="text-xs font-medium text-muted-foreground mb-0.5">
                     {msg.direction === "user" ? "Customer" : msg.direction === "human" ? "Team (as Amy)" : "Amy"} — {timeAgo(msg.created_at)}
@@ -3123,9 +3123,9 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   };
 
   const scoreColor = (score: number) => {
-    if (score >= 7) return "text-green-600 bg-green-50";
-    if (score >= 4) return "text-amber-600 bg-amber-50";
-    return "text-red-600 bg-red-50";
+    if (score >= 7) return "text-green-600 dark:text-green-300 bg-green-50 dark:bg-green-950/60";
+    if (score >= 4) return "text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60";
+    return "text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950/60";
   };
 
   const formatDuration = (secs: number) => {
@@ -3140,7 +3140,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <Mic className="h-4 w-4 text-purple-600" /> Call Recordings
+            <Mic className="h-4 w-4 text-purple-600 dark:text-purple-300" /> Call Recordings
           </CardTitle>
           <div className="flex gap-2 flex-wrap">
             {recState === "idle" && (
@@ -3157,9 +3157,9 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
             )}
             {recState === "recording" && (
               <>
-                <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-red-50 border border-red-200">
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800">
                   <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
-                  <span className="text-xs font-mono font-semibold text-red-700">{fmtElapsed(elapsed)}</span>
+                  <span className="text-xs font-mono font-semibold text-red-700 dark:text-red-300">{fmtElapsed(elapsed)}</span>
                 </div>
                 <Button variant="default" size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={handleStopRecording}>
                   Stop
@@ -3175,7 +3175,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
               </div>
             )}
             {recState === "done" && (
-              <div className="flex items-center gap-2 px-2.5 py-1 text-xs text-green-700">
+              <div className="flex items-center gap-2 px-2.5 py-1 text-xs text-green-700 dark:text-green-300">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Saved
               </div>
             )}
@@ -3209,7 +3209,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
               const isPlaying = playingId === rec.id;
               const isFailed = rec.status === "failed";
               return (
-                <div key={rec.id} className={`border rounded-lg overflow-hidden ${rec.is_favorite ? "border-amber-300" : ""}`}>
+                <div key={rec.id} className={`border rounded-lg overflow-hidden ${rec.is_favorite ? "border-amber-300 dark:border-amber-800" : ""}`}>
                   <div className="px-3 py-2.5 flex items-start gap-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleToggleFavorite(rec); }}
@@ -3229,8 +3229,8 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                         {rec.recorded_by && (
                           <Badge variant="outline" className="text-[10px]">{rec.recorded_by}</Badge>
                         )}
-                        {rec.status === "pending" && <Badge className="text-[10px] bg-blue-100 text-blue-800">Processing...</Badge>}
-                        {isFailed && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
+                        {rec.status === "pending" && <Badge className="text-[10px] bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300">Processing...</Badge>}
+                        {isFailed && <Badge className="text-[10px] bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300">Failed</Badge>}
                       </div>
                       {analysis && (
                         <>
@@ -3255,7 +3255,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                             </p>
                           )}
                           {analysis.next_action && (
-                            <p className="text-xs text-violet-700 mt-0.5 line-clamp-2 whitespace-normal">
+                            <p className="text-xs text-violet-700 dark:text-violet-300 mt-0.5 line-clamp-2 whitespace-normal">
                               <span className="font-semibold">→ Next:</span> {analysis.next_action}
                             </p>
                           )}
@@ -3902,12 +3902,12 @@ function DepositRow({
         <span className="text-xs font-semibold">Deposit · ${amount.toFixed(0)}</span>
         <Badge className={`${badgeCls} text-[10px] h-5`}>{badgeLabel}</Badge>
         {status === "paid" && (
-          <span className="text-[11px] text-emerald-700 ml-auto">
+          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 ml-auto">
             paid{lead.deposit_paid_method ? ` via ${lead.deposit_paid_method}` : ""}{paidAt ? ` · ${timeAgo(paidAt)}` : ""}
           </span>
         )}
         {status === "pending" && sentAt && (
-          <span className="text-[11px] text-amber-700 ml-auto">sent {timeAgo(sentAt)}</span>
+          <span className="text-[11px] text-amber-700 dark:text-amber-300 ml-auto">sent {timeAgo(sentAt)}</span>
         )}
       </div>
 
@@ -3939,7 +3939,7 @@ function DepositRow({
             <button
               onClick={handleMarkPaid}
               disabled={markingPaid}
-              className="text-[11px] text-emerald-700 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
+              className="text-[11px] text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
               title="Record a deposit paid outside QuickBooks (Zelle, cash, check)"
             >
               {markingPaid ? "Marking paid…" : "Mark paid (Zelle/cash)"}
@@ -4007,7 +4007,7 @@ function DepositRow({
             <button
               onClick={handleMarkPaid}
               disabled={markingPaid}
-              className="text-[11px] text-emerald-700 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
+              className="text-[11px] text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
               title="Record a deposit paid outside QuickBooks (Zelle, cash, check)"
             >
               {markingPaid ? "Marking paid…" : "Mark paid (Zelle/cash)"}
@@ -4024,7 +4024,7 @@ function DepositRow({
       )}
 
       {status === "waived" && (
-        <p className="text-[11px] text-slate-700">Schedule freely — no gate warning will appear.</p>
+        <p className="text-[11px] text-slate-700 dark:text-slate-300">Schedule freely — no gate warning will appear.</p>
       )}
     </div>
   );
@@ -4047,7 +4047,7 @@ function FullInvoiceRow({
         <div className="flex items-center gap-2 flex-wrap">
           <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-xs font-semibold">Full Invoice</span>
-          <Badge className="bg-slate-300 text-slate-800 text-[10px] h-5">N/A YET</Badge>
+          <Badge className="bg-slate-300 text-slate-800 dark:text-slate-300 text-[10px] h-5">N/A YET</Badge>
           <span className="text-[11px] text-muted-foreground ml-auto">Schedule a job to enable.</span>
         </div>
       </div>
@@ -4078,7 +4078,7 @@ function FullInvoiceRow({
             href={job.qb_invoice_url}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto text-[11px] text-blue-700 hover:underline"
+            className="ml-auto text-[11px] text-blue-700 dark:text-blue-300 hover:underline"
           >
             View {job.qb_invoice_status || "invoice"}
           </a>
@@ -4136,24 +4136,24 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
 
   const sentColor = (s?: string) => {
     const v = (s || "").toLowerCase();
-    if (v.includes("pos")) return "text-emerald-700";
-    if (v.includes("neg")) return "text-red-700";
-    return "text-slate-700";
+    if (v.includes("pos")) return "text-emerald-700 dark:text-emerald-300";
+    if (v.includes("neg")) return "text-red-700 dark:text-red-300";
+    return "text-slate-700 dark:text-slate-300";
   };
   const scoreColor = (n?: number) => {
     if (!n) return "text-slate-500";
-    if (n >= 8) return "text-emerald-700";
-    if (n >= 5) return "text-amber-700";
-    return "text-red-700";
+    if (n >= 8) return "text-emerald-700 dark:text-emerald-300";
+    if (n >= 5) return "text-amber-700 dark:text-amber-300";
+    return "text-red-700 dark:text-red-300";
   };
 
   if (status === "analyzed" && analysis) {
     return (
-      <Card className="border-violet-200 bg-violet-50/40">
+      <Card className="border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-950/60">
         <CardContent className="py-3 px-4 space-y-2">
           <div className="flex items-baseline gap-2 flex-wrap text-sm">
-            <Mic className="h-3.5 w-3.5 text-violet-700 shrink-0 self-center" />
-            <span className="font-semibold text-violet-900">Last call intel</span>
+            <Mic className="h-3.5 w-3.5 text-violet-700 dark:text-violet-300 shrink-0 self-center" />
+            <span className="font-semibold text-violet-900 dark:text-violet-300">Last call intel</span>
             {(analysis.call_score ?? 0) > 0 && (
               <span className={`font-mono font-bold ${scoreColor(analysis.call_score)}`}>
                 {analysis.call_score}/10
@@ -4166,7 +4166,7 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
               · {Math.round((candidate.duration_seconds || 0) / 60)} min
             </span>
             <span className="text-xs text-muted-foreground">· {timeAgo(candidate.created_at)}</span>
-            <span className="ml-auto text-[11px] text-violet-700 capitalize">
+            <span className="ml-auto text-[11px] text-violet-700 dark:text-violet-300 capitalize">
               {analysis.close_likelihood?.replace(/_/g, " ") || ""}
             </span>
           </div>
@@ -4175,7 +4175,7 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
           )}
           {analysis.next_action && (
             <p className="text-sm">
-              <span className="font-semibold text-violet-900">→ Next: </span>
+              <span className="font-semibold text-violet-900 dark:text-violet-300">→ Next: </span>
               {analysis.next_action}
             </p>
           )}
@@ -4192,7 +4192,7 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
 
   if (status === "pending" || status === "transcribed") {
     return (
-      <Card className="border-slate-200 bg-slate-50/60">
+      <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60">
         <CardContent className="py-2 px-4 text-xs text-muted-foreground flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Last call captured {timeAgo(candidate.created_at)} — analyzing now ({Math.round((candidate.duration_seconds || 0) / 60)} min recording). The full transcript + analysis appear in the Call Recordings card below once ready.
@@ -4204,8 +4204,8 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
   // status === "failed" — soft fail. CallRecordingsCard below has the
   // retry button so we don't duplicate it here.
   return (
-    <Card className="border-amber-200 bg-amber-50/60">
-      <CardContent className="py-2 px-4 text-xs text-amber-900">
+    <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/60">
+      <CardContent className="py-2 px-4 text-xs text-amber-900 dark:text-amber-300">
         Last call (from {timeAgo(candidate.created_at)}) couldn't be transcribed. See Call Recordings below to retry.
       </CardContent>
     </Card>
@@ -4221,10 +4221,10 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
 // — the card always renders so admin can see at a glance whether
 // route-stacking is available.
 const QB_STATUS_STYLE: Record<string, string> = {
-  paid: "bg-emerald-100 text-emerald-800",
-  partial: "bg-amber-100 text-amber-800",
-  unpaid: "bg-rose-100 text-rose-700",
-  void: "bg-gray-100 text-gray-500",
+  paid: "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300",
+  partial: "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300",
+  unpaid: "bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300",
+  void: "bg-gray-100 dark:bg-gray-950/60 text-gray-500",
 };
 function qbMoney(n: number): string {
   return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -4277,10 +4277,10 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
           <>
             <div className="grid grid-cols-3 gap-2">
               <StatTile icon={CheckCircle2} label="Paid" accent={ACCENT.emerald}>
-                <p className="font-heading text-lg font-bold tabular-nums text-emerald-700">{qbMoney(roll?.paid || 0)}</p>
+                <p className="font-heading text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{qbMoney(roll?.paid || 0)}</p>
               </StatTile>
               <StatTile icon={Hourglass} label="Balance" accent={ACCENT.amber}>
-                <p className="font-heading text-lg font-bold tabular-nums text-amber-700">{qbMoney(roll?.balance || 0)}</p>
+                <p className="font-heading text-lg font-bold tabular-nums text-amber-700 dark:text-amber-300">{qbMoney(roll?.balance || 0)}</p>
               </StatTile>
               <StatTile icon={Receipt} label="Total" accent={ACCENT.slate} hint={`${roll?.count} invoice${roll?.count === 1 ? "" : "s"}`}>
                 <p className="font-heading text-lg font-bold tabular-nums">{qbMoney(roll?.total || 0)}</p>
@@ -4299,7 +4299,7 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
                       paid {qbMoney(inv.amount_paid)}{inv.balance > 0 ? ` · bal ${qbMoney(inv.balance)}` : ""}
                     </div>
                   </div>
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${QB_STATUS_STYLE[inv.status] || "bg-gray-100 text-gray-600"}`}>
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${QB_STATUS_STYLE[inv.status] || "bg-gray-100 dark:bg-gray-950/60 text-gray-600 dark:text-gray-300"}`}>
                     {inv.status}
                   </span>
                   <button onClick={() => unlink(inv)} title="Unlink" className="text-muted-foreground hover:text-red-600 shrink-0">
@@ -4434,8 +4434,8 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
             The 'pitch this date' callout is a one-line shortcut admin
             can read mid-call. */}
         {!loading && topPick?.same_zip && (
-          <div className="rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-2.5">
-            <p className="text-xs font-semibold text-emerald-900 mb-0.5">
+          <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-gradient-to-r from-emerald-50 to-teal-50 p-2.5">
+            <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-300 mb-0.5">
               💡 Route-stack suggestion
             </p>
             <p className="text-sm">
@@ -4451,7 +4451,7 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
         {/* Same-ZIP tier */}
         {!loading && sameZip.length > 0 && (
           <div>
-            <p className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wide mb-1">
+            <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide mb-1">
               Same ZIP ({sameZip.length})
             </p>
             <ul className="space-y-1">
@@ -4526,7 +4526,7 @@ function HeaderMeta({
     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
       {location ? <Pill accent={ACCENT.ink}>{location}</Pill> : null}
       {viewCount > 0 ? (
-        <span className={cn("inline-flex items-center gap-1 font-medium", hot ? "text-emerald-700" : "text-foreground")}>
+        <span className={cn("inline-flex items-center gap-1 font-medium", hot ? "text-emerald-700 dark:text-emerald-300" : "text-foreground")}>
           <Eye className="h-3.5 w-3.5" />
           Viewed {viewCount}×{lastViewedAt ? `, last ${timeAgo(lastViewedAt)}` : ""}{hot ? " 🔥" : ""}
         </span>
@@ -4709,7 +4709,7 @@ function CallDispositionCard({ leadId, contactName }: { leadId: string; contactN
     DISPOSITION_OPTIONS.find((d) => d.value === o)?.icon || "•";
 
   return (
-    <Card className="border-blue-200 bg-blue-50/30">
+    <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/60">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm sm:text-base flex items-center gap-2">
           <Phone className="h-4 w-4" /> Log a Call
@@ -4731,7 +4731,7 @@ function CallDispositionCard({ leadId, contactName }: { leadId: string; contactN
               className={`text-xs px-2.5 py-1.5 rounded-md font-medium transition-all border ${
                 picked === opt.value
                   ? `${opt.cls} border-transparent shadow-sm`
-                  : "bg-white hover:bg-muted/40 border-input text-foreground"
+                  : "bg-card hover:bg-muted/40 border-input text-foreground"
               }`}
             >
               <span className="mr-1">{opt.icon}</span>
@@ -4788,7 +4788,7 @@ function CallDispositionCard({ leadId, contactName }: { leadId: string; contactN
             {showHistory && (
               <ul className="mt-2 space-y-1.5">
                 {history.map((d) => (
-                  <li key={d.id} className="text-xs bg-white border rounded-md px-2.5 py-1.5">
+                  <li key={d.id} className="text-xs bg-card border rounded-md px-2.5 py-1.5">
                     <div className="flex items-baseline gap-1.5 flex-wrap">
                       <span>{optionIcon(d.outcome)}</span>
                       <span className="font-semibold">{optionLabel(d.outcome)}</span>
@@ -4803,7 +4803,7 @@ function CallDispositionCard({ leadId, contactName }: { leadId: string; contactN
                       {d.callback_at && (
                         <>
                           <span className="text-muted-foreground">·</span>
-                          <span className="text-blue-700">callback {formatDateTime(d.callback_at)}</span>
+                          <span className="text-blue-700 dark:text-blue-300">callback {formatDateTime(d.callback_at)}</span>
                         </>
                       )}
                     </div>
@@ -4826,3 +4826,4 @@ function CallDispositionCard({ leadId, contactName }: { leadId: string; contactN
     </Card>
   );
 }
+

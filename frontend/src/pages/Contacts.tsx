@@ -42,8 +42,8 @@ function fmtDate(iso: string): string {
 
 function Stat({ label, value, hint, tone }: { label: string; value: number | string; hint?: string; tone?: "alert" }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 ${tone === "alert" ? "border-red-400 bg-red-50" : "bg-card"}`}>
-      <div className={`text-lg font-semibold leading-tight ${tone === "alert" ? "text-red-700" : ""}`}>{value}</div>
+    <div className={`rounded-lg border px-3 py-2 ${tone === "alert" ? "border-red-400 bg-red-50 dark:bg-red-950/60" : "bg-card"}`}>
+      <div className={`text-lg font-semibold leading-tight ${tone === "alert" ? "text-red-700 dark:text-red-300" : ""}`}>{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
       {hint ? <div className="text-[11px] text-muted-foreground/80 mt-0.5">{hint}</div> : null}
     </div>
@@ -78,7 +78,7 @@ function ReferralsList() {
         <div key={r.created_at + r.name} className="rounded-xl border bg-card p-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             {r.lead_id ? <a href={`/leads/${r.lead_id}`} className="font-heading text-base font-bold hover:underline">{r.name}</a> : <span className="font-heading text-base font-bold">{r.name}</span>}
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.paid ? "bg-emerald-600 text-white" : r.stage === "Estimate sent" ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-900"}`}>{r.stage}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.paid ? "bg-emerald-600 text-white" : r.stage === "Estimate sent" ? "bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300" : "bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300"}`}>{r.stage}</span>
           </div>
           <p className="mt-0.5 text-muted-foreground">
             Referred by <a href={`/leads/${r.referrer_lead_id}`} className="font-semibold text-foreground underline">{r.referrer_name || "a customer"}</a>
@@ -86,9 +86,9 @@ function ReferralsList() {
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
             {r.phone ? <a href={`tel:${r.phone}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium"><Phone className="h-3 w-3" />{fmtPhone(r.phone)}</a> : null}
-            {r.address ? <span className="text-muted-foreground">{r.address}</span> : <span className="text-amber-700">No address yet</span>}
-            <span className={r.texted ? "text-emerald-700" : "text-rose-700"}>{r.texted ? "✓ Welcome text sent" : "Welcome text didn't go out"}</span>
-            {r.paid ? <span className="font-semibold text-emerald-700">· Owe {r.referrer_name.split(" ")[0] || "them"} $100</span> : null}
+            {r.address ? <span className="text-muted-foreground">{r.address}</span> : <span className="text-amber-700 dark:text-amber-300">No address yet</span>}
+            <span className={r.texted ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"}>{r.texted ? "✓ Welcome text sent" : "Welcome text didn't go out"}</span>
+            {r.paid ? <span className="font-semibold text-emerald-700 dark:text-emerald-300">· Owe {r.referrer_name.split(" ")[0] || "them"} $100</span> : null}
           </div>
         </div>
       ))}
@@ -210,7 +210,7 @@ function scroller(): HTMLElement | null {
 }
 
 function toneClass(tone: string) {
-  return tone === "hot" ? "text-rose-700" : tone === "warm" ? "text-amber-700"
+  return tone === "hot" ? "text-rose-700 dark:text-rose-300" : tone === "warm" ? "text-amber-700 dark:text-amber-300"
     : tone === "off" ? "text-muted-foreground line-through" : "text-foreground";
 }
 
@@ -221,19 +221,19 @@ function toneClass(tone: string) {
 function EstimateBadge({ c }: { c: ContactRow }) {
   if (c.estimate_send_overdue) {
     return (
-      <Badge variant="outline" className="border-red-500 text-red-700"
+      <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300"
         title="Queued but still not sent well past its send time — the SMS worker may be stalled. This customer has no price yet.">
         send overdue
       </Badge>
     );
   }
   if (c.estimate_scheduled) {
-    return <Badge variant="outline" className="border-blue-400 text-blue-700" title="Estimate approved and queued — the text goes out shortly">sending</Badge>;
+    return <Badge variant="outline" className="border-blue-400 text-blue-700 dark:text-blue-300" title="Estimate approved and queued — the text goes out shortly">sending</Badge>;
   }
   // Yes or no, big (Alan, 2026-11-04): "instead of saying never sent and sent".
-  if (c.estimate_sent) return <span className="text-lg font-extrabold tracking-wide text-emerald-600">YES</span>;
+  if (c.estimate_sent) return <span className="text-lg font-extrabold tracking-wide text-emerald-600 dark:text-emerald-300">YES</span>;
   return (
-    <span className="text-lg font-extrabold tracking-wide text-red-600"
+    <span className="text-lg font-extrabold tracking-wide text-red-600 dark:text-red-300"
       title={c.intake_count > 1 ? "They came back and nobody has priced them since" : "No estimate sent yet"}>
       NO
     </span>
@@ -271,9 +271,9 @@ export default function Contacts() {
   }, { replace: true });
   const tab = (a: "sterling" | "at", label: string) => (
     <button type="button" onClick={() => pick(a)}
-      className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-bold transition ${account === a ? "bg-[#1F1A14] text-white" : "bg-white text-[#1F1A14] ring-1 ring-[#E4DCCB] hover:bg-[#F8F3E7]"}`}>
+      className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-bold transition ${account === a ? "bg-[#1F1A14] text-white dark:bg-primary dark:text-primary-foreground" : "bg-card text-foreground ring-1 ring-border hover:bg-accent"}`}>
       {label}
-      {counts[a] !== undefined ? <span className={`rounded-full px-2 text-[13px] ${account === a ? "bg-white/15" : "bg-[#F3EEE4]"}`}>{counts[a]!.toLocaleString()}</span> : null}
+      {counts[a] !== undefined ? <span className={`rounded-full px-2 text-[13px] ${account === a ? "bg-white/15" : "bg-muted"}`}>{counts[a]!.toLocaleString()}</span> : null}
     </button>
   );
   return (
@@ -526,7 +526,7 @@ function SterlingContacts() {
           </Button>
         ))}
         <Button size="sm" variant={showRefs ? "default" : "outline"} onClick={() => setShowRefs((v) => !v)}
-          title="Friends our customers sent us, and who sent them" className={showRefs ? "" : "border-emerald-300 text-emerald-800"}>
+          title="Friends our customers sent us, and who sent them" className={showRefs ? "" : "border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300"}>
           🎁 Referrals
         </Button>
         <span className="mx-1 hidden h-5 w-px bg-border sm:inline-block" />
@@ -547,12 +547,12 @@ function SterlingContacts() {
       </div>
 
       {note ? (
-        <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">
+        <div className="rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/60 px-3 py-2 text-sm text-green-900 dark:text-green-300">
           {note}
         </div>
       ) : null}
       {error ? (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+        <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/60 px-3 py-2 text-sm text-red-900 dark:text-red-300">
           {error}
         </div>
       ) : null}
@@ -580,7 +580,7 @@ function SterlingContacts() {
             key={c.id}
             data-lead-row={c.lead_id || undefined}
             onClick={() => c.lead_id && openLead(c.lead_id)}
-            className={`rounded-xl border bg-card p-3 transition-colors duration-700 ${c.lead_id ? "cursor-pointer active:bg-muted/40" : ""} ${flash && flash === c.lead_id ? "bg-amber-100" : ""}`}
+            className={`rounded-xl border bg-card p-3 transition-colors duration-700 ${c.lead_id ? "cursor-pointer active:bg-muted/40" : ""} ${flash && flash === c.lead_id ? "bg-amber-100 dark:bg-amber-950/60" : ""}`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -590,7 +590,7 @@ function SterlingContacts() {
                   {c.opted_out ? (
                     <Badge variant="destructive" className="gap-1"><Ban className="h-3 w-3" /> {c.asked_to_stop ? "told us to stop" : "opted out"}</Badge>
                   ) : c.texts_bouncing ? (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700">texts bouncing</Badge>
+                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">texts bouncing</Badge>
                   ) : null}
                   {c.intake_count > 1 ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold text-bronze">
@@ -645,7 +645,7 @@ function SterlingContacts() {
                 key={c.id}
                 data-lead-row={c.lead_id || undefined}
                 onClick={() => c.lead_id && openLead(c.lead_id)}
-                className={`border-t transition-colors duration-700 hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""} ${flash && flash === c.lead_id ? "bg-amber-100" : ""}`}
+                className={`border-t transition-colors duration-700 hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""} ${flash && flash === c.lead_id ? "bg-amber-100 dark:bg-amber-950/60" : ""}`}
               >
                 <td className="px-2 py-2 text-xs text-muted-foreground tabular-nums">{offset + i + 1}</td>
                 <td className="px-3 py-2">
@@ -659,7 +659,7 @@ function SterlingContacts() {
                         <Ban className="h-3 w-3" /> {c.asked_to_stop ? "told us to stop" : "opted out"}
                       </Badge>
                     ) : c.texts_bouncing ? (
-                      <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700" title={`Texts don't deliver — ${c.dnd_note}. Call instead.`}>
+                      <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 dark:text-amber-300" title={`Texts don't deliver — ${c.dnd_note}. Call instead.`}>
                         texts bouncing
                       </Badge>
                     ) : null}
@@ -762,3 +762,4 @@ function SterlingContacts() {
     </div>
   );
 }
+

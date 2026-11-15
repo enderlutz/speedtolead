@@ -9,6 +9,7 @@ import { isBrickAllowedPath } from "@/lib/brickNav";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import UpdateBanner from "@/components/UpdateBanner";
 import StaffQuestion from "@/components/StaffQuestion";
+import DashboardThemeProvider from "@/components/DashboardThemeProvider";
 const Login = lazy(() => import("@/pages/Login"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Leads = lazy(() => import("@/pages/Leads"));
@@ -239,6 +240,7 @@ function AppLayout() {
     // (Alan, 2026-10-20: Russ Schamun's estimate stayed a white screen).
     return (
       <Suspense fallback={<PageLoading />}>
+      <Toaster position="top-right" richColors theme="light" />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalLive />} />
@@ -268,6 +270,7 @@ function AppLayout() {
 
   return (
     <RequireAuth>
+      <DashboardThemeProvider key={currentUser?.sub} username={currentUser?.sub || ""}>
       <UpdateBanner />
       <StaffQuestion />
       <div className="flex h-dvh bg-background overflow-hidden">
@@ -365,6 +368,7 @@ function AppLayout() {
         <CallSession />
         <TrainingSummaryModal />
       </div>
+      </DashboardThemeProvider>
     </RequireAuth>
   );
 }
@@ -376,8 +380,8 @@ export default function App() {
     <BrowserRouter>
       <TrainingModeProvider>
         <AppLayout />
-        <Toaster position="top-right" richColors />
       </TrainingModeProvider>
     </BrowserRouter>
   );
 }
+
