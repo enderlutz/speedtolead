@@ -71,11 +71,9 @@ export default function ColorsLink({ embedded = false, line }: { embedded?: bool
           Every color here is on a real fence we stained. Tap one to see it bigger.
           Text us the name of the one you like.
         </p>
-        {pick ? (
-          <p className="mt-2 text-[15px] leading-relaxed text-[#555]">
-            Not sure? Our crew brings sample sticks on cleaning day and holds them up to your fence, so you can see each one in your own light.
-          </p>
-        ) : (
+        {/* No "we'll show you samples in person" here (Alan, 2026-11-14): the
+            point of this link is to pick without a visit. */}
+        {pick ? null : (
           <p className="mt-2 text-[15px] leading-relaxed text-[#555]">
             <strong className="font-semibold text-[#1a1a1a]">Semi-transparent</strong> lets the wood grain show through.{" "}
             <strong className="font-semibold text-[#1a1a1a]">Solid</strong> is one even color that covers everything.
