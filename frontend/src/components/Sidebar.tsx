@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
 import ThemeSwitch from "@/components/ThemeSwitch";
+import InstallApp from "@/components/InstallApp";
 import { BookOpen, LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, HardHat, Calendar, Gauge, FileText, Lightbulb, Sun, ListChecks, PaintBucket, Camera, Images, Contact, Megaphone, PhoneCall, FlaskConical, Landmark, KanbanSquare, Clock } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
@@ -373,6 +374,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Revenue widget — financial data; admin + Office VA only (anyone
             with price visibility), never crew/workers. */}
         {hasPerm("see_prices") && <SidebarRevenueWidget />}
+
+        {/* Put the dashboard on the phone's home screen (hidden once installed). */}
+        <InstallApp />
 
         {/* Footer */}
         <SidebarFooter />
