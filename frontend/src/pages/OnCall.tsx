@@ -96,7 +96,7 @@ function CallCounts() {
   }, []);
   const checking = (n: number) => (n > 0 ? <span className="ml-1 text-sm font-normal text-muted-foreground">(+{n} checking)</span> : null);
   return (
-    <div className="w-full rounded-lg border border-gold/40 bg-white p-3 shadow-sm sm:w-80">
+    <div className="w-full rounded-lg border border-gold/40 bg-card p-3 shadow-sm sm:w-80">
       <div className="mb-1 text-base font-semibold text-ink">Calls</div>
       <table className="w-full text-[15px]">
         <thead>
@@ -152,7 +152,7 @@ function VaCallbacks() {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {shown.map((p) => (
-        <div key={p.username} className="rounded-lg border border-gold/40 bg-white p-3 shadow-sm">
+        <div key={p.username} className="rounded-lg border border-gold/40 bg-card p-3 shadow-sm">
           <div className="mb-1 text-base font-semibold text-ink">{p.name}'s calls today ({p.callbacks.length})</div>
           <div className="divide-y divide-ink/10">
             {p.callbacks.map((c) => (
@@ -160,7 +160,7 @@ function VaCallbacks() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2">
                     <Link to={`/leads/${c.lead_id}`} className="text-base font-semibold text-ink underline-offset-2 hover:underline">{c.name || "Customer"}</Link>
-                    <span className={`text-sm font-semibold tabular-nums ${c.overdue ? "text-rose-700" : "text-cedar"}`}>
+                    <span className={`text-sm font-semibold tabular-nums ${c.overdue ? "text-rose-700 dark:text-rose-300" : "text-cedar"}`}>
                       {when(c.when)}{c.overdue ? " · overdue" : ""}
                     </span>
                   </div>
@@ -216,14 +216,14 @@ function NowPanel() {
     <div className="space-y-3">
       {who?.me ? <MyShift me={who.me} now={now} /> : null}
       <Breaks onCallNow={!!who?.me?.current} tick={tick} onChanged={() => setTick((x) => x + 1)} />
-      <div className={`rounded-xl p-3 text-sm font-semibold ${!who ? "bg-muted" : !who.in_hours ? "bg-slate-800 text-white" : who.on_call.length ? "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200" : "bg-rose-50 text-rose-900 ring-1 ring-rose-200"}`}>
+      <div className={`rounded-xl p-3 text-sm font-semibold ${!who ? "bg-muted" : !who.in_hours ? "bg-slate-800 text-white" : who.on_call.length ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-950 ring-1 ring-emerald-200" : "bg-rose-50 dark:bg-rose-950/60 text-rose-900 dark:text-rose-300 ring-1 ring-rose-200"}`}>
         {!who ? "Loading…" : !who.in_hours ? "After hours. New leads wait for the 8 AM list."
           : who.on_call.length ? `On call now: ${who.on_call.map((p) => p.name).join(" & ")}` : "Nobody is on call right now. Add someone on the Schedule tab."}
       </div>
       {leads === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
       {leads && !leads.length ? <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Every new lead has been called. 🎉</p> : null}
       {waitingNow.map((l) => (
-        <div key={l.lead_id} className={`rounded-xl border p-3 ${l.late_alerted ? "border-rose-300 bg-rose-50/50" : "border-border bg-card"}`}>
+        <div key={l.lead_id} className={`rounded-xl border p-3 ${l.late_alerted ? "border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/60" : "border-border bg-card"}`}>
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <Link to={`/leads/${l.lead_id}`} className="block truncate text-base font-semibold capitalize underline-offset-2 hover:underline">{(l.name || "New lead").toLowerCase()}</Link>
@@ -327,7 +327,7 @@ function Breaks({ onCallNow, tick, onChanged }: { onCallNow: boolean; tick: numb
   return (
     <>
       {others.map((b) => (
-        <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-100 p-3 text-amber-950 ring-1 ring-amber-300">
+        <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-100 dark:bg-amber-950/60 p-3 text-amber-950 ring-1 ring-amber-300">
           <p className="flex-1 text-sm font-semibold">{b.name} needs a break. Can you take new leads {fmtMin(b.start_min)}–{fmtMin(b.end_min)}?</p>
           <Button disabled={busy} className="min-h-11" onClick={() => run(() => api.onCallTakeBreak(b.id), `You're on until ${fmtMin(b.end_min)}`)}>
             <Check className="mr-1 h-4 w-4" /> I'll take it
@@ -335,12 +335,12 @@ function Breaks({ onCallNow, tick, onChanged }: { onCallNow: boolean; tick: numb
         </div>
       ))}
       {covering.map((b) => (
-        <p key={b.id} className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
+        <p key={b.id} className="rounded-xl bg-emerald-50 dark:bg-emerald-950/60 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
           You're covering for {b.name} until {fmtMin(b.end_min)}. New leads come to you.
         </p>
       ))}
       {mineTaken ? (
-        <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
+        <p className="rounded-xl bg-emerald-50 dark:bg-emerald-950/60 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
           {mineTaken.taken_by_name} is covering you until {fmtMin(mineTaken.end_min)}. Leads come back to you after that.
         </p>
       ) : mine ? (
@@ -427,7 +427,7 @@ function FreshTimer({ since, nowMs, calledAt }: { since: string; nowMs: number; 
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const text = h ? `${h}h ${m}m` : `${m}:${String(s).padStart(2, "0")}`;
   // Green the first 5 minutes, amber to 15, red after.
-  const color = sec < 300 ? "bg-emerald-100 text-emerald-800" : sec < 900 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700";
+  const color = sec < 300 ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300" : sec < 900 ? "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300" : "bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300";
   if (calledAt) return <span className={`shrink-0 rounded px-1.5 py-0.5 text-sm font-semibold tabular-nums ${color}`} title="Time from the form to the first call">✓ called in {text}</span>;
   return <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-sm font-semibold tabular-nums ${color}`} title="Since they filled the form">⏱ {text}</span>;
 }
@@ -475,7 +475,7 @@ function TodoColumn({ title, sub, rows, accent, onRemoved, className = "" }: {
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Link to={`/leads/${r.lead_id}`} className="min-w-0 text-base font-semibold leading-tight underline-offset-2 hover:underline">{r.name || "No name"}</Link>
                     {r.key === "fresh" ? <FreshTimer since={r.came_in} nowMs={nowMs} calledAt={r.called_at} /> : null}
-                    {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-sm font-semibold text-amber-800">filled again</span> : null}
+                    {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 text-sm font-semibold text-amber-800 dark:text-amber-300">filled again</span> : null}
                   </div>
                   {r.why ? (
                     <>
@@ -585,9 +585,9 @@ function SchedulePanel({ isAdmin }: { isAdmin: boolean }) {
                   <ul className="mt-1 space-y-0.5">
                     {todays.map((s) => <li key={s.id} className="text-sm tabular-nums">{name(s.username)} · {hhmm(s.start_min)}–{hhmm(s.end_min)}</li>)}
                   </ul>
-                  {gaps.map(([a, b]) => <p key={a} className="text-sm font-semibold text-rose-700">Gap: nobody on {hhmm(a)}–{hhmm(b)}</p>)}
+                  {gaps.map(([a, b]) => <p key={a} className="text-sm font-semibold text-rose-700 dark:text-rose-300">Gap: nobody on {hhmm(a)}–{hhmm(b)}</p>)}
                 </>
-              ) : <p className="mt-1 text-sm font-semibold text-rose-700">Nobody on call</p>}
+              ) : <p className="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300">Nobody on call</p>}
             </div>
           );
         })}
@@ -634,7 +634,7 @@ function ScorePanel() {
                  ["Missed", String(r.missed)], ["Close rate", `${r.close_pct}%`]] as const).map(([l, v]) => (
                 <div key={l} className="rounded-lg bg-muted/50 p-2">
                   <p className="text-[11px] font-semibold uppercase text-muted-foreground">{l}</p>
-                  <p className={`text-lg font-bold tabular-nums ${l === "Called ≤5 min" ? (r.within_5_pct >= 80 ? "text-emerald-700" : "text-rose-700") : ""}`}>{v}</p>
+                  <p className={`text-lg font-bold tabular-nums ${l === "Called ≤5 min" ? (r.within_5_pct >= 80 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300") : ""}`}>{v}</p>
                 </div>
               ))}
             </div>
@@ -647,10 +647,10 @@ function ScorePanel() {
 }
 
 const FLAG: Record<OnCallLogRow["flag"], { label: string; cls: string }> = {
-  on_time: { label: "On time", cls: "bg-emerald-100 text-emerald-900" },
-  late: { label: "Late", cls: "bg-amber-100 text-amber-900" },
+  on_time: { label: "On time", cls: "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300" },
+  late: { label: "Late", cls: "bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300" },
   missed: { label: "Missed", cls: "bg-rose-600 text-white" },
-  waiting: { label: "Waiting", cls: "bg-slate-200 text-slate-800" },
+  waiting: { label: "Waiting", cls: "bg-slate-200 dark:bg-slate-950/60 text-slate-800 dark:text-slate-300" },
 };
 
 /** Admin only (Cruz, 2026-10-19): every lead, its time to the first call,
@@ -710,7 +710,7 @@ function ReportPanel() {
           {total ? `${Math.round((counts.on_time / total) * 100)}% of ${total} leads called within 5 minutes` : "No leads in this range yet."}
         </p>
         {flaggedBy.length ? (
-          <p className="text-sm text-rose-800">Flags: {flaggedBy.map(([who, n]) => `${who} ${n}`).join(" · ")}</p>
+          <p className="text-sm text-rose-800 dark:text-rose-300">Flags: {flaggedBy.map(([who, n]) => `${who} ${n}`).join(" · ")}</p>
         ) : null}
         <div className="flex gap-2">
           {(["all", "flagged"] as const).map((o) => (
@@ -737,8 +737,8 @@ function ReportPanel() {
               </span>
               <span className="block text-xs text-muted-foreground">
                 {r.text_sent_at
-                  ? <span className="font-semibold text-emerald-700">✓ Auto text {new Date(r.text_sent_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-                  : <span className="font-semibold text-amber-700">No auto text found</span>}
+                  ? <span className="font-semibold text-emerald-700 dark:text-emerald-300">✓ Auto text {new Date(r.text_sent_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                  : <span className="font-semibold text-amber-700 dark:text-amber-300">No auto text found</span>}
                 {" · "}on call: {r.on_call}{r.called_by && r.called_by !== r.on_call ? ` · called by ${r.called_by}` : ""}
               </span>
             </span>
@@ -748,7 +748,7 @@ function ReportPanel() {
               </span>
               <span className="block text-[11px] text-muted-foreground">after the clock started</span>
               {r.minutes_total != null && r.waited_before_start ? (
-                <span className="block text-[11px] font-semibold text-rose-700">{dur(r.minutes_total)} since the form</span>
+                <span className="block text-[11px] font-semibold text-rose-700 dark:text-rose-300">{dur(r.minutes_total)} since the form</span>
               ) : null}
             </span>
           </div>
@@ -775,7 +775,7 @@ function TeamPanel() {
         Where each person gets new-lead alerts. The VAs have Honduran numbers, so use WhatsApp. Link their GoHighLevel login so new leads
         are assigned to them in GHL and the GHL app on their phone notifies them too. Everyone keeps getting the usual copy of every lead.
       </p>
-      {ghlError ? <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{ghlError}</p> : null}
+      {ghlError ? <p className="rounded-lg bg-amber-50 dark:bg-amber-950/60 p-2 text-xs text-amber-900 dark:text-amber-300">{ghlError}</p> : null}
       {people.map((p) => <PersonRow key={p.username} p={p} ghl={ghl} onSaved={() => setTick((x) => x + 1)} />)}
     </div>
   );
@@ -832,3 +832,4 @@ function PersonRow({ p, ghl, onSaved }: { p: OnCallPerson; ghl: { id: string; na
     </Card>
   );
 }
+
