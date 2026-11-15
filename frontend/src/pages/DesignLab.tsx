@@ -143,17 +143,17 @@ export default function DesignLab() {
         ) : null} />
 
       {tab === "screens" && view === "proposal" ? (
-        <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">
+        <div className="keep-light overflow-hidden rounded-2xl ring-1 ring-ink/10">
           <ProposalMockup embedded />
         </div>
       ) : null}
 
-      {tab === "screens" && view === "quote" ? <QuoteMockup embedded /> : null}
+      {tab === "screens" && view === "quote" ? <div className="keep-light"><QuoteMockup embedded /></div> : null}
 
-      {tab === "screens" && view === "nodate" ? <NoDateMock /> : null}
+      {tab === "screens" && view === "nodate" ? <div className="keep-light"><NoDateMock /></div> : null}
 
       {tab === "screens" && view === "colors" ? (
-        <div className="overflow-hidden rounded-2xl ring-1 ring-ink/10">
+        <div className="keep-light overflow-hidden rounded-2xl ring-1 ring-ink/10">
           <ColorsLink embedded />
         </div>
       ) : null}

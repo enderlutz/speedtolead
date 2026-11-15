@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, useLocation, Navigate, useSearchParams } 
 import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
+import ThemeSwitch from "@/components/ThemeSwitch";
+import { applyTheme, savedTheme } from "@/lib/theme";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
 import { isBrickAllowedPath } from "@/lib/brickNav";
@@ -227,6 +229,9 @@ function AppLayout() {
     location.pathname.startsWith("/receipt/") ||
     location.pathname.startsWith("/legal/");
 
+  // Dark mode is for staff screens only; customer pages always stay light.
+  useEffect(() => { applyTheme(isPublic ? "light" : savedTheme()); }, [isPublic]);
+
   // Brick division: keep the user on brick-safe pages so no fence data is ever
   // shown (covers direct-URL access, not just nav). Fence mode is unaffected.
   if (!isPublic && getDivision() === "brick" && !isBrickAllowedPath(location.pathname)) {
@@ -279,6 +284,7 @@ function AppLayout() {
               desktop (Alan, 2026-10-09). The phone header carries its own. */}
           <div className="fixed right-3 top-1 z-40 hidden items-center gap-2 md:flex">
             <LangSwitch />
+            <ThemeSwitch />
             <HoustonClock />
           </div>
           <main className="flex-1 overflow-y-auto">
@@ -338,7 +344,7 @@ function AppLayout() {
               <Route path="/design-lab" element={<StaffOnly><DesignLab /></StaffOnly>} />
               <Route path="/follow-ups" element={<FollowUpsRedirect />} />
               <Route path="/new-proposal" element={<Navigate to="/design-lab?tab=notes" replace />} />
-              <Route path="/new-proposal/mockup" element={<StaffOnly><ProposalMockup /></StaffOnly>} />
+              <Route path="/new-proposal/mockup" element={<StaffOnly><div className="keep-light"><ProposalMockup /></div></StaffOnly>} />
               <Route path="/quote-mockup" element={<StaffOnly><QuoteMockup /></StaffOnly>} />
               <Route path="/cardone" element={<Navigate to="/design-lab?tab=followups&view=plan" replace />} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />

@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/playfair-display";
+/* Dark-mode stand-ins for hard-coded light colours (generated). */
+@import "./dark.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -62,7 +64,8 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
+/* .keep-light: customer-page mockups inside the dashboard stay light in dark mode. */
+:root, .dark .keep-light {
     /* Brand swatches. The ivory is the logo's own background, so the logo
        sits on it with no visible edge. */
     --brand-ivory: #F8F3E7;
@@ -110,6 +113,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: oklch(0.16 0.01 70);
     --foreground: oklch(0.97 0.008 85);
     --card: oklch(0.21 0.01 70);
@@ -152,6 +156,14 @@
     /* A soft light from the top, like paper under a lamp. */
     background-image: radial-gradient(1100px 520px at 50% -8%, oklch(1 0 0 / 0.75), transparent 70%);
     background-attachment: fixed;
+    }
+  .dark body {
+    /* No lamp glow at night: it washes the dark out. */
+    background-image: none;
+    }
+  .keep-light {
+    color-scheme: light;
+    color: var(--foreground);
     }
   html {
     @apply font-sans;
