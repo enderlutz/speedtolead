@@ -6718,6 +6718,13 @@ export interface PmMapPin {
   lat: number | null;
   lng: number | null;
   status: "pending" | "cleaned" | "done";
+  /** The customer's answer on their latest estimate ("1-6 years", "Brand new (less than 6 months)"). */
+  fence_age?: string;
+  /** The package on their booking ("Legacy (solid)"); "" when there's no booking. */
+  package?: string;
+  /** The color they picked; "" while it's still to be shown in person. */
+  color?: string;
+  color_status?: "picked" | "in_person" | "none";
   /** A "fix" day is a go-back; `note` says what, `done` once it's marked. */
   days: { date: string; task: string; note?: string; done?: boolean }[];
   added: boolean;

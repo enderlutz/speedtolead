@@ -47,8 +47,16 @@ function pinIcon(p: PmMapPin): L.DivIcon {
 /** A finished job (stained, or marked Job done) comes off the map by itself
  *  (Alan, 2026-11-14), unless there's still a job to fix there or Alan put it
  *  on by hand. Their names stay listed under the map. */
-function isFinished(p: PmMapPin): boolean {
-  return p.status === "done" && !p.added && !p.days.some((d) => d.task === "fix" && !d.done);
+function isFinished(p: PmMapPin, today: string): boolean {
+  return p.status === "done" && !p.added
+    && !p.days.some((d) => d.task === "fix" && !d.done)
+    // Still has a crew day coming (after photos on a day it rained out), so it's not finished.
+    && !p.days.some((d) => d.task !== "fix" && !!d.date && d.date >= today);
+}
+
+/** Today in Houston as YYYY-MM-DD. */
+function houstonToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
 }
 
 /** Zoom to fit every pin whenever the set of pins changes. */
@@ -78,9 +86,10 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
     return () => { live = false; };
   }, [start, end, refreshKey, tick]);
 
-  const finished = useMemo(() => (pins || []).filter(isFinished), [pins]);
-  const shown = useMemo(() => (pins || []).filter((p) => !p.hidden && !isFinished(p)), [pins]);
-  const hiddenPins = useMemo(() => (pins || []).filter((p) => p.hidden && !isFinished(p)), [pins]);
+  const today = houstonToday();
+  const finished = useMemo(() => (pins || []).filter((p) => isFinished(p, today)), [pins, today]);
+  const shown = useMemo(() => (pins || []).filter((p) => !p.hidden && !isFinished(p, today)), [pins, today]);
+  const hiddenPins = useMemo(() => (pins || []).filter((p) => p.hidden && !isFinished(p, today)), [pins, today]);
   const placed = useMemo(() => shown.filter((p) => p.lat != null && p.lng != null), [shown]);
   const missing = useMemo(() => shown.filter((p) => p.lat == null || p.lng == null), [shown]);
   const pts = useMemo(() => placed.map((p) => [p.lat!, p.lng!] as [number, number]), [placed]);
@@ -124,6 +133,15 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{p.name}</p>
                   {p.address ? <p className="text-muted-foreground">{p.address}</p> : null}
+                  {/* Fence age, package and color (Alan, 2026-11-14). */}
+                  <p><span className="text-muted-foreground">Fence age:</span> {p.fence_age || "Not known"}</p>
+                  {p.package ? <p><span className="text-muted-foreground">Package:</span> <span className="font-semibold">{p.package}</span></p> : null}
+                  {p.color_status === "none" ? null : <p>
+                    <span className="text-muted-foreground">Color:</span>{" "}
+                    {p.color_status === "picked" && p.color
+                      ? <span className="font-semibold text-green-700">{p.color}</span>
+                      : <span className="font-semibold text-amber-700">Not picked yet, show the samples in person</span>}
+                  </p>}
                   {p.days.length
                     ? p.days.map((d) => <p key={d.date + d.task + (d.note || "")}>{d.date ? dayName(d.date) : "Any day, stop by"} · {TASK[d.task] || d.task}{d.note ? `: ${d.note}` : ""}{d.done ? " ✓" : ""}</p>)
                     : <p className="text-muted-foreground">Not on the calendar yet</p>}

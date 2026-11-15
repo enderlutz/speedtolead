@@ -529,6 +529,62 @@ def _street(address: str) -> str:
     return re.sub(r"\s+", " ", a).strip(" ,")
 
 
+IN_PERSON = "Shown in person"
+PACKAGE_NAMES = {"essential": "Essential (clear coat)", "signature": "Signature (semi-transparent)", "legacy": "Legacy (solid)"}
+
+
+def pin_facts(db, ids: list[str], jobs: dict) -> dict[str, dict]:
+    """What Alan wants on a map pin's card (2026-11-14): how old the fence is,
+    the package they booked, and the color, picked (which one) or still to be
+    shown in person.
+
+    Age is the customer's own answer on their latest estimate. The color comes
+    from the job card first (the crew's color), then the booking; a booking
+    that says "Shown in person", or no color anywhere, means it still has to
+    be picked with the sample sticks."""
+    from database import Booking, Estimate
+    if not ids:
+        return {}
+    ages: dict[str, str] = {}
+    closed: dict[str, str] = {}
+    for e in (db.query(Estimate.lead_id, Estimate.inputs, Estimate.created_at, Estimate.closed_tier)
+              .filter(Estimate.lead_id.in_(ids)).order_by(Estimate.created_at.asc()).all()):
+        if (e.closed_tier or "").strip().lower() in PACKAGE_NAMES:
+            closed[e.lead_id] = e.closed_tier.strip().lower()   # a job closed without a booking
+        try:
+            age = (json.loads(e.inputs or "{}") or {}).get("fence_age") or ""
+        except ValueError:
+            age = ""
+        if age:
+            ages[e.lead_id] = str(age)             # the newest estimate wins
+    booked: dict[str, str] = {}
+    tiers: dict[str, str] = {}
+    for b in db.query(Booking.lead_id, Booking.color, Booking.status, Booking.tier).filter(Booking.lead_id.in_(ids)).all():
+        if b.status != "cancelled":
+            booked[b.lead_id] = (b.color or "").strip()
+            tiers[b.lead_id] = (b.tier or "").strip()
+    out = {}
+    for lid in ids:
+        j = jobs.get(lid)
+        color = ((j.color if j else "") or "").strip()
+        if not color or color == IN_PERSON:
+            color = booked.get(lid, "")
+        picked = bool(color) and color != IN_PERSON
+        tier = tiers.get(lid, "") or closed.get(lid, "")
+        out[lid] = {"fence_age": ages.get(lid, ""), "package": PACKAGE_NAMES.get(tier, tier.title()),
+                    "color": color if picked else "",
+                    "color_status": "picked" if picked else "in_person"}
+    return out
+
+
+def _color_for_tasks(facts: dict, days: list[dict]) -> dict:
+    """A pressure washing or windows job has no stain color to pick."""
+    tasks = {d.get("task") for d in days if d.get("task") != "fix"}
+    if tasks and tasks <= {"pressure_washing"}:
+        return {**facts, "color": "", "color_status": "none"}
+    return facts
+
+
 def map_status(job: CompanyCamJob | None, cleaned: bool, pw_sections: set[str] | None = None) -> str:
     """pending (nothing done), cleaned, or done (stained or marked Job done)."""
     if not job:
@@ -573,6 +629,7 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
         jobs = {j.lead_id: j for j in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(ids)).all()} if ids else {}
         cleaned = _cleaned(db, ids)
         pw = _pw_photos(db, ids)
+        facts = pin_facts(db, ids, jobs)
         settings = get_settings()
         key = settings.google_maps_browser_key or settings.google_maps_api_key
         looked_up = 0
@@ -599,6 +656,7 @@ def week_map(start: str = "", end: str = "", user: dict = Depends(_office)):
                 "days": sorted(days.get(lid, []), key=lambda x: x["date"]),
                 "added": lid in added,
                 "hidden": lid in hidden,
+                **_color_for_tasks(facts.get(lid, {"fence_age": "", "package": "", "color": "", "color_status": "in_person"}), days.get(lid, [])),
             })
         return {"pins": pins, "can_edit": user.get("role") == "admin"}
     finally:
