@@ -2797,6 +2797,15 @@ function repairWords(r: Repairs): string[] {
   return out;
 }
 
+/** What every stainer loads on every job, on top of the job's own list. */
+const STAINER_ALWAYS: [string, string][] = [
+  ["Tape", "Cinta"],
+  ["A drill, to take the hinges off the gates", "Un taladro, para quitar las bisagras de las puertas"],
+  ["Microfiber towels, to wipe stain off cars, windows, the house or anything else right away",
+   "Toallas de microfibra, para limpiar el tinte de carros, ventanas, la casa o cualquier cosa enseguida"],
+  ["A wire brush", "Un cepillo de alambre"],
+];
+
 /** What each person loads before driving out, split by who (Alan,
  *  2026-10-16). The cleaner: bleach, and spray paint when there are pickets
  *  to mark. The stainer: stain, every picket (planned + agreed on site), four
@@ -2823,6 +2832,9 @@ function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; s
       : w)),
     pickets ? (isSpanish() ? `${pickets * 4} clavos de tornillo (4 por tabla)` : `${pickets * 4} screw nails (4 a picket)`) : "",
     pickets || sum.counts.rotboard || sum.counts.cap || sum.counts.rail ? tr("A saw, to cut pickets and boards to size") : "",
+    // Every staining job, the things the crew kept forgetting (Alan, 2026-11-14:
+    // stain landed on a car at John Clark's with nothing to wipe it off).
+    ...STAINER_ALWAYS.map(([en, es]) => (isSpanish() ? es : en)),
   ].filter(Boolean);
   if (!cleaner.length && !stainer.length) return null;
   const list = (title: string, items: string[], tone: string, Icon: typeof Sparkles, extra?: React.ReactNode) => (
