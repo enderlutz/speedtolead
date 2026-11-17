@@ -192,6 +192,26 @@ function BlurText({
   );
 }
 
+// The camera door: marked before the camera opens, cleared when the photo
+// comes back. Still marked when the page loads again = the phone closed the
+// app with the camera open and the photo is lost.
+const CAM_KEY = "cc_camera_open";
+function markCameraOpen(leadId: string, section: string) {
+  try { sessionStorage.setItem(CAM_KEY, JSON.stringify({ leadId, section, at: Date.now() })); } catch { /* private mode */ }
+}
+function clearCameraOpen() {
+  try { sessionStorage.removeItem(CAM_KEY); } catch { /* private mode */ }
+}
+function cameraLost(leadId: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(CAM_KEY);
+    if (!raw) return false;
+    sessionStorage.removeItem(CAM_KEY);
+    const m = JSON.parse(raw) as { leadId: string; at: number };
+    return m.leadId === leadId && Date.now() - m.at < 15 * 60_000;
+  } catch { return false; }
+}
+
 /** Take a photo / From the gallery. The camera is the big one: snap each
  *  side as you finish it (Alan, 2026-10-17). */
 function PhotoDoors({ busy, big, camera, gallery }: { busy: boolean; big?: boolean; camera: () => void; gallery?: () => void }) {
@@ -785,6 +805,21 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
   useEffect(() => { void load(); }, [load]);
 
+  // The phone closed the app while the camera was open (iPhones do this when
+  // they run low on memory), so the photo never reached us. Say so when the
+  // app comes back, instead of letting them think it saved (2026-11-17).
+  useEffect(() => {
+    const lost = cameraLost(leadId);
+    if (lost) toast.error(isSpanish()
+      ? "El teléfono cerró la app con la cámara abierta y esa foto no se guardó. Tómala otra vez."
+      : "Your phone closed the app while the camera was open, so that photo didn't save. Take it again.", { duration: 20000 });
+    // The app survived the camera (or they cancelled it): nothing was lost.
+    const back = () => { if (document.visibilityState === "visible") setTimeout(clearCameraOpen, 3000); };
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
+    return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
+  }, [leadId]);
+
   // Photos waiting on the phone to send (Alan and Chris, 2026-10-22): shown
   // at once as "sending"; when one gets through, the job reloads quietly.
   const [queued, setQueued] = useState<PendingPhoto[]>([]);
@@ -848,15 +883,21 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     // Saved on the phone first, then sent in the background until it gets
     // through, so a weak signal never means a lost photo or a spinning wheel
     // (Alan and Chris, 2026-10-22).
-    let saved = 0;
+    clearCameraOpen();
+    let saved = 0, memoryOnly = 0;
     try {
       for (const f of Array.from(files)) {
         const takenAt = typedAt || await photoTakenAt(f); // before shrinking drops the EXIF
         const small = await shrinkPhoto(f);
-        await enqueue({ leadId, section, takenAt, timeTyped: !!typedAt, file: small, name: f.name || undefined });
+        if (!await enqueue({ leadId, section, takenAt, timeTyped: !!typedAt, file: small, name: f.name || undefined })) memoryOnly += 1;
         saved += 1;
       }
-      if (saved) toast.success(isSpanish() ? `${saved} foto${saved === 1 ? "" : "s"} guardada${saved === 1 ? "" : "s"}. Se envían solas.` : `${saved} photo${saved === 1 ? "" : "s"} saved. ${saved === 1 ? "It sends" : "They send"} by itself.`);
+      // The phone wouldn't keep it (Eric Davies, 2026-11-16): say so, loudly,
+      // so nobody closes the app before it has gone up.
+      if (memoryOnly) toast.warning(isSpanish()
+        ? "El teléfono no guardó la foto. NO cierres la app hasta que diga enviada."
+        : "Your phone didn't save the photo. DON'T close the app until it says sent.", { duration: 15000 });
+      else if (saved) toast.success(isSpanish() ? `${saved} foto${saved === 1 ? "" : "s"} guardada${saved === 1 ? "" : "s"}. Se envían solas.` : `${saved} photo${saved === 1 ? "" : "s"} saved. ${saved === 1 ? "It sends" : "They send"} by itself.`);
     } catch (e) {
       toast.error(errMessage(e, tr("Couldn't save the photo")));
     } finally { setUploading(""); }
@@ -1037,6 +1078,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                   <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
                     {q.map((p) => <img key={p.id} src={p.url} alt="" className="aspect-square w-full rounded-lg object-cover opacity-80" />)}
                   </div>
+                  {(() => {
+                    // The server turned one down (not on the job, too big): show why,
+                    // so it's fixed instead of spinning forever.
+                    const why = q.find((x) => x.tries > 0 && x.lastError && !/fetch|network|load failed|abort/i.test(x.lastError));
+                    return why ? <p className="text-sm font-semibold text-red-700">{tr("Not sending:")} {why.lastError.replace(/^\{"detail":"|"\}$/g, "")} — {tr("call the office")}</p> : null;
+                  })()}
                   <p className="text-sm text-muted-foreground">{tr("Keep working. They go up by themselves when there's signal, even if you close the app.")}</p>
                 </div>
               );
@@ -1125,7 +1172,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                       }} />
                   ))}
                 </div>
-                <PhotoDoors busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
+                <PhotoDoors busy={busy} camera={() => { markCameraOpen(leadId, sec.key); inputs.current[`${sec.key}:cam`]?.click(); }}
                             gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
                 {/* Forgot to take them (Alan, 2026-11-02: Chris couldn't add
                     today's after photos): from the phone's photos, time typed. */}
@@ -1135,7 +1182,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               // Big, because on a phone this is the one thing the crew is
               // here to do.
               <div className="space-y-1">
-                <PhotoDoors big busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
+                <PhotoDoors big busy={busy} camera={() => { markCameraOpen(leadId, sec.key); inputs.current[`${sec.key}:cam`]?.click(); }}
                             gallery={manager ? () => inputs.current[sec.key]?.click() : undefined} />
                 <p className="text-center text-sm text-muted-foreground">{tr(sec.who)}</p>
                 {manager ? null : <ForgotButton onFiles={(f, at) => void upload(sec.key, f, at)} />}

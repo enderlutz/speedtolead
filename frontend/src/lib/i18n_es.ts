@@ -522,6 +522,8 @@ export const ES: Record<string, string> = {
   "Upload failed": "No se pudo subir",
   "didn't go up — weak signal. Try those again.": "no se subieron — señal débil. Inténtalas otra vez.",
   "Uploading…": "Subiendo…",
+  "Not sending:": "No se envía:",
+  "call the office": "llama a la oficina",
   "View": "Vista",
   "Walked it with the customer": "Se revisó con el cliente",
   "What do they want done?": "¿Qué quieren que se haga?",
