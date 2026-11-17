@@ -98,6 +98,10 @@ def make_lead(db, referrer: Lead, code: str, name: str, phone: str, address: str
             contact_email=email, address=address, zip_code=(re.findall(r"\b(\d{5})\b", address) or [""])[-1],
             service_type="fence_staining", status="new", kanban_column="new_lead", priority="HIGH",
             division="fence", lead_source="referral",
+            # Not set, the column defaults to "v1" (the dead old GHL account),
+            # which locks Send on the lead page (Todd, 2026-11-17). "contact" =
+            # a live Sterling contact; Send creates its opportunity on the A board.
+            pipeline_version="contact",
             ghl_location_id=referrer.ghl_location_id, location_label=referrer.location_label,
             form_data="{}", ghl_created_at=now, dashboard_synced_at=now, created_at=now, updated_at=now,
         )

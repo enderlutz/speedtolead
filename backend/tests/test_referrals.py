@@ -49,6 +49,7 @@ def test_a_referral_link_is_real_and_a_friend_becomes_a_lead(db, monkeypatch, qu
     assert out["ok"] is True
     angie = db.query(Lead).filter(Lead.contact_name == "Angie Smith").one()
     assert angie.lead_source == "referral" and angie.status == "new" and angie.ghl_contact_id == "ghl-new"
+    assert angie.pipeline_version == "contact"   # never the dead "v1" that locks Send (Todd, 2026-11-17)
     assert '"referred_by": "Val Aldred"' in angie.form_data and angie.zip_code == "77079"
     assert any(k == "alan" and "Angie Smith" in m and "Val Aldred" in m for k, m in quiet)
     assert rf.lead_referrals(val.id, STAFF)["claims"][0]["name"] == "Angie Smith"
