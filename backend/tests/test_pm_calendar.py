@@ -360,3 +360,39 @@ def test_a_pin_hidden_for_a_week_stays_off_that_weeks_map_only(db, monkeypatch):
     assert pm.week_map(*week1, user=ALAN)["pins"][0]["hidden"] is False
     with pytest.raises(HTTPException):
         pm.hide_pin(pm.HideBody(lead_id="Y", start="next week"), user=ALAN)
+
+
+def test_needs_day_lists_paid_jobs_missing_a_cleaning_or_stain_day():
+    """Alan, 2026-11-17: a paid job has to be made to get a cleaning day and
+    a stain day; a stain day on or before the cleaning is flagged too."""
+    from api.pm_calendar import needs_day_from
+
+    class J:
+        def __init__(self, crew, no_cleaning=False, package="signature", sqft=1000.0, color=""):
+            self.crew_json = json.dumps(crew); self.no_cleaning = no_cleaning
+            self.package = package; self.sqft = sqft; self.color = color; self.final_color = ""
+
+    rows = [
+        {"lead_id": "a", "stage": "deposit_paid", "name": "Karen", "address": "1 Oak", "booked_date": "2026-11-24", "total": 1814.67},
+        {"lead_id": "b", "stage": "deposit_paid", "name": "Luis", "address": "2 Oak", "booked_date": "", "total": 1764.94},
+        {"lead_id": "c", "stage": "deposit_paid", "name": "Fine", "address": "3 Oak", "booked_date": "2026-11-20", "total": 900},
+        {"lead_id": "d", "stage": "deposit_paid", "name": "Backwards", "address": "4 Oak", "booked_date": "2026-11-20", "total": 900},
+        {"lead_id": "e", "stage": "deposit_paid", "name": "Washing only", "address": "5 Oak", "booked_date": "", "total": 300},
+        {"lead_id": "f", "stage": "ready", "name": "Done already", "address": "6 Oak", "booked_date": "", "total": 900},
+    ]
+    jobs = {
+        "a": None,
+        "b": J([{"username": "Chris", "date": "2026-11-18", "task": "cleaning", "helper": False}], color="TBD"),
+        "c": J([{"username": "Chris", "date": "2026-11-18", "task": "cleaning", "helper": False},
+                {"username": "Jose Arthur", "date": "2026-11-20", "task": "staining", "helper": False}]),
+        "d": J([{"username": "Chris", "date": "2026-11-20", "task": "cleaning", "helper": False},
+                {"username": "Jose Arthur", "date": "2026-11-20", "task": "staining", "helper": False}]),
+        "e": J([{"username": "BrentBrown", "date": "2026-11-19", "task": "pressure_washing", "helper": False}]),
+        "f": None,
+    }
+    out = needs_day_from(rows, jobs)
+    assert [x["name"] for x in out] == ["Backwards", "Karen", "Luis"]   # by booked day, no day last
+    by = {x["name"]: x for x in out}
+    assert by["Karen"]["missing"] == ["cleaning", "staining"]
+    assert by["Luis"]["missing"] == ["staining"] and by["Luis"]["cleaning_date"] == "2026-11-18" and by["Luis"]["color"] == ""
+    assert by["Backwards"]["missing"] == [] and by["Backwards"]["too_close"] is True

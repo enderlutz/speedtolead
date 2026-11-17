@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from api.auth import get_current_user, require_admin
 from api.company_cam import _crew_entries, _crew_options, _sees_all, default_pay, effective_order
 from services.crew_pay_history import history_for_worker, record_pay_changes
+from services.project_manager import availability as crew_availability
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import (
     CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICES, STAINER_CHECKLIST, is_pw_job, pw_custom_of, pw_label, pw_progress, pw_services_of,
@@ -205,16 +206,82 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
     return out
 
 
+def needs_day_from(rows: list[dict], jobs: dict) -> list[dict]:
+    """The paid jobs that still need a day. `rows` are the Invoice Queue's
+    stage rows, `jobs` lead_id -> CompanyCamJob. A job needs a cleaning day
+    and a stain day (a lead tech on each); a washing-only job needs neither.
+    Also flags a stain day on or before the cleaning day."""
+    out = []
+    for r in rows:
+        if r.get("stage") != "deposit_paid":
+            continue
+        job = jobs.get(r["lead_id"])
+        entries = _crew_entries(job) if job else []
+        by_task: dict[str, list[str]] = {}
+        for e in entries:
+            if e.get("date") and not e.get("helper"):
+                by_task.setdefault(e["task"], []).append(e["date"])
+        if "pressure_washing" in by_task and not any(t in by_task for t in ("cleaning", "staining")):
+            continue
+        missing = []
+        if not (job and job.no_cleaning) and "cleaning" not in by_task:
+            missing.append("cleaning")
+        if "staining" not in by_task:
+            missing.append("staining")
+        clean_d = min(by_task.get("cleaning") or [""])
+        stain_d = min(by_task.get("staining") or [""])
+        too_close = bool(clean_d and stain_d and stain_d <= clean_d)
+        if not missing and not too_close:
+            continue
+        color = ((job.final_color or job.color) if job else "") or ""
+        out.append({
+            "lead_id": r["lead_id"], "name": r.get("name") or "", "address": r.get("address") or "",
+            "booked_date": r.get("booked_date") or "", "total": r.get("total") or 0,
+            "package": (job.package if job else "") or "", "sqft": (job.sqft if job else 0) or 0,
+            "color": "" if re.fullmatch(r"\s*tbd\s*", color, re.I) else color,
+            "missing": missing, "cleaning_date": clean_d, "staining_date": stain_d, "too_close": too_close,
+        })
+    out.sort(key=lambda x: (x["booked_date"] or "9999-99-99", x["name"].lower()))
+    return out
+
+
+def needs_day(db) -> list[dict]:
+    from api.invoice_queue import stage_rows
+    rows = [r for r in stage_rows(db) if r.get("stage") == "deposit_paid"]
+    ids = [r["lead_id"] for r in rows]
+    if not ids:
+        return []
+    tests = {l.id for l in db.query(Lead).filter(Lead.id.in_(ids), Lead.is_test.is_(True)).all()}
+    rows = [r for r in rows if r["lead_id"] not in tests]
+    jobs = {j.lead_id: j for j in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(ids)).all()}
+    return needs_day_from(rows, jobs)
+
+
 @router.get("/pm-hq/calendar")
 def calendar(start: str, end: str, user: dict = Depends(_office)):
     db = get_db()
     try:
         rows = _rows(db, start[:10], end[:10])
-        if not _sees_all(user):
-            for r in rows:
+        crew = _crew_options(db)
+        # Who's off which day (Alan, 2026-11-17: Alfredo was put on a
+        # Wednesday and nothing said he only works Mondays and Tuesdays).
+        # From today out two months as well as the days on screen: the
+        # "Needs a day" pickers point past the visible week.
+        t0 = _today_ct()
+        far = (datetime.strptime(t0, "%Y-%m-%d") + timedelta(days=60)).strftime("%Y-%m-%d")
+        avail = crew_availability(db, crew, min(start[:10], t0), max(end[:10], far))
+        by_lower = {u.lower(): v for u, v in avail.items()}
+        for r in rows:
+            r["off"] = (by_lower.get(r["username"].lower()) or {}).get(r["date"])
+            if not _sees_all(user):
                 r["pay_type"], r["pay"] = "", 0.0
         from api.pm_fixes import fixes_for
-        return {"days": rows, "crew_options": _crew_options(db), "show_pay": _sees_all(user),
+        return {"days": rows, "crew_options": crew, "show_pay": _sees_all(user),
+                "availability": avail,
+                # Paid jobs with no cleaning or stain day yet (Alan, 2026-11-17:
+                # "whenever a job gets scheduled it needs to make me schedule a
+                # cleaning day and a staining day").
+                "needs_day": needs_day(db),
                 "pw_options": PW_SERVICES,   # what a washing job can include, for the add form
                 # The go-backs (Alan, 2026-10-27): the open ones for the side
                 # list, and the done ones on days in this range.

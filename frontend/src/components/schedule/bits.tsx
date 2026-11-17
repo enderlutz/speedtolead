@@ -53,10 +53,13 @@ export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link
     tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2 py-1.5",
     fin ? cn(IVORY, MUTED) : cn(PAPER, INK, !tiny && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60"));
   const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : icons}</span>;
+  // Someone on this job is off that day (Alan, 2026-11-17: Alfredo on a Wednesday).
+  const offRows = [...g.leads, ...g.helpers].filter((r) => r.off && r.off.status !== "late");
+  const off = offRows.length ? <span className="font-bold text-red-700" title={offRows.map((r) => r.off!.why).join("; ")}> ⚠ off</span> : null;
   const body = stacked ? (
     <>
       <span className="line-clamp-2 break-words text-[15px] font-bold">{x.name}</span>
-      <span className={cn("flex items-start gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="line-clamp-2 break-words">{g.n} · {g.people}</span></span>
+      <span className={cn("flex items-start gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="line-clamp-2 break-words">{g.n} · {g.people}{off}</span></span>
       {g.tasks.includes("pressure_washing") && pw.length ? <span className={cn("line-clamp-2 text-[14px]", MUTED)}>{pw.join(" · ")}</span> : null}
       {showPay ? <span className={cn("text-[14px] font-bold tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>💵 {payLine(g)}</span> : null}
     </>
@@ -68,7 +71,7 @@ export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link
       {tiny ? <span className="min-w-0 flex-1 truncate">{x.name}</span> : (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-bold">{g.n}. {x.name}</span>
-          <span className={cn("block truncate text-[14px] font-medium", MUTED)}>{g.people}</span>
+          <span className={cn("block truncate text-[14px] font-medium", MUTED)}>{g.people}{off}</span>
           {/* Where the colour stands (Alan, 2026-10-25): picked, or TBD. */}
           {g.tasks.some((t) => t === "staining") ? (
             <span className={cn("block truncate text-[14px] font-semibold", x.color && !/^tbd$/i.test(x.color.trim()) ? "text-[#8C6224]" : "text-amber-700")}>

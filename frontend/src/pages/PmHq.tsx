@@ -15,7 +15,7 @@
  * thing the profile's "Who's on this job?" edits, and what the crew see on
  * My Schedule. Only admins add or remove days. No prices on this page.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getCurrentUser, hasPerm } from "@/lib/api";
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -24,7 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import { CalendarDays, CalendarRange, Clock, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
 import GoogleCalendar from "@/pages/Calendar";
-import { api, type CrewDayTask, type FixJob, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
+import { api, type CrewDayTask, type FixJob, type PmDay, type PmNeedsDay, type PmOff, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
@@ -307,6 +307,131 @@ function TodayView({ fixes, crew, canEdit, actions }: { fixes: FixJob[]; crew: {
 //   month     the picked day's month
 // Jobs have no clock time, only a date and a morning order, so every view
 // shows them the way Google shows all-day events.
+// ── Who's off which day (Alan, 2026-11-17) ────────────────────────────────
+// The calendar gets username -> day -> {status, why} from the server. Cards
+// and pickers show it in red, and putting someone on a day they're off asks
+// first (Alan can still say yes: Alfredo asked for a Wednesday).
+type Avail = Record<string, Record<string, PmOff>>;
+const AvailCtx = createContext<Avail>({});
+function makeOff(avail: Avail) {
+  const lower: Avail = {};
+  for (const [u, d] of Object.entries(avail)) lower[u.toLowerCase()] = d;
+  const offOn = (username: string, date: string): PmOff | null => lower[(username || "").toLowerCase()]?.[date] || null;
+  const okToPut = (usernames: string[], date: string): boolean => {
+    const hits = usernames.map((u) => offOn(u, date)).filter((o): o is PmOff => !!o && o.status !== "late");
+    if (!hits.length) return true;
+    return window.confirm(`${hits.map((h) => h.why).join("\n")}\n\nPut ${hits.length === 1 ? "them" : "them"} on ${fmtDay(date, { weekday: "long", month: "short", day: "numeric" })} anyway?`);
+  };
+  return { offOn, okToPut };
+}
+function useOff() {
+  const avail = useContext(AvailCtx);
+  return useMemo(() => makeOff(avail), [avail]);
+}
+/** "· off" / "· late" in red after a worker's name on a chip. */
+function OffMark({ username, date }: { username: string; date: string }) {
+  const { offOn } = useOff();
+  const o = offOn(username, date);
+  return o ? <span className="font-bold text-red-700" title={o.why}> · {o.status === "late" ? "late" : "off"}</span> : null;
+}
+
+// ── Paid jobs that still need a day (Alan, 2026-11-17) ────────────────────
+// "Whenever a job gets scheduled it needs to make me schedule a cleaning day
+// and a staining day." Every paid job sits here, red, until both are on the
+// calendar, the stain at least a day after the cleaning.
+function NeedsDayPanel({ items, crew, canEdit, today, onChange }: {
+  items: PmNeedsDay[]; crew: { username: string; name: string }[]; canEdit: boolean; today: string; onChange: () => void;
+}) {
+  if (!items.length) return null;
+  const n = items.length;
+  return (
+    <div className="rounded-2xl border-2 border-rose-400/70 bg-card p-3">
+      <p className="flex items-center gap-2 text-[16px] font-bold text-rose-700">
+        <CalendarDays className="h-5 w-5" />{n} paid job{n === 1 ? "" : "s"} need{n === 1 ? "s" : ""} a day
+      </p>
+      <p className="text-sm text-muted-foreground">Every paid job needs a cleaning day and a stain day, the stain at least a day after the cleaning. They stay here until both are set.</p>
+      <ul className="mt-2 grid gap-2 lg:grid-cols-2">
+        {items.map((it) => <NeedsDayCard key={it.lead_id} it={it} crew={crew} canEdit={canEdit} today={today} onChange={onChange} />)}
+      </ul>
+    </div>
+  );
+}
+
+function NeedsDayCard({ it, crew, canEdit, today, onChange }: {
+  it: PmNeedsDay; crew: { username: string; name: string }[]; canEdit: boolean; today: string; onChange: () => void;
+}) {
+  const booked = it.booked_date ? `Booked ${fmtDay(it.booked_date)}` : "No day booked yet";
+  const tomorrow = addDays(today, 1);
+  // Sensible starting dates: cleaning the day before the booked day, the
+  // stain on the booked day (or the day after the cleaning).
+  const cleanDefault = it.booked_date && addDays(it.booked_date, -1) > today ? addDays(it.booked_date, -1) : tomorrow;
+  const stainDefault = it.cleaning_date ? addDays(it.cleaning_date, 1) : it.booked_date && it.booked_date > today ? it.booked_date : addDays(tomorrow, 1);
+  const size = [it.package ? it.package[0].toUpperCase() + it.package.slice(1) : "", it.sqft ? `${Math.round(it.sqft).toLocaleString()} sq ft` : ""].filter(Boolean).join(" · ");
+  return (
+    <li className="rounded-xl bg-background p-3 ring-1 ring-border">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <JobLink leadId={it.lead_id} className="text-[16px] font-bold text-primary hover:underline">{it.name} ›</JobLink>
+        <span className="text-sm font-semibold">{booked}</span>
+      </div>
+      <p className="truncate text-sm text-muted-foreground">{it.address}</p>
+      <p className="mt-0.5 flex flex-wrap gap-x-3 text-sm">
+        {size ? <span className="font-semibold">{size}</span> : null}
+        <span className={cn("font-semibold", it.color ? "text-[#8C6224]" : "text-amber-700")}>🎨 {it.color || "Color TBD"}</span>
+      </p>
+      {it.too_close ? <p className="mt-1 text-sm font-bold text-red-700">⚠ Stain day {fmtDay(it.staining_date)} is on or before the cleaning {fmtDay(it.cleaning_date)}. Move one.</p> : null}
+      <div className="mt-2 space-y-2">
+        {it.cleaning_date && !it.missing.includes("cleaning") ? <p className="text-sm">🧽 Cleaning <b>{fmtDay(it.cleaning_date)}</b></p> : null}
+        {it.staining_date && !it.missing.includes("staining") ? <p className="text-sm">🖌 Staining <b>{fmtDay(it.staining_date)}</b></p> : null}
+        {it.missing.map((task) => (
+          <PutOnDay key={task} leadId={it.lead_id} name={it.name} task={task} crew={crew} canEdit={canEdit}
+                    defaultDate={task === "cleaning" ? cleanDefault : stainDefault} min={task === "staining" && it.cleaning_date ? addDays(it.cleaning_date, 1) : today} onChange={onChange} />
+        ))}
+      </div>
+    </li>
+  );
+}
+
+function PutOnDay({ leadId, name, task, crew, canEdit, defaultDate, min, onChange }: {
+  leadId: string; name: string; task: "cleaning" | "staining"; crew: { username: string; name: string }[]; canEdit: boolean;
+  defaultDate: string; min: string; onChange: () => void;
+}) {
+  const [date, setDate] = useState(defaultDate);
+  const [saving, setSaving] = useState("");
+  const { okToPut, offOn } = useOff();
+  const label = task === "cleaning" ? "🧽 Cleaning day" : "🖌 Stain day";
+  if (!canEdit) return <p className="text-sm font-bold text-red-700">{label}: not set</p>;
+  const put = async (username: string) => {
+    if (!date) return;
+    if (!okToPut([username], date)) return;
+    setSaving(username);
+    try {
+      await api.pmHqAssign({ lead_id: leadId, date, username, task, helper: false });
+      toast.success(`${name}: ${task} on ${fmtDay(date)} · ${crew.find((c) => c.username === username)?.name || username}`);
+      onChange();
+    } catch (e) { toast.error(errMessage(e, "Couldn't put it on the calendar")); } finally { setSaving(""); }
+  };
+  return (
+    <div className="rounded-lg bg-rose-500/5 p-2 ring-1 ring-rose-300/70">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-bold text-red-700">{label}: not set</span>
+        <Input type="date" value={date} min={min} onChange={(e) => setDate(e.target.value)} aria-label={`${label} for ${name}`} className="h-10 w-auto text-base sm:text-sm" />
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {crew.map((c) => {
+          const o = offOn(c.username, date);
+          return (
+            <button key={c.username} type="button" disabled={!!saving || !date} onClick={() => void put(c.username)}
+                    className={cn("min-h-10 rounded-full bg-background px-3 text-sm font-semibold ring-1 hover:bg-muted disabled:opacity-50",
+                      o && o.status !== "late" ? "text-red-700 ring-red-300" : "ring-border")}>
+              {saving === c.username ? "Saving…" : c.name}<OffMark username={c.username} date={date} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CalendarView() {
   const today = ctToday();
   const [params, set] = usePmParams();
@@ -336,6 +461,8 @@ function CalendarView() {
   const [crew, setCrew] = useState<{ username: string; name: string }[]>([]);
   const [pwOptions, setPwOptions] = useState(PW_OPTIONS);
   const [canEdit, setCanEdit] = useState(false);
+  const [avail, setAvail] = useState<Avail>({});
+  const [needsDay, setNeedsDay] = useState<PmNeedsDay[]>([]);
   const [loaded, setLoaded] = useState(""); // the range on screen; a spinner shows until it matches
   const seq = useRef(0); // the last request wins when arrows are tapped fast
   const load = useCallback(() => {
@@ -344,6 +471,7 @@ function CalendarView() {
       .then((r) => {
         if (n !== seq.current) return;
         setDays(r.days); setFixes(r.fixes || []); setCrew(r.crew_options); setCanEdit(r.can_edit); setLoaded(`${range.start}|${range.end}`);
+        setAvail(r.availability || {}); setNeedsDay(r.needs_day || []);
         if (r.pw_options?.length) setPwOptions(r.pw_options);
       })
       .catch((e) => toast.error(errMessage(e, "Something went wrong")));
@@ -356,6 +484,7 @@ function CalendarView() {
   // and their helpers, so all of them go. It moves on screen at once; the
   // server catches up, and a failure puts it back.
   const moveJob = async (g: JobGroup, to: string) => {
+    if (!makeOff(avail).okToPut(g.rows.map((r) => r.username), to)) { load(); return; }
     const going = new Set(g.rows);
     setDays((ds) => (ds || []).map((d) => (going.has(d) ? { ...d, date: to } : d)));
     try {
@@ -426,12 +555,14 @@ function CalendarView() {
   const goToday = () => { setExt({ anchor: today, before: 0, after: 0 }); set({ day: today }); };
 
   return (
+    <AvailCtx.Provider value={avail}>
     <div className="space-y-3">
       <ScheduleTopBar view={view} label={rangeLabel(view, day, range.start, range.end, today)} loading={loading}
                       onToday={goToday} onStep={step} onView={(v) => set({ view: v })} />
       {/* The calendar, with Jobs to fix beside it on a wide screen and under it on a phone. */}
       <div className="space-y-3 xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4 xl:space-y-0">
         <div className="min-w-0 space-y-3">
+          {days ? <NeedsDayPanel items={needsDay} crew={crew} canEdit={canEdit} today={today} onChange={load} /> : null}
           {!days ? <Spinner /> : view === "today" ? (
             <TodayView fixes={fixesByDay.get(today) || []} crew={crew} canEdit={canEdit} actions={fixActions} />
           ) : view === "schedule" ? (
@@ -480,6 +611,7 @@ function CalendarView() {
         ) : null}
       </div>
     </div>
+    </AvailCtx.Provider>
   );
 }
 
@@ -657,9 +789,11 @@ function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChan
   const [picking, setPicking] = useState(false);
   const onIt = new Set([x.username.toLowerCase(), ...mates.map((m) => m.username.toLowerCase())]);
   const free = crew.filter((c) => !onIt.has(c.username.toLowerCase()));
+  const { okToPut } = useOff();
   // This day's part is finished: no helpers to add.
   const finished = !!x.completed_at || (x.task === "cleaning" && !!x.progress.cleaning_done);
   const addMate = async (username: string) => {
+    if (!okToPut([username], x.date)) return;
     try {
       // Added onto someone's job = a helper who rides with them.
       await api.pmHqAssign({ lead_id: x.lead_id, date: x.date, username, task: x.task, helper: true });
@@ -688,6 +822,7 @@ function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChan
           ? <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
           : <p className="truncate text-base font-semibold">{x.name}</p>}
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
+        {x.off ? <p className="text-xs font-bold text-red-700">⚠ {x.off.why}</p> : null}
         <PayChip x={x} />
         {tasks.length > 1 ? <p className="mt-0.5 text-xs font-semibold">{tasks.map((t) => TASK_LABEL[t] ?? t).join(" + ")}</p> : null}
         {tasks.includes("pressure_washing") || !x.task ? <PwServices list={x.pw_services} /> : null}
@@ -695,6 +830,7 @@ function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChan
         {people.map((m) => (
           <div key={m.username} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             <span className="font-semibold">With {m.person}{m.helper ? " (helper)" : ""}</span>
+            {m.off ? <span className="font-bold text-red-700">⚠ {m.off.why}</span> : null}
             <PayChip x={m} />
             {canEdit && !finished ? (
               <button type="button" onClick={() => void dropMate(m)} aria-label={`Take ${m.person} off ${x.name}`}
@@ -708,7 +844,7 @@ function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChan
               {free.map((c) => (
                 <button key={c.username} type="button" onClick={() => void addMate(c.username)}
                         className="min-h-9 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/20">
-                  + {c.name}
+                  + {c.name}<OffMark username={c.username} date={x.date} />
                 </button>
               ))}
               <button type="button" onClick={() => setPicking(false)} className="min-h-9 px-2 text-xs text-muted-foreground">Cancel</button>
@@ -751,6 +887,7 @@ function JobStatus({ x, canEdit, crew, onChange }: {
   const [saving, setSaving] = useState(false);
   const p = x.progress;
   const booked = x.staining_days || [];
+  const { okToPut } = useOff();
 
   if (x.completed_at) {
     return <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-2.5 py-1.5 text-sm font-semibold text-emerald-900"><CheckCircle2 className="h-4 w-4" />Job done</p>;
@@ -766,6 +903,7 @@ function JobStatus({ x, canEdit, crew, onChange }: {
   }
   if (x.task === "cleaning" && p.cleaning_done) {
     const book = async (username: string) => {
+      if (!okToPut([username], date)) return;
       setSaving(true);
       try {
         await api.pmHqAssign({ lead_id: x.lead_id, date, username, task: "staining" });
@@ -800,7 +938,7 @@ function JobStatus({ x, canEdit, crew, onChange }: {
               {crew.map((c) => (
                 <button key={c.username} type="button" disabled={saving || !date} onClick={() => void book(c.username)}
                         className="min-h-10 rounded-full bg-background px-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-300 hover:bg-emerald-100 disabled:opacity-50">
-                  {c.name}
+                  {c.name}<OffMark username={c.username} date={date} />
                 </button>
               ))}
             </div>
@@ -855,6 +993,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
     return () => window.clearTimeout(t);
   }, [q, customer]);
 
+  const { okToPut } = useOff();
   const nameOf = (u: string) => crew.find((c) => c.username === u)?.name || u;
   const first = (u: string) => nameOf(u).split(/\s+/)[0];
   const flip = (list: string[], u: string) => (list.includes(u) ? list.filter((x) => x !== u) : [...list, u]);
@@ -884,6 +1023,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
 
   const save = async () => {
     if (!customer || !ready) return;
+    if (!okToPut([...leads, ...helpers], day)) return;
     setSaving(true);
     try {
       // Lead techs first so a helper has someone to follow; one day per job type.
@@ -983,7 +1123,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {crew.map((c) => (
                   <button key={c.username} type="button" onClick={() => pickLead(c.username)} aria-pressed={leads.includes(c.username)} className={chip(leads.includes(c.username))}>
-                    {c.name}
+                    {c.name}<OffMark username={c.username} date={day} />
                   </button>
                 ))}
               </div>
@@ -998,7 +1138,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {crew.filter((c) => !leads.includes(c.username)).map((c) => (
                   <button key={c.username} type="button" onClick={() => setHelpers((h) => flip(h, c.username))} aria-pressed={helpers.includes(c.username)} className={chip(helpers.includes(c.username))}>
-                    {c.name}
+                    {c.name}<OffMark username={c.username} date={day} />
                   </button>
                 ))}
               </div>

@@ -12,11 +12,11 @@ def test_buy_in_fives_rounds_up():
     assert pm.buy_in_fives(0) == 0
 
 
-def test_brent_never_mondays_christian_ask():
-    # 2026-11-09 is a Monday, 2026-11-10 a Tuesday.
+def test_brent_never_mondays_christian_any_day():
+    # 2026-11-09 is a Monday, 2026-11-10 a Tuesday. Christian: any day (Alan, 2026-11-17).
     assert pm.day_off_problem("BrentBrown", "2026-11-09") == "never"
     assert pm.day_off_problem("brentbrown", "2026-11-10") == ""
-    assert pm.day_off_problem("ChristianGarza", "2026-11-09") == "ask"
+    assert pm.day_off_problem("ChristianGarza", "2026-11-09") == ""
     assert pm.day_off_problem("Jose Arthur", "2026-11-09") == ""
 
 
@@ -75,3 +75,35 @@ def test_days_off_by_date_and_late_starts():
     assert day_off_problem("BrentBrown", "2026-11-17", rules) == "late"
     assert day_off_problem("BrentBrown", "2026-11-16", rules) == "never"   # Monday
     assert day_off_problem("BrentBrown", "2026-11-14", rules) == ""
+
+
+def test_only_weekdays_and_one_off_on_dates():
+    """Alfredo works Mondays + Tuesdays only, but asked for Wed 11/18 (Alan, 2026-11-17)."""
+    from services.project_manager import day_off_problem, day_off_words
+    rules = {"alfredo": {"only": [0, 1], "on_dates": ["2026-11-18"]}}
+    assert day_off_problem("Alfredo", "2026-11-17", rules) == ""          # Tuesday
+    assert day_off_problem("Alfredo", "2026-11-19", rules) == "never"     # Thursday
+    assert day_off_problem("Alfredo", "2026-11-18", rules) == ""          # the one Wednesday he asked for
+    assert day_off_words("Alfredo", "2026-11-19", rules) == "Alfredo: Mon + Tue only"
+
+
+def test_day_off_words_for_each_kind():
+    from services.project_manager import day_off_words
+    rules = {"brentbrown": {"never": [0], "off_dates": ["2026-11-21"], "late_dates": {"2026-11-24": "check-in at 8:30"}},
+             "chris": {"never": [4], "ask": [5]}}
+    assert day_off_words("BrentBrown", "2026-11-16", rules, "Brent Brown") == "Brent: Mondays off"
+    assert day_off_words("BrentBrown", "2026-11-21", rules, "Brent Brown") == "Brent: off Nov 21 (told us)"
+    assert day_off_words("BrentBrown", "2026-11-24", rules, "Brent Brown") == "Brent: late start Nov 24, check-in at 8:30"
+    assert day_off_words("Chris", "2026-11-20", rules, "Chris Moran") == "Chris: Fridays off"
+    assert day_off_words("Chris", "2026-11-21", rules, "Chris Moran") == "Chris: usually off Saturdays, ask first"
+    assert day_off_words("Chris", "2026-11-22", rules, "Chris Moran") == ""   # Sunday he works
+
+
+def test_the_real_roster_matches_what_alan_said():
+    """Jose Mon-Sat; Chris Sun-Thu; Brent never Mon; Christian any day; Alfredo Mon+Tue."""
+    from services.project_manager import day_off_problem as p
+    assert p("Jose Arthur", "2026-11-22") == "never" and p("Jose Arthur", "2026-11-21") == ""
+    assert p("Chris", "2026-11-20") == "never" and p("Chris", "2026-11-22") == ""
+    assert p("BrentBrown", "2026-11-23") == "never" and p("BrentBrown", "2026-11-18") == ""
+    assert all(p("ChristianGarza", f"2026-11-{d}") == "" for d in range(16, 23))
+    assert p("Alfredo", "2026-11-18") == "" and p("Alfredo", "2026-11-19") == "never"

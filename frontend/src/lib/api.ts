@@ -4050,7 +4050,8 @@ export const api = {
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
   // PM HQ (Alan, 2026-10-18): the project manager's job calendar.
   getPmHqCalendar: (start: string, end: string) =>
-    request<{ days: PmDay[]; fixes: FixJob[]; crew_options: { username: string; name: string }[]; pw_options?: { key: string; label: string }[]; can_edit: boolean; today: string }>(
+    request<{ days: PmDay[]; fixes: FixJob[]; crew_options: { username: string; name: string }[]; pw_options?: { key: string; label: string }[]; can_edit: boolean; today: string;
+              availability?: Record<string, Record<string, PmOff>>; needs_day?: PmNeedsDay[] }>(
       `/api/pm-hq/calendar?start=${start}&end=${end}`),
   getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[]; fixes: FixJob[] }>(`/api/pm-hq/today`),
   // Jobs to fix (Alan, 2026-10-27): the go-backs beside the calendar.
@@ -6750,9 +6751,18 @@ export interface JobVisitsPayload {
   needs_another_day: { date: string; reason: string; label: string; by: string; note: string; done: Record<string, number> } | null;
 }
 
+/** Why a worker shouldn't be on a day (Alan, 2026-11-17): "Brent: Mondays off". */
+export interface PmOff { status: "never" | "ask" | "late"; why: string }
+/** A paid job with no cleaning or stain day yet (Alan, 2026-11-17). */
+export interface PmNeedsDay {
+  lead_id: string; name: string; address: string; booked_date: string; total: number; package: string; sqft: number; color: string;
+  missing: ("cleaning" | "staining")[]; cleaning_date: string; staining_date: string; too_close: boolean;
+}
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
   task: CrewDayTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+  /** Set when this worker is off (or late) that day. */
+  off?: PmOff | null;
   staining_days?: { date: string; person: string }[];
   /** The last check-out was a rain-out or a changed job (2026-11-02). */
   needs_day?: { date: string; reason: string; label: string; by: string; note: string; done: Record<string, number> } | null;

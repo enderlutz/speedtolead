@@ -42,16 +42,25 @@ LOOK_AHEAD = 3                    # today + the next 2 days
 TEXT_LIMIT = 1000                 # GHL rejects over 1,600 and emojis count double
 LATE_START = "08:30"              # first photo after this on the first job of the day = late
 
-# username (lowercase) -> {"never": [weekdays], "ask": [weekdays]}, Monday = 0.
-# Alan, 2026-11-06: "Brent always has Mondays off", "I usually don't work
-# Christian on Mondays either".
+# username (lowercase) -> the days a worker can and can't work, Monday = 0:
+#   "never": weekdays always off        "ask": weekdays usually off (ask first)
+#   "only": the weekdays worked at all  "off_dates": one-off days off
+#   "on_dates": one-off days that ARE worked (beats never/only)
+#   "late_dates": {date: why} a late start
+# Alan, 2026-11-17: Jose Mon-Sat; Chris Sun-Thu (Friday off, usually Saturday
+# too); Brent never Mondays; Christian any day; Alfredo Mondays + Tuesdays only.
 DAYS_OFF = {
-    # Brent 11/10: off all day Sat 11/21 (for sure), Thanksgiving 11/25-27;
-    # Tue 11/17 he has to be "up there" at 8:30, earliest on a job 10-10:30.
-    "brentbrown": {"never": [0], "off_dates": ["2026-11-21", "2026-11-25", "2026-11-26", "2026-11-27"],
-                   "late_dates": {"2026-11-17": "check-in at 8:30, earliest on a job 10-10:30"}},
-    "christiangarza": {"ask": [0]},
+    "jose arthur": {"never": [6]},
+    "chris": {"never": [4], "ask": [5]},
+    # Brent: no-show Tue 11/17, off Sat 11/21 (a meeting), Thanksgiving 11/25-27.
+    "brentbrown": {"never": [0], "off_dates": ["2026-11-17", "2026-11-21", "2026-11-25", "2026-11-26", "2026-11-27"]},
+    "christiangarza": {},
+    # Alfredo asked to work Wed 11/18 (Dammy's with Jose).
+    "alfredo": {"only": [0, 1], "on_dates": ["2026-11-18"]},
 }
+
+DAY_WORDS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"]
+DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 AFTER_SECTION = {"cleaning": "clean_after", "staining": "stain_after"}
 
@@ -68,20 +77,75 @@ def buy_in_fives(gallons: float) -> int:
 def day_off_problem(username: str, day: str, rules: dict | None = None) -> str:
     """'never' / 'ask' / 'late' / '' for this worker on this YYYY-MM-DD.
     Besides weekdays, a worker can have dates he told us he's off
-    ("off_dates") or starts late ("late_dates": {date: why}) - Alan,
-    2026-11-13: check every day off a worker gave us before scheduling."""
+    ("off_dates"), dates he asked to work ("on_dates", 2026-11-17: Alfredo on
+    a Wednesday), the only weekdays he works ("only"), or late starts
+    ("late_dates": {date: why}) - Alan, 2026-11-13: check every day off a
+    worker gave us before scheduling."""
     from datetime import date
     r = (rules if rules is not None else DAYS_OFF).get((username or "").lower(), {})
+    if day in (r.get("on_dates") or []):
+        return ""
     if day in (r.get("off_dates") or []):
         return "never"
     if day in (r.get("late_dates") or {}):
         return "late"
     wd = date.fromisoformat(day).weekday()
+    only = r.get("only")
+    if only and wd not in only:
+        return "never"
     if wd in r.get("never", []):
         return "never"
     if wd in r.get("ask", []):
         return "ask"
     return ""
+
+
+def day_off_words(username: str, day: str, rules: dict | None = None, name: str = "") -> str:
+    """Why this worker shouldn't be on this day, in plain words for the
+    calendar: "Brent: Mondays off", "Alfredo: Mon + Tue only",
+    "Chris: usually off Saturdays, ask first", "Brent: off Nov 21 (told us)".
+    Empty when the day is fine."""
+    from datetime import date
+    r = (rules if rules is not None else DAYS_OFF).get((username or "").lower(), {})
+    who = (name or username or "").split(" ")[0] or "?"
+    p = day_off_problem(username, day, rules)
+    if not p:
+        return ""
+    d = date.fromisoformat(day)
+    when = f"{d.strftime('%b')} {d.day}"
+    if day in (r.get("off_dates") or []):
+        return f"{who}: off {when} (told us)"
+    if p == "late":
+        return f"{who}: late start {when}, {r['late_dates'][day]}"
+    only = r.get("only")
+    if only and d.weekday() not in only:
+        return f"{who}: {' + '.join(DAY_SHORT[i] for i in sorted(only))} only"
+    if p == "never":
+        return f"{who}: {DAY_WORDS[d.weekday()]} off"
+    return f"{who}: usually off {DAY_WORDS[d.weekday()]}, ask first"
+
+
+def availability(db, crew: list[dict], start: str, end: str) -> dict[str, dict[str, dict]]:
+    """username -> {day -> {"status", "why"}} for every day in the range a
+    worker is off, usually off or late. Days that are fine aren't listed.
+    `crew` is the calendar's crew_options ({username, name})."""
+    from datetime import date, timedelta
+    rules = _rules(db)
+    out: dict[str, dict[str, dict]] = {}
+    try:
+        d, last = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        return out
+    if (last - d).days > 120:
+        last = d + timedelta(days=120)
+    while d <= last:
+        iso = d.isoformat()
+        for c in crew:
+            p = day_off_problem(c["username"], iso, rules)
+            if p:
+                out.setdefault(c["username"], {})[iso] = {"status": p, "why": day_off_words(c["username"], iso, rules, c.get("name", ""))}
+        d += timedelta(days=1)
+    return out
 
 
 def _words(s: str) -> list[str]:
