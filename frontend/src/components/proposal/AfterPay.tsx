@@ -627,7 +627,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   }
 
   return (
-    <div className={page ? "min-h-screen bg-[#F8F3E7]" : "fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
+    <div className={page ? "keep-light min-h-screen bg-[#F8F3E7]" : "keep-light fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
       <div className={cn("relative flex w-full max-w-md flex-col bg-[#F8F3E7] text-[#15130F]", page ? "mx-auto min-h-screen" : "max-h-[94vh] overflow-hidden rounded-t-3xl shadow-2xl sm:rounded-3xl")} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between bg-[#15130F] px-4 py-3">
           <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-7 w-auto" draggable={false} />

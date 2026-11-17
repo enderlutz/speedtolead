@@ -1005,7 +1005,7 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
       </div>
       {preview && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-3 sm:items-center" onClick={() => setPreview(false)}>
-          <div className="w-full max-w-[430px] rounded-2xl bg-white p-4 text-[#111110] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="keep-light w-full max-w-[430px] rounded-2xl bg-white p-4 text-[#111110] shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="text-[12px] font-bold uppercase tracking-[0.18em] text-[#8C6224]">Preview · what the customer sees</p>
               <button type="button" onClick={() => setPreview(false)} className="rounded-full p-1.5 hover:bg-black/10" aria-label="Close preview"><X className="h-4 w-4" /></button>

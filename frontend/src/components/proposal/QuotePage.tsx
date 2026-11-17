@@ -67,7 +67,7 @@ export function QuotePage({
   };
 
   return (
-    <div className={page ? "min-h-screen bg-[#F8F3E7]" : "fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
+    <div className={page ? "keep-light min-h-screen bg-[#F8F3E7]" : "keep-light fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
       <div className={cn("relative flex w-full max-w-md flex-col bg-[#F8F3E7] text-[#15130F]", page ? "mx-auto min-h-screen" : "h-full overflow-hidden shadow-2xl sm:h-auto sm:max-h-[94vh] sm:rounded-3xl")} onClick={(e) => e.stopPropagation()}>
         {page ? (
           <div className="flex items-center justify-between bg-[#15130F] px-4 py-3">
