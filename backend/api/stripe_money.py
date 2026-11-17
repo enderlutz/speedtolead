@@ -25,18 +25,24 @@ def _usd(rows) -> float:
     return round(sum(r["amount"] for r in rows or [] if r.get("currency") == "usd") / 100, 2)
 
 
+def _plain(obj) -> dict:
+    return obj.to_dict() if hasattr(obj, "to_dict") else dict(obj)
+
+
 @router.get("/stripe/money")
 def money(user: dict = Depends(require_admin)):
     del user
     s = _stripe()
-    bal = s.Balance.retrieve()
-    acct = s.Account.retrieve()
+    # stripe-python 16 objects aren't dicts (no .get): plain dicts first.
+    bal = _plain(s.Balance.retrieve())
+    acct = _plain(s.Account.retrieve())
     req = acct.get("requirements") or {}
     sched = ((acct.get("settings") or {}).get("payouts") or {}).get("schedule") or {}
-    payouts = s.Payout.list(limit=20)
+    payouts = _plain(s.Payout.list(limit=20))
     # When each pending charge becomes ready to send.
     upcoming: dict[str, float] = {}
     for t in s.BalanceTransaction.list(limit=100).auto_paging_iter():
+        t = _plain(t)
         if t["status"] == "pending" and t["currency"] == "usd":
             d = _day(t["available_on"])
             upcoming[d] = round(upcoming.get(d, 0) + t["net"] / 100, 2)

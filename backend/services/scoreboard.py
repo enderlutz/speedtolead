@@ -289,11 +289,26 @@ def stripe_watch(stripe_mod=None) -> dict:
         if stripe_mod is None:
             from api.stripe_pay import _stripe
             stripe_mod = _stripe()
-        bal = stripe_mod.Balance.retrieve()
-        acct = stripe_mod.Account.retrieve()
-        payouts = stripe_mod.Payout.list(limit=10)["data"]
+        # stripe-python 16 objects aren't dicts any more (no .get): turn them
+        # into plain dicts first. Reading them as dicts crashed the hourly
+        # save, so daily_scores stayed empty from 10/29 to 11/17.
+        bal = _plain(stripe_mod.Balance.retrieve())
+        acct = _plain(stripe_mod.Account.retrieve())
+        payouts = _plain(stripe_mod.Payout.list(limit=10)).get("data") or []
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)[:200]}
+    try:
+        return _watch_summary(bal, acct, payouts)
+    except Exception as e:  # noqa: BLE001 - "never raises" means never
+        return {"ok": False, "error": f"Couldn't read Stripe's answer: {str(e)[:160]}"}
+
+
+def _plain(obj) -> dict:
+    """A Stripe object as a plain dict (or the dict itself, in tests)."""
+    return obj.to_dict() if hasattr(obj, "to_dict") else dict(obj)
+
+
+def _watch_summary(bal: dict, acct: dict, payouts: list) -> dict:
     usd = lambda rows: round(sum(r["amount"] for r in rows or [] if r.get("currency") == "usd") / 100, 2)  # noqa: E731
     day = lambda ts: datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(CT).date().isoformat() if ts else ""  # noqa: E731
     paid = [p for p in payouts if p["status"] in ("paid", "in_transit", "pending")]

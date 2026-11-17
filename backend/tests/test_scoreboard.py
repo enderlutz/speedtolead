@@ -149,3 +149,47 @@ def test_monday_text_compares_with_the_week_before():
     assert "Cost to get a customer: $249 (up from $200, watch it)" in msg
     assert "Close rate: 12.9% (up from 10%)" in msg
     assert "Profit per job: $734 (down from $800, watch it), $485 after ads" in msg
+
+
+def test_stripe_watch_reads_stripe16_objects():
+    """stripe-python 16 objects aren't dicts (no .get). Reading them as dicts
+    crashed the hourly save and daily_scores stayed empty (2026-11-17)."""
+    from stripe import StripeObject
+    from services.scoreboard import stripe_watch
+
+    def o(d):
+        return StripeObject.construct_from(d, "k")
+
+    class Fake:
+        class Balance:
+            retrieve = staticmethod(lambda: o({"available": [{"amount": 12345, "currency": "usd"}],
+                                               "pending": [{"amount": 500, "currency": "usd"}]}))
+
+        class Account:
+            retrieve = staticmethod(lambda: o({"payouts_enabled": True,
+                                               "requirements": {"currently_due": [], "past_due": []}}))
+
+        class Payout:
+            list = staticmethod(lambda limit: o({"data": [{"amount": 35105, "status": "paid", "created": 1794000000,
+                                                           "arrival_date": 1794100000, "currency": "usd"}]}))
+
+    w = stripe_watch(Fake)
+    assert w["ok"] is True
+    assert w["ready"] == 123.45 and w["on_the_way"] == 5.0
+    assert w["last_payout"]["amount"] == 351.05
+
+
+def test_stripe_watch_never_raises_on_odd_answers():
+    from services.scoreboard import stripe_watch
+
+    class Odd:
+        class Balance:
+            retrieve = staticmethod(lambda: {"available": "not a list"})
+
+        class Account:
+            retrieve = staticmethod(lambda: {})
+
+        class Payout:
+            list = staticmethod(lambda limit: {"data": [{}]})
+
+    assert stripe_watch(Odd)["ok"] is False
