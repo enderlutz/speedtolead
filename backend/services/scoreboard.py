@@ -318,8 +318,13 @@ def _watch_summary(bal: dict, acct: dict, payouts: list) -> dict:
         "ok": True, "ready": usd(bal.get("available")), "on_the_way": usd(bal.get("pending")),
         "last_payout": ({"amount": round(last["amount"] / 100, 2), "status": last["status"],
                          "sent": day(last["created"]), "arrives": day(last["arrival_date"])} if last else None),
+        # Only failures since the last payout that went through: the Nov 3
+        # $35,105.19 failed on a wrong routing number, was re-sent and landed
+        # in Chase on Nov 9, and the money check kept texting it every day
+        # (Alan, 2026-11-18).
         "failed_payouts": [{"amount": round(p["amount"] / 100, 2), "why": p.get("failure_message") or ""}
-                           for p in payouts if p["status"] == "failed"],
+                           for p in payouts if p["status"] == "failed"
+                           and (last is None or p["created"] > last["created"])],
         "payouts_enabled": bool(acct.get("payouts_enabled")),
         "stripe_needs": (req.get("currently_due") or []) + (req.get("past_due") or []),
     }
@@ -341,7 +346,7 @@ def money_problems(watch: dict, today: date) -> list[str]:
     if watch["stripe_needs"]:
         out.append(f"Stripe wants {len(watch['stripe_needs'])} thing(s) before it pays out. Open Stripe → Setup guide.")
     for f in watch["failed_payouts"]:
-        out.append(f"A ${f['amount']:,.2f} payout failed{': ' + f['why'] if f['why'] else ''}.")
+        out.append(f"A ${f['amount']:,.2f} payout failed{': ' + f['why'].rstrip('.') if f['why'] else ''}.")
     last = watch.get("last_payout")
     days_since = (today - date.fromisoformat(last["sent"])).days if last else None
     if watch["ready"] >= STRIPE_STUCK_DOLLARS and (days_since is None or days_since >= STRIPE_STUCK_DAYS):

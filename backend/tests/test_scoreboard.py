@@ -193,3 +193,21 @@ def test_stripe_watch_never_raises_on_odd_answers():
             list = staticmethod(lambda limit: {"data": [{}]})
 
     assert stripe_watch(Odd)["ok"] is False
+
+
+def test_an_old_failed_payout_that_was_resent_stays_quiet():
+    """Nov 3 payout failed (wrong routing), re-sent and paid after: no daily text (Alan, 2026-11-18)."""
+    today = date(2026, 11, 18)
+    w = sb.stripe_watch(_FakeStripe(0, [
+        {"amount": 3510519, "status": "failed", "created": _ts("2026-11-03"), "arrival_date": _ts("2026-11-05"),
+         "failure_message": "Stripe could not process this transfer."},
+        {"amount": 602691, "status": "paid", "created": _ts("2026-11-17"), "arrival_date": _ts("2026-11-17")},
+    ]))
+    assert w["failed_payouts"] == [] and sb.money_problems(w, today) == []
+    # A failure after the last good payout still gets texted.
+    w2 = sb.stripe_watch(_FakeStripe(0, [
+        {"amount": 602691, "status": "paid", "created": _ts("2026-11-17"), "arrival_date": _ts("2026-11-17")},
+        {"amount": 100000, "status": "failed", "created": _ts("2026-11-18"), "arrival_date": _ts("2026-11-19"),
+         "failure_message": "account closed"},
+    ]))
+    assert any("$1,000.00 payout failed" in m for m in sb.money_problems(w2, today))
