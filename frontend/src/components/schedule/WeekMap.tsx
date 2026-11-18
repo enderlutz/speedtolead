@@ -17,6 +17,27 @@ import { EyeOff, Loader2, MapPin, Plus, Search, Undo2, X } from "lucide-react";
 import { api, type PmMapPin } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { errMessage } from "@/lib/utils";
+import sitesData from "@/data/sites.json";
+
+/** The storage unit, the stores and the dumps from the Job Map (Alan,
+ *  2026-11-17: "put it on my map" about the Greenhouse Road landfill, looking
+ *  at this map). Shown as square tags so they never read as customers, and
+ *  left out of the zoom-to-fit so the map still frames the jobs. */
+type Site = { id: string; kind: string; n: string; c: string; addr: string; lat: number | null; lng: number | null; note?: string };
+const SITES = (sitesData as Site[]).filter((s) => s.kind !== "closed" && s.lat != null && s.lng != null);
+
+function siteIcon(s: Site): L.DivIcon {
+  const icon = s.kind === "base" ? "🏠" : /dump|landfill|waste/i.test(s.id + s.n) ? "🗑️" : "🛒";
+  const html = `
+    <div style="position:absolute;left:0;bottom:0;transform:translate(-50%,0);display:flex;flex-direction:column;align-items:center;">
+      <div style="display:flex;align-items:center;gap:4px;white-space:nowrap;background:${s.c};color:#fff;border-radius:6px;padding:2px 7px;font:700 12px/1.3 Inter,system-ui,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.3);">
+        <span>${icon}</span><span>${esc(s.n)}</span>
+      </div>
+      <div style="width:2px;height:6px;background:${s.c};"></div>
+      <div style="width:10px;height:10px;background:${s.c};border:2px solid #fff;margin-bottom:-5px;"></div>
+    </div>`;
+  return L.divIcon({ html, className: "", iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -34] });
+}
 
 const HOUSTON: [number, number] = [29.9, -95.5];
 const TASK: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", repairs: "Repairs", fix: "Fix" };
@@ -115,7 +136,7 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
             Every job on these days that isn't finished is here by itself, and every job to fix at a customer's. Finished jobs come off on their own. Tap a pin to hide it this week.
           </p>
           <p className="text-sm text-muted-foreground">
-            Name only = nothing done yet · 🧽 = cleaned · <span className="font-bold text-red-600">✕</span> = a job to fix (shows every week until it's done)
+            Name only = nothing done yet · 🧽 = cleaned · <span className="font-bold text-red-600">✕</span> = a job to fix (shows every week until it's done) · square tags = storage 🏠, stores 🛒, dumps 🗑️
           </p>
         </div>
         {!pins ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -127,6 +148,20 @@ export function WeekMap({ start, end, refreshKey }: { start: string; end: string
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <FitPins pts={pts} />
+          {SITES.map((s) => (
+            <Marker key={"site-" + s.id} position={[s.lat!, s.lng!]} icon={siteIcon(s)} zIndexOffset={-500}>
+              <Popup>
+                <div className="space-y-1 text-sm">
+                  <p className="font-semibold">{s.n}</p>
+                  <p className="text-muted-foreground">{s.addr}</p>
+                  {/* The notes are our own text from sites.json (bold for the warnings). */}
+                  {s.note ? <p dangerouslySetInnerHTML={{ __html: s.note }} /> : null}
+                  <a className="font-semibold text-blue-700 underline" target="_blank" rel="noreferrer"
+                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.addr.split(" · ")[0])}`}>Google Maps</a>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
           {placed.map((p) => (
             <Marker key={p.lead_id} position={[p.lat!, p.lng!]} icon={pinIcon(p)}>
               <Popup>
