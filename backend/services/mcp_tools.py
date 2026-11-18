@@ -688,6 +688,11 @@ def send_text(db, draft_id: str, alan_said: str) -> dict:
 
 # ── the list Claude sees ──────────────────────────────────────────────────
 
+def _sales_audit(db, **kw) -> dict:
+    from services.sales_audit import sales_audit
+    return sales_audit(db, **kw)
+
+
 def _str(desc):
     return {"type": "string", "description": desc}
 
@@ -730,6 +735,20 @@ TOOLS = [
     (stella, "stella",
      "Stella (AI sales manager): her playbook and the call-backs waiting for Alan.",
      {"days_ahead": _int("How many days ahead (default 2)")}, []),
+    (_sales_audit, "sales_audit",
+     "Sales audit (read-only, no names/phones): a page of lead journeys in a date window, each with speed to "
+     "first text/call/live call, calls by VA, texts, quote prices, proposal views, whether a date and the $250 "
+     "were asked for (transcript keyword inference), AI objection tags, deposit (when, how, days after lead), "
+     "booking, package sold and status; plus funnel, speed, close-timing, by-VA and objection summaries for the "
+     "page. Page with next_cursor. Use lead_id with call_transcript to read a call.",
+     {"start": _str("YYYY-MM-DD lead created on/after (default end minus 60 days)"),
+      "end": _str("YYYY-MM-DD lead created on/before (default today)"),
+      "limit": _int("Leads per page, max 100 (default 50)"),
+      "cursor": _str("next_cursor from the previous page"),
+      "outcome": _str("all (default), won (deposit paid) or lost_or_open"),
+      "va": _str("Only leads this staff member called, e.g. Olga, Geoconda, Alan"),
+      "include_excerpts": {"type": "boolean", "description": "Add up to 3 short redacted transcript excerpts per lead"}},
+     []),
     (set_job, "set_job",
      "Change a job card: color (e.g. 'Classic Mahogany · Valspar · Solid'), package, sq ft, gallons "
      "needed, gallons used, color confirmed. Makes the card if missing. Confirm with Alan first.",

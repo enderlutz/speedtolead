@@ -300,7 +300,7 @@ def test_change_tools_write_and_log(client, db):
     assert "Evenings mean 5 PM" in SystemConfig.get(db, "stella_playbook", "")
 
     off = _ok(client, t, "david_day_off", {"worker": "Chris", "weekday": "sunday", "kind": "ask"})
-    assert off["all_days_off"]["chris"]["ask"] == ["sunday"]
+    assert "sunday" in off["all_days_off"]["chris"]["ask"]   # Chris also has "ask" Saturdays in the roster (2026-11-17)
 
     log = _ok(client, t, "change_log", {})["changes"]
     assert [c["tool"] for c in log][:3] == ["david_day_off", "teach_stella", "log_receipt"]
