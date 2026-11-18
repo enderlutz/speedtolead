@@ -58,6 +58,8 @@ export type Info = {
   has_email?: boolean;
   /** The whole job, so a deposit page can show what it comes off. */
   job_total?: number;
+  /** The final bill offers a tip for the crew (backend services/tips.py). */
+  tips?: boolean;
 };
 
 // Stripe.js, loaded from Stripe when the page needs it. Only the parts this
@@ -124,8 +126,8 @@ const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
  *  Checkout Session in `elements` mode; paying goes to the same after page
  *  and the same webhook as the hosted page. If any of it can't load,
  *  `onFail` hands the page back to the one-button jump. */
-function StripeForm({ token, pk, preview, amount, needEmail, onFail, onTerms }: {
-  token: string; pk: string; preview: boolean; amount: number; needEmail: boolean; onFail: () => void; onTerms: () => void;
+function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, onFail, onTerms }: {
+  token: string; pk: string; preview: boolean; amount: number; tipCents?: number; needEmail: boolean; onFail: () => void; onTerms: () => void;
 }) {
   const walletBox = useRef<HTMLDivElement | null>(null);
   const formBox = useRef<HTMLDivElement | null>(null);
@@ -159,7 +161,7 @@ function StripeForm({ token, pk, preview, amount, needEmail, onFail, onTerms }: 
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
           r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token)}/session`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ elements: true, preview }),
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ elements: true, preview, tip_cents: tipCents }),
           });
           if (r.status < 500) break;
         } catch { r = null; }
@@ -262,7 +264,7 @@ function StripeForm({ token, pk, preview, amount, needEmail, onFail, onTerms }: 
         ) : null}
         <button type="button" onClick={() => void payNow()} disabled={busy}
           className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#111110] text-[17px] font-semibold text-white active:scale-[0.98] disabled:opacity-60">
-          <Lock className="h-4 w-4" /> {busy ? "Paying…" : `Pay ${total || formatCurrency(amount)}`}
+          <Lock className="h-4 w-4" /> {busy ? "Paying…" : `Pay ${total || formatCurrency(amount + tipCents / 100)}`}
         </button>
         {error ? <p className="mt-3 rounded-[10px] bg-rose-50 px-3 py-2 text-[14px] font-medium text-rose-800">{error}</p> : null}
         <p className="mt-3 text-center text-[12px] leading-relaxed text-[#8F8C84]">
@@ -305,6 +307,8 @@ export default function PayLink() {
   const [goneWhy, setGoneWhy] = useState("");
   // Stripe's form on the page; when it can't load, the one-button jump.
   const [embedFailed, setEmbedFailed] = useState(false);
+  // The crew tip on the final bill, in cents. No tip until they pick one.
+  const [tipCents, setTipCents] = useState(0);
   const isPreview = new URLSearchParams(window.location.search).get("preview") === "1";
   useFonts();
 
@@ -359,7 +363,7 @@ export default function PayLink() {
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
           r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/session`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method, preview: isPreview }),
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method, preview: isPreview, tip_cents: method === "klarna" ? 0 : tipCents }),
           });
           if (r.status < 500) break;
         } catch { r = null; }
@@ -467,6 +471,7 @@ export default function PayLink() {
 
       {info.configured ? (
         <>
+          {info.tips ? <TipPicker amount={info.amount} tipCents={tipCents} onChange={setTipCents} /> : null}
           {/* The payment panel: one soft block, the lock line next to the fields. */}
           <div className="mt-7 rounded-2xl bg-[#F6F5F2] p-4">
             <div className="mb-4 flex items-center justify-between">
@@ -474,13 +479,13 @@ export default function PayLink() {
               <span className="text-[12px] font-medium text-[#8F8C84]">Secured by Stripe</span>
             </div>
             {useForm ? (
-              <StripeForm key={token} token={token || ""} pk={info.publishable_key!} preview={isPreview} amount={info.amount}
+              <StripeForm key={`${token}:${tipCents}`} token={token || ""} pk={info.publishable_key!} preview={isPreview} amount={info.amount} tipCents={tipCents}
                 needEmail={info.has_email === false} onFail={() => setEmbedFailed(true)} onTerms={() => setTerms(true)} />
             ) : (
               <>
                 <button type="button" onClick={() => void pay()} disabled={busy}
                   className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#111110] text-[17px] font-semibold text-white active:scale-[0.98] disabled:opacity-60">
-                  <Lock className="h-4 w-4" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount)}`}
+                  <Lock className="h-4 w-4" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount + tipCents / 100)}`}
                 </button>
                 <p className="mt-3 text-center text-[13px] text-[#6B6963]">Opens Stripe's secure payment page: Apple Pay, Google Pay, card, Cash App or bank.</p>
                 <p className="mt-2 text-center text-[12px] leading-relaxed text-[#8F8C84]">
@@ -508,6 +513,47 @@ export default function PayLink() {
       )}
       <Contact />
     </Shell>
+  );
+}
+
+/** A tip for the crew, on the final bill only (Alan, 2026-11-18). Big flat
+ * buttons, "No tip" picked to start, and the total says what they'll pay. */
+const TIP_CHOICES = [2500, 5000, 10000];
+function TipPicker({ amount, tipCents, onChange }: { amount: number; tipCents: number; onChange: (c: number) => void }) {
+  const [other, setOther] = useState(false);
+  const [typed, setTyped] = useState("");
+  const pick = (c: number) => { setOther(false); setTyped(""); onChange(c); };
+  const applyTyped = () => {
+    const n = Math.round(parseFloat(typed.replace(/[^0-9.]/g, "")) * 100);
+    onChange(Number.isFinite(n) && n > 0 ? Math.min(n, 100000) : 0);
+  };
+  const btn = (on: boolean) => `flex h-14 items-center justify-center rounded-xl text-[17px] font-semibold ring-1 active:scale-[0.98] ${on ? "bg-[#111110] text-white ring-[#111110]" : "bg-white text-[#111110] ring-[#D8D5CE]"}`;
+  return (
+    <section className="mt-7">
+      <p className="text-[17px] font-semibold">Add a tip for your crew?</p>
+      <p className="mt-1 text-[15px] text-[#55534D]">100% goes to the crew who did your fence.</p>
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <button type="button" onClick={() => pick(0)} className={btn(tipCents === 0 && !other)}>No tip</button>
+        {TIP_CHOICES.map((c) => (
+          <button key={c} type="button" onClick={() => pick(c)} className={btn(tipCents === c && !other)}>${c / 100}</button>
+        ))}
+        <button type="button" onClick={() => { setOther(true); onChange(0); }} className={`col-span-2 ${btn(other)}`}>Other amount</button>
+      </div>
+      {other ? (
+        <div className="mt-3 flex gap-2.5">
+          <label className="relative flex-1">
+            <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] font-semibold text-[#55534D]">$</span>
+            <input type="text" inputMode="decimal" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Tip amount" aria-label="Tip amount"
+              className="h-14 w-full rounded-xl border border-[#D8D5CE] bg-white pl-8 pr-3 text-[17px] font-medium outline-none focus:border-[#111110] focus:ring-1 focus:ring-[#111110]" />
+          </label>
+          <button type="button" onClick={applyTyped} className="h-14 rounded-xl bg-[#111110] px-6 text-[17px] font-semibold text-white active:scale-[0.98]">Add</button>
+        </div>
+      ) : null}
+      <p className="mt-3 flex justify-between border-t border-[#ECEAE5] pt-3 text-[17px]">
+        <span className="text-[#55534D]">{tipCents ? `Bill + ${formatCurrency(tipCents / 100)} tip` : "Your total"}</span>
+        <span className="font-semibold tabular-nums">{formatCurrency(amount + tipCents / 100)}</span>
+      </p>
+    </section>
   );
 }
 

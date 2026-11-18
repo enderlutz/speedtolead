@@ -38,6 +38,7 @@ from api.auth import require_staff
 from config import get_settings
 from database import get_db, Lead, PayLink, CustomerPayment, SystemConfig
 from services import after_pay_hooks as hooks
+from services import tips
 from services.activity_log import log_event
 from services.referrals import referral_url_for
 
@@ -931,6 +932,8 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             "name": ((lead.contact_name or "").strip() if lead else ""),
             "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
             "due_date": link.due_date or None,
+            # Tip buttons on the final bill (services/tips.py).
+            "tips": tips.offered(db, link, preview=preview == 1),
             "financing": link.kind != "deposit" and not link.no_financing,
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
@@ -991,6 +994,8 @@ class SessionBody(BaseModel):
     elements: bool = False
     # Staff looking at their own link: no event, no "tapped Pay" alert.
     preview: bool = False
+    # A tip for the crew on the final bill, in cents (services/tips.py).
+    tip_cents: int = 0
 
 
 @router.post("/pay/{token}/session")
@@ -1056,6 +1061,16 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
                     "product_data": {"name": f"Sterling Fence Staining: {LABELS.get(link.kind, link.kind)}", **({"description": what[:500]} if what else {})},
                 },
             }]
+        tip = tips.clean_tip(db, link, body.tip_cents if body is not None else 0,
+                             preview=bool(body is not None and body.preview))
+        if tip:
+            line_items.append({
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd", "unit_amount": tip,
+                    "product_data": {"name": "Tip for your crew", "description": "100% goes to the crew who did your fence."},
+                },
+            })
         params: dict = {
             "mode": "payment",
             "line_items": line_items,
@@ -1065,6 +1080,9 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             "success_url": f"{_base()}/after/{link.token}?s={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{_base()}/pay/{link.token}",
         }
+        if tip:
+            params["metadata"]["tip_cents"] = str(tip)
+            params["payment_intent_data"]["metadata"]["tip_cents"] = str(tip)
         number = _invoice_number(db, link.lead_id)
         if number:
             # On Stripe's receipt and in the dashboard next to the payment.
@@ -1400,6 +1418,14 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
         return existing
     g = lambda k: _field(session, k)  # noqa: E731
     amount = int(g("amount_total") or link.amount_cents or 0)
+    # A tip is the crew's money, not the job's: it stays out of the
+    # payment (so revenue and "collected" don't count it) and goes onto
+    # Crew hours, split between the staining crew.
+    try:
+        tip = max(0, min(int(_field(g("metadata"), "tip_cents") or 0), amount))
+    except (TypeError, ValueError):
+        tip = 0
+    amount -= tip
     pi = g("payment_intent")
     pi_id = pi if isinstance(pi, str) else (_field(pi, "id") if pi else None)
     method = ""
@@ -1410,7 +1436,22 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
             method = (getattr(pm, "type", "") or "") if pm else ""
         except Exception as e:  # noqa: BLE001 - the method is a nicety
             logger.info("payment method lookup failed for %s: %s", pi_id, e)
-    return _book_paid(db, link, amount, method, sid=sid, pi_id=pi_id, event_id=event_id, currency=(g("currency") or "usd"))
+    row = _book_paid(db, link, amount, method, sid=sid, pi_id=pi_id, event_id=event_id, currency=(g("currency") or "usd"))
+    if tip:
+        try:
+            shares = tips.record(db, link, tip)
+            db.commit()
+            if shares:
+                log_event(link.lead_id, "tip_received",
+                          f"${tip / 100:,.2f} tip: " + ", ".join(f"{r.name} ${r.amount:,.2f}" for r in shares))
+            else:
+                log_event(link.lead_id, "tip_unassigned",
+                          f"${tip / 100:,.2f} tip and nobody is on the staining day: add it on Crew hours by hand")
+        except Exception as e:  # noqa: BLE001 - the payment is booked; the tip line is extra
+            db.rollback()
+            logger.warning("tip split failed for %s: %s", link.token, e)
+            log_event(link.lead_id, "tip_unassigned", f"${tip / 100:,.2f} tip, split failed: {str(e)[:200]}")
+    return row
 
 
 # ── Staff: ask Stripe directly ────────────────────────────────────────────
