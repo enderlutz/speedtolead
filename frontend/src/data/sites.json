@@ -78,5 +78,15 @@
     "lat": 29.771389,
     "lng": -95.309722,
     "note": "$15 per cubic yard. <b>REQUIRES hard hat, steel-toe boots, hi-vis vest and safety glasses</b> — they turn people away without them."
+  },
+  {
+    "id": "dump-katy",
+    "kind": "supply",
+    "n": "GREENHOUSE ROAD LANDFILL (KATY)",
+    "c": "#8a6d3b",
+    "addr": "3510 Greenhouse Rd, Houston, TX 77084 · 281-492-2558",
+    "lat": 29.8232,
+    "lng": -95.6988,
+    "note": "Closest dump to the Katy jobs (about 20 min east of 77493). Construction and demolition: old fence boards, debris, dried empty buckets. <b>Call first</b> for hours (listed 7:30 AM–4:30 PM) and the price per load."
   }
 ]
