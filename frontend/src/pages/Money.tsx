@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Calculator, DollarSign, Gauge, HardHat, Landmark, Loader2, RefreshCw, TrendingUp } from "lucide-react";
+import { Calculator, DollarSign, Gauge, HardHat, Landmark, Loader2, Percent, RefreshCw, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, canSeeRevenue, hasPerm, type BankStatus, type BankSummary, type MoneyOverview, type Scoreboard, type ScoreHistoryRow } from "@/lib/api";
 import { HubHeader, type HubTab, type HubView } from "@/components/HubHeader";
@@ -28,10 +28,12 @@ import Revenue from "@/pages/Revenue";
 import MoneyAudit from "@/pages/MoneyAudit";
 import Accounting from "@/pages/Accounting";
 import Crew from "@/pages/Crew";
+import JobMargins from "@/pages/JobMargins";
 
-type Tab = "overview" | "revenue" | "audit" | "accounting" | "payroll";
+type Tab = "overview" | "margins" | "revenue" | "audit" | "accounting" | "payroll";
 const ALL: (HubTab<Tab> & { can: () => boolean })[] = [
   { key: "overview", label: "Overview", icon: Gauge, hint: "This month, the year and the bank, on one screen", can: canSeeRevenue },
+  { key: "margins", label: "Job margins", icon: Percent, hint: "Every job: what it brought in, cost and left, guesses marked", can: canSeeRevenue },
   { key: "revenue", label: "Revenue", icon: TrendingUp, hint: "Invoices from QuickBooks, matched to leads", can: canSeeRevenue },
   { key: "audit", label: "Where the money went", icon: DollarSign, hint: "Money in and out: QuickBooks, and the bank through Plaid", can: canSeeRevenue },
   { key: "accounting", label: "Accounting", icon: Calculator, hint: "Per-job margin, overhead, what's still owed", can: () => hasPerm("accounting") },
@@ -43,6 +45,7 @@ const AUDIT_VIEWS: HubView[] = [
 ];
 const NOTE: Partial<Record<Tab, string>> = {
   overview: "This month, this year and the bank · from QuickBooks, the jobs and Plaid",
+  margins: "One row per job since Oct 17 · unconfirmed guesses in amber with a ? · owner-only",
   revenue: "Invoices from QuickBooks · match each one to a lead to see who's paid",
   accounting: "Per-job margin, overhead and what's still owed · owner-only",
   payroll: "Roster, hours, pay and 1099 prep · owner-only",
@@ -79,6 +82,7 @@ export default function Money({ forced }: { forced?: Tab } = {}) {
         subtitle="Revenue, spending, margins and pay, in one place. The bank fills it in by itself once Plaid is linked."
         tabs={tabs} tab={tab} onTab={pick} views={views} view={view} onView={pickView} note={NOTE[tab]} />
       {tab === "overview" ? <Overview /> : null}
+      {tab === "margins" ? <JobMargins /> : null}
       {tab === "revenue" ? <Revenue embedded /> : null}
       {tab === "audit" ? <MoneyAudit embedded view={view === "bank" ? "bank" : "quickbooks"} /> : null}
       {tab === "accounting" ? <Accounting embedded /> : null}

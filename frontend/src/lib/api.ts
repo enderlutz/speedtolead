@@ -2033,6 +2033,7 @@ export const api = {
   moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
   // Money → Overview (2026-10-27): booked, collected and owed from Stripe + QuickBooks.
   moneyOverview: () => request<MoneyOverview>(`/api/money/overview`),
+  jobMargins: (since = "", until = "") => request<JobMargins>(`/api/money/job-margins?since=${since}&until=${until}`),
   /** The Dashboard command center (Alan, 2026-11-14). Money people only. */
   commandCenter: (fresh = false) => request<CommandCenterData>(`/api/dashboard/command${fresh ? "?fresh=true" : ""}`),
   /** The three numbers + the money watch, saved every day (Alan, 2026-10-29). */
@@ -6916,4 +6917,30 @@ export interface GhlUsage {
   top_endpoints: { endpoint: string; requests: number }[];
   since: string;
   last_at: string;
+}
+
+// ── Money → Job margins (2026-11-19) ─────────────────────────────────────
+export type MarginTag = "confirmed" | "worked out" | "unconfirmed" | "missing";
+export interface MarginValue { value: number | null; tag: MarginTag; note: string }
+export interface MarginJob {
+  lead_id: string; customer: string; status: "finished" | "in progress"; date: string; finished: string;
+  service: string; package: string; cleaning_days: string[]; staining_days: string[]; crew: string[];
+  coats: number; sqft: MarginValue; previously_stained: string; wood_type: string; fence_age: string; stain_product: string;
+  revenue: MarginValue; collected: number; outstanding: number | null;
+  labor: MarginValue; hours: number;
+  labor_lines: { who: string; date: string; task: string; kind: string; hours: number | null; rate: number | null; cost: number; tag: MarginTag; note: string }[];
+  stain: MarginValue; stain_gallons: number;
+  stain_lines: { product: string; gallons: number; unit: number; cost: number; tag: MarginTag; note: string }[];
+  bleach: MarginValue & { gallons: number }; other: number; fees: MarginValue;
+  direct_cost: number; contribution: number | null; contribution_pct: number | null;
+  overhead: number | null; ads: number | null; after_overhead: number | null; after_overhead_pct: number | null;
+  sqft_per_hour: number | null; labor_per_sqft: number | null; profit_per_sqft: number | null; gal_per_1000: number | null;
+  sure: MarginTag; questions: { field: string; q: string }[]; in_totals: boolean;
+}
+export interface JobMargins {
+  since: string; until: string; jobs: MarginJob[];
+  overhead: { monthly_overhead: number; monthly_ads: number; jobs_last_30_days: number; overhead_per_job: number | null;
+    ads_per_job: number | null; breakdown: Record<string, number>; bank_linked: boolean };
+  totals: Record<string, number | null>;
+  stain_per_gallon: number; stain_per_gallon_set: boolean; bleach_per_gallon: number;
 }

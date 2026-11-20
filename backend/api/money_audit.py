@@ -39,6 +39,19 @@ def money_audit(start: str = "", end: str = "", user: dict = Depends(require_rev
     return out
 
 
+@router.get("/money/job-margins")
+def job_margins(since: str = "", until: str = "", user: dict = Depends(require_revenue)):
+    """Money → Job margins: one row per job, every number tagged confirmed /
+    worked out / unconfirmed / missing (Alan, 2026-11-19). Owner-only and
+    read-only: crew and VAs get a 403, nothing here writes."""
+    from services import job_margins as jm
+    db = get_db()
+    try:
+        return jm.build(db, since=since[:10] or jm.HISTORY_START, until=until[:10])
+    finally:
+        db.close()
+
+
 @router.get("/money/overview")
 def money_overview(user: dict = Depends(require_revenue)):
     """The Money tab's Overview: booked, collected and owed, this month,

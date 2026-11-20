@@ -126,6 +126,13 @@ def _hours_by_worker_day(db, since: str, until: str) -> dict[tuple[str, str], fl
         hrs = (b - a).total_seconds() / 3600
         if 0 < hrs < 16:
             out[(user, s.work_date)] += hrs
+    # Crew hours (the hours log) is where hours have lived since 2026-10-26;
+    # the clock-in table above has two rows from July, so every hourly day
+    # was counting as 8 hours (found 2026-11-19). The hours log wins.
+    from database import HoursLog
+    for h in db.query(HoursLog).filter(HoursLog.work_date >= since, HoursLog.work_date <= until).all():
+        if (h.minutes or 0) > 0:
+            out[((h.username or "").lower(), h.work_date)] = h.minutes / 60
     return out
 
 
