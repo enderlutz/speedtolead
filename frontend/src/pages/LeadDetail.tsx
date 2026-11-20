@@ -952,6 +952,28 @@ export default function LeadDetail() {
     }
   };
 
+  const [pricingBusy, setPricingBusy] = useState(false);
+  const toggleNewCustomerPricing = async (on: boolean) => {
+    if (!id) return;
+    const ask = on
+      ? "Add 10% customer pricing for this customer?\n\nTheir unsent estimate gets re-priced now. If every estimate was already sent, a new one starts at the higher price. Estimates already sent stay as they are."
+      : "Remove the 10% customer pricing for this customer?\n\nTheir unsent estimate goes back to the regular price. Estimates already sent stay as they are.";
+    if (!window.confirm(ask)) return;
+    setPricingBusy(true);
+    try {
+      const r = await api.setLeadCustomerPricing(id, on);
+      const fresh = await api.getLead(id);
+      setLead(fresh);
+      if (r.changed === false) toast.info(on ? "Already on 10% customer pricing" : "Already on regular pricing");
+      else if (r.recalculated === false) toast.warning("Pricing saved, but the estimate couldn't recalculate. Press Save & Recalculate.");
+      else toast.success(on ? "10% customer pricing on. The estimate was re-priced." : "Back to regular pricing. The estimate was re-priced.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change the pricing");
+    } finally {
+      setPricingBusy(false);
+    }
+  };
+
   const handleCreateNewEstimate = async () => {
     if (!id) return;
     setCreatingNewEstimate(true);
@@ -1458,10 +1480,23 @@ export default function LeadDetail() {
           <ListenButton leadId={lead.id} className="mt-1" />          {/* New-customer pricing (Alan, 2026-11-04): so nobody quotes the
               old number on the phone. The estimate already includes it. */}
           {(lead.price_uplift_pct || 0) > 0 ? (
-            <span className="mt-0.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
-              title="Brand-new customer: every price is higher, and their estimate already includes it">
+            <span className="mt-0.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
+              title="Every price is higher, and their estimate already includes it">
               New customer pricing (+{lead.price_uplift_pct}%)
+              {getCurrentUser()?.role === "admin" && (
+                <button type="button" disabled={pricingBusy} onClick={() => toggleNewCustomerPricing(false)}
+                  className="rounded-full px-1 text-amber-900/70 underline-offset-2 hover:underline disabled:opacity-50">
+                  Remove
+                </button>
+              )}
             </span>
+          ) : getCurrentUser()?.role === "admin" ? (
+            // Owner override (Alan, 2026-11-20): put an old customer on the
+            // +10% pricing by hand. Same look as the badge, dashed = off.
+            <button type="button" disabled={pricingBusy} onClick={() => toggleNewCustomerPricing(true)}
+              className="mt-0.5 inline-flex min-h-[28px] items-center rounded-full border border-dashed border-amber-400 px-2.5 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50">
+              {pricingBusy ? "Updating prices…" : "+ Add 10% customer pricing"}
+            </button>
           ) : null}
           {/* One quiet line (Alan, 2026-10-08: "all we need to know is how
               many times they viewed, when they last viewed, and when the

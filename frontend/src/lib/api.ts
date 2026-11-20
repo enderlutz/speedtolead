@@ -1524,6 +1524,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(estimate_id ? { form_data, estimate_id } : { form_data }),
     }),
+  /** Owner only: put this customer on (or off) new-customer pricing (+10%)
+   * by hand. Re-prices the latest unsent estimate; sent ones stay frozen. */
+  setLeadCustomerPricing: (id: string, on: boolean) =>
+    request<{ price_uplift_pct: number; changed: boolean; recalculated?: boolean }>(
+      `/api/leads/${id}/new-customer-pricing`,
+      { method: "PUT", body: JSON.stringify({ on }) },
+    ),
   /** Create a new pending Estimate on this lead (multi-estimate flow). Inputs
    * are seeded from the most-recent estimate so the VA tweaks instead of
    * starts blank. */

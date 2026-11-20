@@ -1277,6 +1277,51 @@ def export_to_v2(lead_id: str, body: ExportToV2):
         db.close()
 
 
+class CustomerPricingUpdate(BaseModel):
+    on: bool
+
+
+@router.put("/leads/{lead_id}/new-customer-pricing")
+def set_new_customer_pricing(lead_id: str, body: CustomerPricingUpdate, user: dict = Depends(require_admin)):
+    """Put one customer on (or off) new-customer pricing by hand (Alan,
+    2026-11-20: an old customer who should get the 10% pricing too). New leads still get it automatically
+    (services/new_pricing.py); this is the override for anyone already in the
+    system. On = the current setting's percent (10 if the setting is off).
+
+    Then the latest unsent estimate is recalculated the normal Save &
+    Recalculate way, or, when every estimate was already sent, a fresh unsent
+    one is started at the new price. Estimates already sent stay as they are."""
+    from services.new_pricing import DEFAULT_PERCENT, percent_setting
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        before = float(lead.price_uplift_pct or 0)
+        pct = (percent_setting(db) or DEFAULT_PERCENT) if body.on else 0.0
+        if pct == before:
+            return {"price_uplift_pct": pct, "changed": False}
+        lead.price_uplift_pct = pct
+        lead.updated_at = _now()
+        db.commit()
+    finally:
+        db.close()
+
+    who = user.get("name") or user.get("sub") or "Team"
+    log_event(lead_id, "new_customer_pricing_on" if pct else "new_customer_pricing_off",
+              f"{who} turned new-customer pricing {'on (+' + format(pct, 'g') + '%)' if pct else 'off'} by hand",
+              {"before": before, "after": pct, "by": who})
+    # Re-price with the new multiplier. The switch already saved, so a lead
+    # with nothing to price (no form answers) still keeps the setting.
+    try:
+        update_form_data(lead_id, FormDataUpdate(form_data={}), user)
+        recalculated = True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"New-customer pricing recalc for {lead_id} failed: {e}")
+        recalculated = False
+    return {"price_uplift_pct": pct, "changed": True, "recalculated": recalculated}
+
+
 @router.put("/leads/{lead_id}/form-data")
 def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(get_current_user)):
     """Update lead form data and recalculate estimate."""
