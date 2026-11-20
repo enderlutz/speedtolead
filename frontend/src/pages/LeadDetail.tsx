@@ -1481,9 +1481,14 @@ export default function LeadDetail() {
               old number on the phone. The estimate already includes it. */}
           {(lead.price_uplift_pct || 0) > 0 ? (
             <span className="mt-0.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800"
-              title="Every price is higher, and their estimate already includes it">
-              New customer pricing (+{lead.price_uplift_pct}%)
-              {getCurrentUser()?.role === "admin" && (
+              title={(lead.form_data as Record<string, unknown> | undefined)?.customer_pricing_by_hand
+                ? "Switched to the 10% pricing by hand. Every price is higher, and their estimate already includes it"
+                : "New customer: locked on the 10% pricing. Every price is higher, and their estimate already includes it"}>
+              {(lead.form_data as Record<string, unknown> | undefined)?.customer_pricing_by_hand
+                ? `10% customer pricing (+${lead.price_uplift_pct}%)`
+                : `New customer pricing (+${lead.price_uplift_pct}%) 🔒`}
+              {/* Only a by-hand switch comes off; new customers stay on it. */}
+              {getCurrentUser()?.role === "admin" && !!(lead.form_data as Record<string, unknown> | undefined)?.customer_pricing_by_hand && (
                 <button type="button" disabled={pricingBusy} onClick={() => toggleNewCustomerPricing(false)}
                   className="rounded-full px-1 text-amber-900/70 underline-offset-2 hover:underline disabled:opacity-50">
                   Remove

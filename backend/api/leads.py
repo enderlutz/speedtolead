@@ -1281,6 +1281,12 @@ class CustomerPricingUpdate(BaseModel):
     on: bool
 
 
+# form_data flag: this lead's 10% was switched on by hand (an old customer),
+# so it can be switched off again. Without it, a lead on the 10% is a new
+# customer and stays locked on it.
+BY_HAND_KEY = "customer_pricing_by_hand"
+
+
 @router.put("/leads/{lead_id}/new-customer-pricing")
 def set_new_customer_pricing(lead_id: str, body: CustomerPricingUpdate, user: dict = Depends(require_admin)):
     """Put one customer on (or off) new-customer pricing by hand (Alan,
@@ -1298,9 +1304,22 @@ def set_new_customer_pricing(lead_id: str, body: CustomerPricingUpdate, user: di
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         before = float(lead.price_uplift_pct or 0)
+        fd = lead.to_dict()["form_data"]
+        # New customers who got it automatically are locked on it (Alan,
+        # 2026-11-20: "they all got to be on the 10% pricing... we don't want
+        # to bring their pricing down"). Only a by-hand switch can be undone.
+        if not body.on and before > 0 and not fd.get(BY_HAND_KEY):
+            raise HTTPException(status_code=400, detail="New customers stay on the 10% pricing. It can't be removed.")
         pct = (percent_setting(db) or DEFAULT_PERCENT) if body.on else 0.0
+        if body.on and before > 0:
+            pct = before  # already on (by hand or as a new customer): keep it
         if pct == before:
             return {"price_uplift_pct": pct, "changed": False}
+        if body.on:
+            fd[BY_HAND_KEY] = True
+        else:
+            fd.pop(BY_HAND_KEY, None)
+        lead.form_data = json.dumps(fd)
         lead.price_uplift_pct = pct
         lead.updated_at = _now()
         db.commit()

@@ -79,3 +79,28 @@ def test_only_the_owner_can_change_it():
     from api.auth import require_admin
     with pytest.raises(HTTPException):
         require_admin({"sub": "olga", "role": "va"})
+
+
+def test_a_new_customer_is_locked_on_the_ten_percent(db):
+    from fastapi import HTTPException
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Brand New", contact_phone="+17135550123",
+                status="new", service_type="fence_staining", zip_code="77433",
+                form_data=json.dumps(FD), created_at="2026-11-20T00:00:00Z", price_uplift_pct=10.0)
+    db.add(lead)
+    db.commit()
+    with pytest.raises(HTTPException) as e:
+        _toggle(lead.id, False)
+    assert e.value.status_code == 400
+    db.expire_all()
+    assert db.query(Lead).filter(Lead.id == lead.id).first().price_uplift_pct == 10.0
+
+
+def test_an_old_customer_switched_by_hand_can_switch_back(db):
+    lid = _lead(db)
+    _toggle(lid, True)
+    db.expire_all()
+    assert json.loads(db.query(Lead).filter(Lead.id == lid).first().form_data)["customer_pricing_by_hand"] is True
+    assert _toggle(lid, False)["changed"] is True
+    db.expire_all()
+    row = db.query(Lead).filter(Lead.id == lid).first()
+    assert row.price_uplift_pct == 0 and "customer_pricing_by_hand" not in json.loads(row.form_data)
