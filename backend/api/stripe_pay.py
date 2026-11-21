@@ -938,6 +938,7 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             # Their finished fence over the tip question (Alan, 2026-11-21):
             # people tip for the result they can see.
             "tip_photo": (_tip_photo_url(db, link) if tips.offered(db, link, preview=preview == 1) else None),
+            "tip_photos": (_tip_photo_urls(db, link) if tips.offered(db, link, preview=preview == 1) else []),
             "financing": link.kind != "deposit" and not link.no_financing,
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
@@ -1284,6 +1285,18 @@ def _tip_photo_url(db, link: PayLink) -> str | None:
     if p is None:
         return None
     return f"/api/pay/{link.token}/photo/{p.id}?v={version(p)}" if version(p) else (p.storage_url or f"/api/pay/{link.token}/photo/{p.id}")
+
+
+def _tip_photo_urls(db, link: PayLink) -> list[str]:
+    """Every after photo of their fence, swiped through over the tip question
+    on an open final bill (Alan, 2026-11-21: one still photo looked flat)."""
+    if link.kind not in tips.TIP_KINDS:
+        return []
+    from services.company_cam import customer_photos
+    from services.photo_crop import version
+    return [f"/api/pay/{link.token}/photo/{p.id}?v={version(p)}" if version(p)
+            else (p.storage_url or f"/api/pay/{link.token}/photo/{p.id}")
+            for p in customer_photos(db, link.lead_id)]
 
 
 @router.get("/pay/{token}/photo/{photo_id}")

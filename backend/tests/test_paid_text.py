@@ -60,3 +60,22 @@ def test_the_open_final_bill_shows_their_finished_fence_over_the_tip(db, monkeyp
     dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="legacy", job_total=1750), STAFF)
     with pytest.raises(HTTPException):
         sp.after_photo(dep["token"], pid)
+
+
+def test_the_tip_question_gets_every_after_photo_to_swipe(db, monkeypatch):
+    _settings(monkeypatch, key="")
+    import uuid
+    from database import CompanyCamPhoto
+    lead = _lead(db)
+    ids = [str(uuid.uuid4()) for _ in range(3)]
+    for n, pid in enumerate(ids, 1):
+        db.add(CompanyCamPhoto(id=pid, lead_id=lead.id, section="stain_after", seq=n, image_data=b"jpg",
+                               has_image_data=True, mime="image/jpeg"))
+    db.commit()
+    bal = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=1500), STAFF)
+    photos = sp.pay_info(bal["token"], preview=1)["tip_photos"]
+    assert len(photos) == 3 and all(p.startswith(f"/api/pay/{bal['token']}/photo/") for p in photos)
+    for p in photos:
+        assert sp.after_photo(bal["token"], p.rsplit("/", 1)[1].split("?")[0]).body == b"jpg"
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="legacy", job_total=1750), STAFF)
+    assert sp.pay_info(dep["token"], preview=1)["tip_photos"] == []

@@ -62,6 +62,8 @@ export type Info = {
   tips?: boolean;
   /** One of their fence's after photos, shown over the tip question. */
   tip_photo?: string | null;
+  /** All their after photos, to swipe through over the tip question. */
+  tip_photos?: string[];
 };
 
 // Stripe.js, loaded from Stripe when the page needs it. Only the parts this
@@ -473,7 +475,7 @@ export default function PayLink() {
 
       {info.configured ? (
         <>
-          {info.tips ? <TipPicker amount={info.amount} tipCents={tipCents} onChange={setTipCents} photo={info.tip_photo} /> : null}
+          {info.tips ? <TipPicker amount={info.amount} tipCents={tipCents} onChange={setTipCents} photos={info.tip_photos?.length ? info.tip_photos : info.tip_photo ? [info.tip_photo] : []} /> : null}
           {/* The payment panel: one soft block, the lock line next to the fields. */}
           <div className="mt-7 rounded-2xl bg-[#F6F5F2] p-4">
             <div className="mb-4 flex items-center justify-between">
@@ -523,8 +525,57 @@ export default function PayLink() {
  * 2026-11-21: their finished fence on top (people tip for what they see),
  * "No tip" stays a plain outlined button instead of the black one, and a
  * thank-you once they pick an amount. */
+/** Their finished fence, every after photo, swiped left and right (Alan,
+ * 2026-11-21: one still photo looked flat). Native scroll-snap so it swipes
+ * like the phone's own photos; dots + "2 of 8" show there's more, and arrows
+ * for a mouse. A photo that fails to load drops out. */
+function FencePhotos({ photos }: { photos: string[] }) {
+  const [bad, setBad] = useState<Set<string>>(() => new Set());
+  const [at, setAt] = useState(0);
+  const strip = useRef<HTMLDivElement>(null);
+  const list = photos.filter((u) => !bad.has(u));
+  if (!list.length) return null;
+  const go = (i: number) => {
+    const el = strip.current;
+    if (el) el.scrollTo({ left: Math.max(0, Math.min(i, list.length - 1)) * el.clientWidth, behavior: "smooth" });
+  };
+  const onScroll = () => {
+    const el = strip.current;
+    if (el && el.clientWidth) setAt(Math.round(el.scrollLeft / el.clientWidth));
+  };
+  const arrow = "absolute top-1/2 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[22px] text-[#111110] shadow ring-1 ring-black/10 sm:flex";
+  return (
+    <figure className="mb-4 overflow-hidden rounded-2xl ring-1 ring-[#ECEAE5]">
+      <div className="relative">
+        <div ref={strip} onScroll={onScroll} className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {list.map((u, i) => (
+            <img key={u} src={u} alt={`Your finished fence, photo ${i + 1} of ${list.length}`} draggable={false}
+              loading={i < 2 ? "eager" : "lazy"} className="h-72 w-full shrink-0 snap-center object-cover"
+              onError={() => setBad((b) => new Set(b).add(u))} />
+          ))}
+        </div>
+        {list.length > 1 ? (
+          <>
+            <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[13px] font-semibold text-white">{Math.min(at, list.length - 1) + 1} of {list.length}</span>
+            {at > 0 ? <button type="button" aria-label="Previous photo" onClick={() => go(at - 1)} className={`${arrow} left-3`}>&lsaquo;</button> : null}
+            {at < list.length - 1 ? <button type="button" aria-label="Next photo" onClick={() => go(at + 1)} className={`${arrow} right-3`}>&rsaquo;</button> : null}
+          </>
+        ) : null}
+      </div>
+      <figcaption className="flex items-center justify-between gap-3 bg-[#F6F5F2] px-4 py-2.5 text-[15px] text-[#55534D]">
+        <span>Your fence, finished.{list.length > 1 ? " Swipe to see it all." : ""}</span>
+        {list.length > 1 && list.length <= 12 ? (
+          <span className="flex shrink-0 gap-1.5" aria-hidden>
+            {list.map((u, i) => <span key={u} className={`h-2 w-2 rounded-full ${i === at ? "bg-[#111110]" : "bg-[#D8D5CE]"}`} />)}
+          </span>
+        ) : null}
+      </figcaption>
+    </figure>
+  );
+}
+
 const TIP_CHOICES = [2500, 5000, 10000];
-function TipPicker({ amount, tipCents, onChange, photo }: { amount: number; tipCents: number; onChange: (c: number) => void; photo?: string | null }) {
+function TipPicker({ amount, tipCents, onChange, photos }: { amount: number; tipCents: number; onChange: (c: number) => void; photos: string[] }) {
   const [other, setOther] = useState(false);
   const [typed, setTyped] = useState("");
   const pick = (c: number) => { setOther(false); setTyped(""); onChange(c); };
@@ -535,15 +586,9 @@ function TipPicker({ amount, tipCents, onChange, photo }: { amount: number; tipC
   const btn = (on: boolean) => `flex h-14 items-center justify-center rounded-xl text-[17px] font-semibold ring-1 active:scale-[0.98] ${on ? "bg-[#111110] text-white ring-[#111110]" : "bg-white text-[#111110] ring-[#D8D5CE]"}`;
   // "No tip" never gets the black fill: picked, it's just a darker outline.
   const noTip = (on: boolean) => `flex h-14 items-center justify-center rounded-xl bg-white text-[17px] font-semibold text-[#55534D] active:scale-[0.98] ${on ? "ring-2 ring-[#55534D]" : "ring-1 ring-[#D8D5CE]"}`;
-  const [photoOk, setPhotoOk] = useState(true);
   return (
     <section className="mt-7">
-      {photo && photoOk ? (
-        <figure className="mb-4 overflow-hidden rounded-2xl ring-1 ring-[#ECEAE5]">
-          <img src={photo} alt="Your finished fence" className="h-52 w-full object-cover" onError={() => setPhotoOk(false)} />
-          <figcaption className="bg-[#F6F5F2] px-4 py-2.5 text-[15px] text-[#55534D]">Your fence, finished.</figcaption>
-        </figure>
-      ) : null}
+      <FencePhotos photos={photos} />
       <p className="text-[17px] font-semibold">Want to thank your crew?</p>
       <p className="mt-1 text-[15px] text-[#55534D]">100% of the tip goes to the crew who did your fence.</p>
       <div className="mt-3 grid grid-cols-2 gap-2.5">
