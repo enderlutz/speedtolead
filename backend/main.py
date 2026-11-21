@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from database import init_db, get_db
 from config import get_settings
 import clock
@@ -767,6 +767,13 @@ async def _followup_learning_loop():
         await asyncio.sleep(24 * 3600)  # Daily — quick scan, only publishes when signal is real
 
 
+# Flips to True once the database is set up. /ready answers 503 until then, and
+# Railway's healthcheck points at /ready, so a new deploy only takes traffic
+# when it can actually serve it; the old one keeps serving meanwhile (rolling
+# deploy, Fragne 2026-11-21: no pause when we deploy).
+_db_ready = False
+
+
 async def _async_db_init():
     """Run DB init + seed in a background thread so lifespan doesn't block
     uvicorn from serving /health. If Supabase is briefly unreachable, we
@@ -830,6 +837,8 @@ async def _async_db_init():
             except Exception as seed_err:
                 logger.warning(f"Follow-up sequence seed skipped: {seed_err}")
             logger.info("Database initialized")
+            global _db_ready
+            _db_ready = True
             return
         except Exception as e:
             logger.error(f"DB init attempt {attempt} failed: {e}")
@@ -1066,6 +1075,15 @@ app.include_router(_mcp_server.router)
 @app.websocket("/ws/training/{session_id}")
 async def training_ws(websocket: WebSocket, session_id: str):
     await training_ws_handler(websocket, session_id)
+
+
+@app.get("/ready")
+def ready():
+    """Readiness for Railway's deploy healthcheck: 200 only once the database
+    is set up. Until then the old deployment keeps all the traffic."""
+    if not _db_ready:
+        return JSONResponse({"status": "starting"}, status_code=503)
+    return {"status": "ready"}
 
 
 @app.get("/health")
