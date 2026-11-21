@@ -9,9 +9,9 @@ the job's revenue, because it's the crew's money, and split evenly between
 everyone on the job's staining day, as a line on Crew hours next to that
 week's pay. The office pays it out with the week, like a receipt.
 
-Off for customers until the owner switches `tips_live` to "1" in
-system_config. Staff previewing their own link (?preview=1) always see it,
-so the page can be tried on a phone first.
+Always on (Alan, 2026-11-21: "it always needs to be a normal thing" on
+every final invoice). It no longer hangs on the old `tips_live` switch, so
+a settings reset can never quietly take it off the final bill.
 """
 from __future__ import annotations
 
@@ -33,10 +33,10 @@ def live(db) -> bool:
 
 
 def offered(db, link: PayLink, preview: bool = False) -> bool:
-    """Does this link's pay page show the tip choices?"""
-    if link.kind not in TIP_KINDS or link.status != "open" or (getattr(link, "brand", "") or "") == "at":
-        return False
-    return preview or live(db)
+    """Does this link's pay page show the tip choices? Every open final
+    bill (Sterling), always; never a deposit, never A&T's (no Stripe)."""
+    del db, preview
+    return link.kind in TIP_KINDS and link.status == "open" and (getattr(link, "brand", "") or "") != "at"
 
 
 def clean_tip(db, link: PayLink, tip_cents: int | None, preview: bool = False) -> int:

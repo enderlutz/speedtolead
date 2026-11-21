@@ -25,7 +25,7 @@ def test_split_is_even_and_the_odd_cents_go_first():
     assert tips.split(0, 2) == [] and tips.split(500, 0) == []
 
 
-def test_tips_show_only_on_the_final_bill_and_only_once_switched_on(db, monkeypatch):
+def test_tips_are_always_on_every_final_bill_and_never_on_a_deposit(db, monkeypatch):
     _settings(monkeypatch)
     from database import PayLink, SystemConfig
     lead = _lead(db)
@@ -33,11 +33,10 @@ def test_tips_show_only_on_the_final_bill_and_only_once_switched_on(db, monkeypa
         lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)["token"]).first()
     bal = db.query(PayLink).filter(PayLink.token == sp.create_pay_link(
         lead.id, sp.CreateLinkBody(kind="balance", amount=1500), STAFF)["token"]).first()
-    # Off for customers until the owner flips it; staff preview always sees it.
-    assert not tips.offered(db, bal) and tips.offered(db, bal, preview=True)
+    # Always on for the final bill, even with the old switch off (2026-11-21).
+    SystemConfig.set(db, tips.LIVE_KEY, "0")
+    assert tips.offered(db, bal) and tips.offered(db, bal, preview=True)
     assert not tips.offered(db, dep, preview=True)  # never on the $250 deposit
-    SystemConfig.set(db, tips.LIVE_KEY, "1")
-    assert tips.offered(db, bal) and not tips.offered(db, dep)
     assert sp.pay_info(bal.token)["tips"] is True and sp.pay_info(dep.token)["tips"] is False
     assert tips.clean_tip(db, bal, 5000) == 5000
     assert tips.clean_tip(db, bal, -5) == 0 and tips.clean_tip(db, dep, 5000) == 0
