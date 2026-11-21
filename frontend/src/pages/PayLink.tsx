@@ -130,8 +130,15 @@ const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
  *  Checkout Session in `elements` mode; paying goes to the same after page
  *  and the same webhook as the hosted page. If any of it can't load,
  *  `onFail` hands the page back to the one-button jump. */
-function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, onFail, onTerms }: {
-  token: string; pk: string; preview: boolean; amount: number; tipCents?: number; needEmail: boolean; onFail: () => void; onTerms: () => void;
+/** Final bills of $1,000 or more open on "pay from your bank account" first
+ * (Alan, 2026-11-21): a bank payment costs us 0.8% capped at $5, a card 2.9%
+ * + 30c, so about $40 less on a $1,400 bill. Card, Apple Pay and Google Pay
+ * stay right under it. Deposits keep card first (they must clear now). */
+const BANK_FIRST_FROM = 1000;
+const BANK_ORDER = ["us_bank_account", "card", "link", "cashapp", "amazon_pay"];
+
+function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, bankFirst = false, onFail, onTerms }: {
+  token: string; pk: string; preview: boolean; amount: number; tipCents?: number; needEmail: boolean; bankFirst?: boolean; onFail: () => void; onTerms: () => void;
 }) {
   const walletBox = useRef<HTMLDivElement | null>(null);
   const formBox = useRef<HTMLDivElement | null>(null);
@@ -202,7 +209,10 @@ function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, onFai
           if (!dead) setWallets(!!paymentMethods);
         });
         if (walletBox.current) express.mount(walletBox.current);
-        pay = checkout.createPaymentElement({
+        pay = checkout.createPaymentElement(bankFirst ? {
+          layout: { type: "accordion", radios: "if_multiple", spacedAccordionItems: true, visibleAccordionItemsCount: 0, defaultCollapsed: false },
+          paymentMethodOrder: BANK_ORDER,
+        } : {
           layout: { type: "accordion", radios: "if_multiple", spacedAccordionItems: true, visibleAccordionItemsCount: 0 },
         });
         pay.on("ready", () => { mounted = true; if (!dead) setReady(true); });
@@ -251,13 +261,20 @@ function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, onFai
         </div>
       )}
       <div className={ready ? "" : "h-0 overflow-hidden opacity-0"}>
-        {/* Apple Pay, Google Pay, Link: only when this phone has one. */}
-        <div className={wallets ? "" : "hidden"}>
-          <div ref={walletBox} />
-          <div className="my-4 flex items-center gap-3 text-[12px] font-medium text-[#8F8C84]">
-            <span className="h-px flex-1 bg-[#E3E1DB]" />or<span className="h-px flex-1 bg-[#E3E1DB]" />
+        {bankFirst ? (
+          <div className="mb-3">
+            <p className="text-[17px] font-semibold">Pay from your bank account</p>
+            <p className="mt-1 text-[15px] text-[#55534D]">The easiest way for a bill this size. Connect your bank securely through Stripe in a few taps.</p>
           </div>
-        </div>
+        ) : (
+          /* Apple Pay, Google Pay, Link: only when this phone has one. */
+          <div className={wallets ? "" : "hidden"}>
+            <div ref={walletBox} />
+            <div className="my-4 flex items-center gap-3 text-[12px] font-medium text-[#8F8C84]">
+              <span className="h-px flex-1 bg-[#E3E1DB]" />or<span className="h-px flex-1 bg-[#E3E1DB]" />
+            </div>
+          </div>
+        )}
         <div ref={formBox} />
         {needEmail ? (
           <label className="mt-4 block">
@@ -271,6 +288,15 @@ function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, onFai
           <Lock className="h-4 w-4" /> {busy ? "Paying…" : `Pay ${total || formatCurrency(amount + tipCents / 100)}`}
         </button>
         {error ? <p className="mt-3 rounded-[10px] bg-rose-50 px-3 py-2 text-[14px] font-medium text-rose-800">{error}</p> : null}
+        {bankFirst ? (
+          /* Apple Pay / Google Pay under the bank option, not over it. */
+          <div className={wallets ? "" : "hidden"}>
+            <div className="my-4 flex items-center gap-3 text-[12px] font-medium text-[#8F8C84]">
+              <span className="h-px flex-1 bg-[#E3E1DB]" />or pay with<span className="h-px flex-1 bg-[#E3E1DB]" />
+            </div>
+            <div ref={walletBox} />
+          </div>
+        ) : null}
         <p className="mt-3 text-center text-[12px] leading-relaxed text-[#8F8C84]">
           By paying, you agree to our <button type="button" onClick={onTerms} className="inline-flex min-h-[44px] items-center font-semibold underline underline-offset-2">Terms</button>.
           Your card details go to Stripe, never to us.
@@ -484,7 +510,8 @@ export default function PayLink() {
             </div>
             {useForm ? (
               <StripeForm key={`${token}:${tipCents}`} token={token || ""} pk={info.publishable_key!} preview={isPreview} amount={info.amount} tipCents={tipCents}
-                needEmail={info.has_email === false} onFail={() => setEmbedFailed(true)} onTerms={() => setTerms(true)} />
+                needEmail={info.has_email === false} bankFirst={info.kind !== "deposit" && info.amount >= BANK_FIRST_FROM}
+                onFail={() => setEmbedFailed(true)} onTerms={() => setTerms(true)} />
             ) : (
               <>
                 <button type="button" onClick={() => void pay()} disabled={busy}
