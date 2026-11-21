@@ -147,14 +147,17 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
 
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (
-    <div className="md:hidden flex items-center justify-between gap-2 px-4 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40">
-      <img src="/sterling-logo-dark.png" alt={divisionBrand(getDivision()).name} className="h-7 w-auto" draggable={false} />
+    <div className="md:hidden flex items-center justify-between gap-2 px-3 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40 overflow-hidden">
+      <img src="/sterling-logo-dark.png" alt={divisionBrand(getDivision()).name} className="h-7 w-auto min-w-0 shrink" draggable={false} />
       {/* Houston time, to the minute, on every screen (Alan, 2026-10-09). On
-          a desktop the same clock floats in the top-right corner — see App. */}
-      <HoustonClock className="ml-auto" />
-      <LangSwitch compact />
-      <ThemeSwitch />
-      <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
+          a desktop the same clock floats in the top-right corner — see App.
+          Hidden on narrow phones (2026-11-20): with the dark-mode button the
+          bar ran off the screen and pushed the menu button out of reach, so
+          Jose couldn't open My Hours for a week. */}
+      <HoustonClock className="ml-auto shrink-0 max-[419px]:hidden" />
+      <LangSwitch compact className="ml-auto min-[420px]:ml-0 shrink-0" />
+      <ThemeSwitch className="shrink-0" />
+      <button onClick={onToggle} aria-label="Menu" className="shrink-0 p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
       </button>
     </div>

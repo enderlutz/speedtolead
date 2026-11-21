@@ -136,6 +136,7 @@ export const ES: Record<string, string> = {
   "Before photos that day": "Fotos de antes ese día",
   "Hours": "Horas",
   "My Hours": "Mis horas",
+  "Log my hours": "Anotar mis horas",
   "Log your hours": "Anota tus horas",
   "Yesterday": "Ayer",
   "I started": "Empecé",

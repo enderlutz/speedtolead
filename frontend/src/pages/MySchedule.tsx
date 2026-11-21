@@ -1329,6 +1329,15 @@ export default function MySchedule() {
         </Button>
       </div>
 
+      {/* Hours are one tap away on the schedule itself (2026-11-20): when the
+          phone's top bar hid the menu, the crew had no way to reach My Hours. */}
+      {user?.role !== "admin" ? (
+        <Link to="/my-hours"
+              className="mb-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-lg font-black text-primary-foreground shadow-sm active:scale-[0.99]">
+          <Clock className="h-5 w-5" /> {tr("Log my hours")}
+        </Link>
+      ) : null}
+
       {/* General daily check-in / check-out for the day */}
       {/* The "Your day" slide-to-check-in card is off (Alan, 2026-11-02): the
           crew log their hours at the end of the day in My Hours instead. */}
