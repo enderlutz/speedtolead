@@ -419,7 +419,9 @@ def test_klarna_can_be_switched_off_on_an_invoice(db, monkeypatch):
     sp.start_session(off["token"])
     assert seen["payment_method_configuration"] == "pmc_deposit"
     seen.clear()
-    on = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items), STAFF)
+    # Off unless someone ticks it (Alan, 2026-11-21).
+    assert sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items), STAFF)["financing"] is False
+    on = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items, financing=True), STAFF)
     assert on["financing"] is True
     sp.start_session(on["token"])
     assert "payment_method_configuration" not in seen
@@ -548,7 +550,7 @@ def test_apply_for_klarna_opens_stripe_on_klarna_and_falls_back_to_every_method(
         return SimpleNamespace(id=f"cs_{len(seen)}", url=f"https://stripe.test/cs_{len(seen)}")
     monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
 
-    full = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="full", amount=1335.84), STAFF)
+    full = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="full", amount=1335.84, financing=True), STAFF)
     link = db.query(sp.PayLink).filter(sp.PayLink.token == full["token"]).one()
     assert sp.pay_info(full["token"])["klarna"] is False  # a staff full link is not the Klarna page
     link.door = "finance"

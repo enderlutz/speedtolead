@@ -526,7 +526,8 @@ def on_job_complete(job_id: str) -> dict:
         now = _now()
         if owed > 0.5:
             link = PayLink(token=secrets.token_urlsafe(20), lead_id=lead.id, kind="balance", amount_cents=int(round(owed * 100)),
-                           description="Balance after the job", status="open", created_by="job complete", created_at=now, answers="{}")
+                           description="Balance after the job", status="open", created_by="job complete", created_at=now, answers="{}",
+                           no_financing=1)  # Klarna off by default (Alan, 2026-11-21)
         else:
             link = PayLink(token=secrets.token_urlsafe(20), lead_id=lead.id, kind="done", amount_cents=0,
                            description="Job complete, nothing owed", status="paid", created_by="job complete",

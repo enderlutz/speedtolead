@@ -213,8 +213,9 @@ class CreateLinkBody(BaseModel):
     # paid (usually the $250 deposit). The amount is the lines minus that.
     items: list["InvoiceItem"] | None = None
     credit: float | None = None
-    # False keeps Klarna off this link's checkout (it costs Alan ~3%).
-    financing: bool = True
+    # True puts Klarna on this link's checkout. Off unless someone ticks it
+    # (Alan, 2026-11-21: Klarna off by default; it costs Alan ~3%).
+    financing: bool = False
     # False: the thank-you screens skip the Google review ask for this one.
     ask_review: bool = True
     # YYYY-MM-DD; empty = due upon receipt.
@@ -705,7 +706,7 @@ def delete_saved_line(name: str, user: dict = Depends(require_staff)):
 class EditInvoiceBody(BaseModel):
     items: list[InvoiceItem]
     credit: float | None = None
-    financing: bool = True
+    financing: bool = False
     ask_review: bool = True
     due_date: str | None = None
 
