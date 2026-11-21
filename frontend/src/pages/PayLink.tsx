@@ -83,11 +83,16 @@ type StripeJs = {
   initCheckoutElementsSdk: (o: { clientSecret: Promise<string> | string; elementsOptions?: Record<string, unknown> }) => CheckoutSdk;
 };
 declare global { interface Window { Stripe?: (pk: string) => StripeJs } }
+// Stripe.js by release name: /v3/ is frozen on the old "acacia" release,
+// which now refuses initCheckout ("You must upgrade to the Basil release or
+// higher"), so every pay page fell back to the plain button that opens
+// Stripe's own page (found 2026-11-21). Clover takes our clientSecret as is.
+const STRIPE_JS = "https://js.stripe.com/clover/stripe.js";
 function loadStripeJs(): Promise<void> {
   if (window.Stripe) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[src^="https://js.stripe.com/v3"]');
-    const tag = existing || Object.assign(document.createElement("script"), { src: "https://js.stripe.com/v3/", async: true });
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_JS}"]`);
+    const tag = existing || Object.assign(document.createElement("script"), { src: STRIPE_JS, async: true });
     tag.addEventListener("load", () => (window.Stripe ? resolve() : reject(new Error("Stripe didn't load"))));
     tag.addEventListener("error", () => reject(new Error("Stripe didn't load")));
     if (!existing) document.head.appendChild(tag);
