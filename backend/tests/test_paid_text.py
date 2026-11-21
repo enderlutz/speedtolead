@@ -1,6 +1,7 @@
 """Alan's text when a customer pays (2026-11-21): what they paid, what's left
 on the balance, and whether they tipped and how much."""
 import json
+import pytest
 import sys
 from pathlib import Path
 
@@ -39,3 +40,23 @@ def test_a_paid_final_bill_texts_alan_the_tip_and_nothing_left(db, monkeypatch):
                     event_id="evt_b")
     assert sent[-1].splitlines() == ["✅ Stripe: Test Customer paid $1,500 (balance).",
                                      "Balance left: $0, paid in full.", "Tip: $50 for the crew, on top of the bill."]
+
+
+def test_the_open_final_bill_shows_their_finished_fence_over_the_tip(db, monkeypatch):
+    _settings(monkeypatch, key="")
+    import uuid
+    from database import CompanyCamPhoto
+    from fastapi import HTTPException
+    lead = _lead(db)
+    pid = str(uuid.uuid4())
+    db.add(CompanyCamPhoto(id=pid, lead_id=lead.id, section="stain_after", seq=1, image_data=b"jpg",
+                           has_image_data=True, mime="image/jpeg"))
+    db.commit()
+    bal = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=1500), STAFF)
+    info = sp.pay_info(bal["token"], preview=1)
+    assert info["tips"] and info["tip_photo"] == f"/api/pay/{bal['token']}/photo/{pid}"
+    assert sp.after_photo(bal["token"], pid).body == b"jpg"
+    # A deposit link never hands out the job photos.
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="legacy", job_total=1750), STAFF)
+    with pytest.raises(HTTPException):
+        sp.after_photo(dep["token"], pid)

@@ -936,8 +936,7 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             "tips": tips.offered(db, link, preview=preview == 1),
             # Their finished fence over the tip question (Alan, 2026-11-21):
             # people tip for the result they can see.
-            "tip_photo": ((_customer_photo_urls(db, link) or [None])[0]
-                          if tips.offered(db, link, preview=preview == 1) else None),
+            "tip_photo": (_tip_photo_url(db, link) if tips.offered(db, link, preview=preview == 1) else None),
             "financing": link.kind != "deposit" and not link.no_financing,
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
@@ -1273,6 +1272,19 @@ def _customer_photo_urls(db, link: PayLink) -> list[str]:
             for p in customer_photos(db, link.lead_id)]
 
 
+def _tip_photo_url(db, link: PayLink) -> str | None:
+    """One after photo of their own fence for the tip question on an open
+    final bill (2026-11-21). The other photo screens stay for after paying."""
+    if link.kind not in tips.TIP_KINDS:
+        return None
+    from services.company_cam import customer_photos
+    from services.photo_crop import version
+    p = next(iter(customer_photos(db, link.lead_id)), None)
+    if p is None:
+        return None
+    return f"/api/pay/{link.token}/photo/{p.id}?v={version(p)}" if version(p) else (p.storage_url or f"/api/pay/{link.token}/photo/{p.id}")
+
+
 @router.get("/pay/{token}/photo/{photo_id}")
 def after_photo(token: str, photo_id: str):
     """Public, for the job-done page: one of the photos that page lists,
@@ -1282,7 +1294,8 @@ def after_photo(token: str, photo_id: str):
     db = get_db()
     try:
         link = _live_link(db, token)
-        if link.status != "paid":
+        # Paid: the job-done screens. Open final bill: the tip question's photo.
+        if link.status != "paid" and link.kind not in tips.TIP_KINDS:
             raise HTTPException(status_code=404, detail="Not found")
         p = next((x for x in customer_photos(db, link.lead_id) if x.id == photo_id), None)
         if p is None:
