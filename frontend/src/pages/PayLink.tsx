@@ -60,6 +60,8 @@ export type Info = {
   job_total?: number;
   /** The final bill offers a tip for the crew (backend services/tips.py). */
   tips?: boolean;
+  /** One of their fence's after photos, shown over the tip question. */
+  tip_photo?: string | null;
 };
 
 // Stripe.js, loaded from Stripe when the page needs it. Only the parts this
@@ -471,7 +473,7 @@ export default function PayLink() {
 
       {info.configured ? (
         <>
-          {info.tips ? <TipPicker amount={info.amount} tipCents={tipCents} onChange={setTipCents} /> : null}
+          {info.tips ? <TipPicker amount={info.amount} tipCents={tipCents} onChange={setTipCents} photo={info.tip_photo} /> : null}
           {/* The payment panel: one soft block, the lock line next to the fields. */}
           <div className="mt-7 rounded-2xl bg-[#F6F5F2] p-4">
             <div className="mb-4 flex items-center justify-between">
@@ -517,9 +519,12 @@ export default function PayLink() {
 }
 
 /** A tip for the crew, on the final bill only (Alan, 2026-11-18). Big flat
- * buttons, "No tip" picked to start, and the total says what they'll pay. */
+ * buttons, "No tip" picked to start, and the total says what they'll pay.
+ * 2026-11-21: their finished fence on top (people tip for what they see),
+ * "No tip" stays a plain outlined button instead of the black one, and a
+ * thank-you once they pick an amount. */
 const TIP_CHOICES = [2500, 5000, 10000];
-function TipPicker({ amount, tipCents, onChange }: { amount: number; tipCents: number; onChange: (c: number) => void }) {
+function TipPicker({ amount, tipCents, onChange, photo }: { amount: number; tipCents: number; onChange: (c: number) => void; photo?: string | null }) {
   const [other, setOther] = useState(false);
   const [typed, setTyped] = useState("");
   const pick = (c: number) => { setOther(false); setTyped(""); onChange(c); };
@@ -528,12 +533,21 @@ function TipPicker({ amount, tipCents, onChange }: { amount: number; tipCents: n
     onChange(Number.isFinite(n) && n > 0 ? Math.min(n, 100000) : 0);
   };
   const btn = (on: boolean) => `flex h-14 items-center justify-center rounded-xl text-[17px] font-semibold ring-1 active:scale-[0.98] ${on ? "bg-[#111110] text-white ring-[#111110]" : "bg-white text-[#111110] ring-[#D8D5CE]"}`;
+  // "No tip" never gets the black fill: picked, it's just a darker outline.
+  const noTip = (on: boolean) => `flex h-14 items-center justify-center rounded-xl bg-white text-[17px] font-semibold text-[#55534D] active:scale-[0.98] ${on ? "ring-2 ring-[#55534D]" : "ring-1 ring-[#D8D5CE]"}`;
+  const [photoOk, setPhotoOk] = useState(true);
   return (
     <section className="mt-7">
-      <p className="text-[17px] font-semibold">Add a tip for your crew?</p>
-      <p className="mt-1 text-[15px] text-[#55534D]">100% goes to the crew who did your fence.</p>
+      {photo && photoOk ? (
+        <figure className="mb-4 overflow-hidden rounded-2xl ring-1 ring-[#ECEAE5]">
+          <img src={photo} alt="Your finished fence" className="h-52 w-full object-cover" onError={() => setPhotoOk(false)} />
+          <figcaption className="bg-[#F6F5F2] px-4 py-2.5 text-[15px] text-[#55534D]">Your fence, finished.</figcaption>
+        </figure>
+      ) : null}
+      <p className="text-[17px] font-semibold">Want to thank your crew?</p>
+      <p className="mt-1 text-[15px] text-[#55534D]">100% of the tip goes to the crew who did your fence.</p>
       <div className="mt-3 grid grid-cols-2 gap-2.5">
-        <button type="button" onClick={() => pick(0)} className={btn(tipCents === 0 && !other)}>No tip</button>
+        <button type="button" onClick={() => pick(0)} className={noTip(tipCents === 0 && !other)}>No tip</button>
         {TIP_CHOICES.map((c) => (
           <button key={c} type="button" onClick={() => pick(c)} className={btn(tipCents === c && !other)}>${c / 100}</button>
         ))}
@@ -548,6 +562,11 @@ function TipPicker({ amount, tipCents, onChange }: { amount: number; tipCents: n
           </label>
           <button type="button" onClick={applyTyped} className="h-14 rounded-xl bg-[#111110] px-6 text-[17px] font-semibold text-white active:scale-[0.98]">Add</button>
         </div>
+      ) : null}
+      {tipCents ? (
+        <p className="mt-3 rounded-xl bg-[#EEF3EC] px-4 py-3 text-[15px] font-medium text-[#2F5137]">
+          Thank you! Your crew gets all {formatCurrency(tipCents / 100)}.
+        </p>
       ) : null}
       <p className="mt-3 flex justify-between border-t border-[#ECEAE5] pt-3 text-[17px]">
         <span className="text-[#55534D]">{tipCents ? `Bill + ${formatCurrency(tipCents / 100)} tip` : "Your total"}</span>

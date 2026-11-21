@@ -934,6 +934,10 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             "due_date": link.due_date or None,
             # Tip buttons on the final bill (services/tips.py).
             "tips": tips.offered(db, link, preview=preview == 1),
+            # Their finished fence over the tip question (Alan, 2026-11-21):
+            # people tip for the result they can see.
+            "tip_photo": ((_customer_photo_urls(db, link) or [None])[0]
+                          if tips.offered(db, link, preview=preview == 1) else None),
             "financing": link.kind != "deposit" and not link.no_financing,
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
@@ -1357,8 +1361,29 @@ OFFLINE_METHODS = {"cash": "cash", "check": "check", "zelle": "Zelle", "quickboo
                    "card": "card in person", "other": "another way"}
 
 
+def _left_after(db, link: PayLink) -> float | None:
+    """What the customer still owes once this link is paid: the bill (its
+    lines, or the job total on a deposit) less every payment on the lead.
+    None when the link carries no total to go by."""
+    if link.items:
+        try:
+            total = sum(int(i.get("amount_cents") or 0) - int(i.get("discount_cents") or 0) for i in json.loads(link.items))
+        except (ValueError, TypeError, AttributeError):
+            return None
+    elif link.job_total_cents:
+        total = int(link.job_total_cents)
+    else:
+        return None
+    pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == link.lead_id).all()
+    paid = sum(int(p.amount_cents or 0) for p in pays)
+    lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+    if lead and lead.deposit_status == "paid" and not any(p.kind == "deposit" for p in pays):
+        paid += int(round(float(lead.deposit_amount or 0) * 100))
+    return round(max(0, total - paid) / 100, 2)
+
+
 def _book_paid(db, link: PayLink, amount_cents: int, method: str, *, sid: str | None = None, pi_id: str | None = None,
-               event_id: str | None = None, currency: str = "usd", by: str = "") -> CustomerPayment:
+               event_id: str | None = None, currency: str = "usd", by: str = "", tip_cents: int = 0) -> CustomerPayment:
     """Write the payment, mark the link paid, and run the bookkeeping and the
     after-payment hooks. Stripe's webhook and "paid by check" both land here."""
     now = _now()
@@ -1390,7 +1415,13 @@ def _book_paid(db, link: PayLink, amount_cents: int, method: str, *, sid: str | 
     except Exception as e:  # noqa: BLE001
         logger.warning("sale bookkeeping failed for %s: %s", link.token, e)
     try:
-        hooks.on_paid(link.lead_id, link.kind, amount_cents / 100, method)
+        try:
+            left = _left_after(db, link)
+        except Exception as e:  # noqa: BLE001 - the text still goes without it
+            logger.info("balance-left lookup failed for %s: %s", link.token, e)
+            left = None
+        hooks.on_paid(link.lead_id, link.kind, amount_cents / 100, method,
+                      tip=tip_cents / 100, left=left, tip_offered=link.kind in tips.TIP_KINDS)
     except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra
         logger.warning("after-payment hooks failed for %s: %s", link.token, e)
     return row
@@ -1436,7 +1467,8 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
             method = (getattr(pm, "type", "") or "") if pm else ""
         except Exception as e:  # noqa: BLE001 - the method is a nicety
             logger.info("payment method lookup failed for %s: %s", pi_id, e)
-    row = _book_paid(db, link, amount, method, sid=sid, pi_id=pi_id, event_id=event_id, currency=(g("currency") or "usd"))
+    row = _book_paid(db, link, amount, method, sid=sid, pi_id=pi_id, event_id=event_id, currency=(g("currency") or "usd"),
+                     tip_cents=tip)
     if tip:
         try:
             shares = tips.record(db, link, tip)

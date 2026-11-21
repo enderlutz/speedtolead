@@ -256,7 +256,22 @@ def send_link(db, link: PayLink, lead: Lead | None, message: str | None = None) 
 
 # ── After a payment ───────────────────────────────────────────────────────
 
-def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
+def paid_text(name: str, kind: str, amount: float, how: str, *, left: float | None = None,
+              tip: float = 0, tip_offered: bool = False) -> str:
+    """Alan's text when a customer pays (2026-11-21: what they paid, what's
+    left on the balance, and whether they tipped and how much)."""
+    lines = [f"✅ Stripe: {name} paid {money(amount)}{how} ({kind})."]
+    if left is not None:
+        lines.append("Balance left: $0, paid in full." if left < 0.01 else f"Balance left: {money(left)}.")
+    if tip > 0:
+        lines.append(f"Tip: {money(tip)} for the crew, on top of the bill.")
+    elif tip_offered:
+        lines.append("Tip: no tip.")
+    return "\n".join(lines)
+
+
+def on_paid(lead_id: str, kind: str, amount: float, method: str, *, tip: float = 0,
+            left: float | None = None, tip_offered: bool = False) -> None:
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -267,7 +282,7 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
                "zelle": " by Zelle", "quickbooks": " through QuickBooks", "card": " by card in person"}.get(method or "", "")
         _note(lead, f"Paid {money(amount)}{how} on Stripe ({kind}).")
         name = (lead.contact_name if lead else "") or "A customer"
-        alert_alan(f"✅ Stripe: {name} paid {money(amount)}{how} ({kind}).")
+        alert_alan(paid_text(name, kind, amount, how, left=left, tip=tip, tip_offered=tip_offered))
         # Paid means no more sales call-backs: pull any 📞 reminder still
         # waiting in GHL for this lead (Alan, 2026-11-07).
         if lead is not None and kind in ("deposit", "full", "balance"):
