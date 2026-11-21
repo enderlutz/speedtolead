@@ -83,19 +83,20 @@ def split_day(total_h: float, onsite: dict[str, float]) -> dict[str, float]:
 
 
 def overhead_rates(db, today: date) -> dict:
-    """Per-job overhead and ads from the bank's last 60 days (÷ 2 for a
-    month) over the jobs finished in the last 30 days. Unconfirmed: it's a
-    share, not a bill the job caused."""
-    since = (today - timedelta(days=60)).isoformat()
+    """Per-job overhead and ads from the bank's last 30 days over the jobs
+    finished in the same 30 days (Alan, 2026-11-21: overhead is always the
+    last 30 days, never another window). Unconfirmed: it's a share, not a
+    bill the job caused."""
+    since = (today - timedelta(days=30)).isoformat()
     rows = (db.query(BankTransaction.category, BankTransaction.amount)
             .filter(BankTransaction.date >= since, BankTransaction.date <= today.isoformat(),
                     BankTransaction.amount > 0, BankTransaction.pending.is_(False)).all())
     by: dict[str, float] = defaultdict(float)
     for cat, amt in rows:
         by[cat or ""] += float(amt or 0)
-    fixed = {c: round(by.get(c, 0.0) / 2, 2) for c in OVERHEAD_CATEGORIES}
+    fixed = {c: round(by.get(c, 0.0), 2) for c in OVERHEAD_CATEGORIES}
     va = round(VA_PAY_PER_WEEK * 52 / 12, 2)
-    ads = round(sum(by.get(c, 0.0) for c in AD_CATEGORIES) / 2, 2)
+    ads = round(sum(by.get(c, 0.0) for c in AD_CATEGORIES), 2)
     lo = (datetime.combine(today - timedelta(days=30), datetime.min.time(), CT)).astimezone(timezone.utc).isoformat()
     test = {i for (i,) in db.query(Lead.id).filter(Lead.is_test.is_(True)).all()}
     jobs = sum(1 for (lid,) in db.query(CompanyCamJob.lead_id).filter(CompanyCamJob.completed_at >= lo).all()

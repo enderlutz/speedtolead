@@ -160,3 +160,16 @@ def test_profit_per_job_reads_crew_hours_not_the_old_clock(db):
     from services import scoreboard as sb
     _hours(db, "Jose", 330)
     assert sb._hours_by_worker_day(db, DAY, DAY)[("jose", DAY)] == 5.5
+
+
+def test_overhead_is_the_last_30_days_only(db):
+    """Alan, 2026-11-21: overhead is the bank's last 30 days, never another
+    window (it used to be 60 days ÷ 2)."""
+    from database import BankTransaction
+    for days_ago, amt in ((10, 600.0), (45, 9000.0)):
+        d = date.fromordinal(date(2026, 11, 21).toordinal() - days_ago).isoformat()
+        db.add(BankTransaction(transaction_id=str(uuid.uuid4()), account_id="a", date=d, amount=amt,
+                               category="Software & subscriptions"))
+    db.commit()
+    oh = jm.overhead_rates(db, date(2026, 11, 21))
+    assert oh["breakdown"]["Software & subscriptions"] == 600.0

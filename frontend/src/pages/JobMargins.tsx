@@ -181,7 +181,7 @@ export default function JobMargins() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card><CardContent className="space-y-2 p-4">
           <h3 className="font-heading text-base font-bold">Overhead, from the bank</h3>
-          <p className="text-xs text-muted-foreground">Last 60 days ÷ 2 for a month, shared over the {oh.jobs_last_30_days} jobs finished in the last 30 days. Unconfirmed: a share, not a bill the job caused.</p>
+          <p className="text-xs text-muted-foreground">The bank's last 30 days, shared over the {oh.jobs_last_30_days} jobs finished in the last 30 days. Unconfirmed: a share, not a bill the job caused.</p>
           <table className="w-full text-sm tabular-nums">
             <tbody>
               {Object.entries(oh.breakdown).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
