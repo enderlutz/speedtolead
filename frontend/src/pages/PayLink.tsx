@@ -216,11 +216,16 @@ function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, bankF
           if (!dead) setWallets(!!paymentMethods);
         });
         if (walletBox.current) express.mount(walletBox.current);
+        // No Link inside the form (Alan, 2026-11-21): Link brought "Klarna,
+        // powered by Link" onto every bill, even with Klarna off, and Klarna
+        // costs us about 6%. Klarna only comes from its own button when the
+        // customer asked for it. Link is card pricing anyway.
         pay = checkout.createPaymentElement(bankFirst ? {
           layout: { type: "accordion", radios: "if_multiple", spacedAccordionItems: true, visibleAccordionItemsCount: 0, defaultCollapsed: false },
-          paymentMethodOrder: BANK_ORDER,
+          paymentMethodOrder: BANK_ORDER, wallets: { link: "never" },
         } : {
           layout: { type: "accordion", radios: "if_multiple", spacedAccordionItems: true, visibleAccordionItemsCount: 0 },
+          wallets: { link: "never" },
         });
         pay.on("ready", () => { mounted = true; if (!dead) setReady(true); });
         pay.on("loaderror", () => { if (!dead) onFail(); });
