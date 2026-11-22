@@ -3,7 +3,7 @@
 // Used on the Estimate tab to say which sides the customer is buying, and on
 // Company Cam to say which sides get which stain colour. The side names live
 // in lib/fenceSides so both screens and the backend agree on them.
-import { Home } from "lucide-react";
+import { Check, Home } from "lucide-react";
 import { ACCENT, type Accent } from "@/lib/accents";
 import { ProgressPill } from "@/components/Panel";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,13 @@ import { tr } from "@/lib/i18n";
 const GROUP_ACCENT: Record<SideGroup, Accent> = {
   Inside: ACCENT.cedar,
   Outside: ACCENT.ink,
+};
+// Dark mode (Alan, 2026-11-22: "hard to tell which sides are highlighted"):
+// ink on a dark page disappears, so a picked outside side turns light
+// (inverted ink) and both groups get a bright ring and a check.
+const GROUP_DARK: Record<SideGroup, { on: string; text: string }> = {
+  Inside: { on: "dark:from-orange-500 dark:to-cedar dark:ring-2 dark:ring-orange-300", text: "dark:text-orange-300" },
+  Outside: { on: "dark:from-stone-50 dark:to-stone-300 dark:!text-ink dark:ring-2 dark:ring-white", text: "dark:text-stone-100" },
 };
 
 /**
@@ -51,6 +58,7 @@ export function SidesPicker({
         {(Object.keys(FENCE_SIDES) as SideGroup[]).map((group) => {
           const names = FENCE_SIDES[group];
           const accent = GROUP_ACCENT[group];
+          const darkOn = GROUP_DARK[group];
           const n = names.filter((s) => value.includes(s)).length;
           const cell = (side: string) => {
             const name = `${group} ${side}`;
@@ -71,12 +79,12 @@ export function SidesPicker({
                 onClick={readOnly ? undefined : () => toggle(name)}
                 disabled={readOnly}
                 className={cn(
-                  readOnly && !on && "!border-dashed !bg-background !text-muted-foreground/50 line-through !opacity-100",
+                  readOnly && !on && "!border-dashed !bg-background !text-muted-foreground/50 line-through !opacity-100 dark:!text-muted-foreground/40 dark:!border-foreground/20",
                   readOnly && "cursor-default active:scale-100",
-                  "flex aspect-square items-center justify-center rounded-lg border font-semibold transition active:scale-95",
+                  "relative flex aspect-square items-center justify-center rounded-lg border font-semibold transition active:scale-95",
                   compact ? "text-xs" : "text-xs",
                   on
-                    ? `border-transparent bg-gradient-to-br ${accent.grad} text-white shadow-sm`
+                    ? `border-transparent bg-gradient-to-br ${accent.grad} ${darkOn.on} text-white shadow-sm`
                     : taken
                       ? "border-dotted border-foreground/40 bg-muted/60 text-foreground/60 hover:border-foreground/70 hover:text-foreground"
                       : bought
@@ -86,6 +94,7 @@ export function SidesPicker({
                           : "border-dashed border-input bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
                 )}
               >
+                {on ? <Check aria-hidden className="absolute right-1 top-1 h-3 w-3 opacity-90" strokeWidth={3} /> : null}
                 {tr(side)}
               </button>
             );
@@ -93,7 +102,7 @@ export function SidesPicker({
           return (
             <div key={group} className={cn("rounded-xl border bg-muted/20", compact ? "p-2" : "p-2.5")}>
               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
-                <span className={cn("text-xs font-bold uppercase tracking-wide", accent.text)}>{tr(group)}</span>
+                <span className={cn("text-xs font-bold uppercase tracking-wide", accent.text, darkOn.text)}>{tr(group)}</span>
                 <div className="flex items-center gap-1.5">
                   <ProgressPill done={n} total={names.length} />
                   {readOnly ? null : <button
