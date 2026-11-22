@@ -44,12 +44,12 @@ function csv(jobs: MarginJob[]) {
   const head = ["Date", "Customer", "Status", "Package", "Sq ft", "Sq ft sure", "Coats", "Revenue", "Revenue sure", "Collected",
     "Labor", "Labor sure", "Hours", "Stain", "Stain sure", "Gallons", "Bleach", "Fees", "Other", "Direct cost",
     "Contribution", "Contribution %", "Overhead", "Ads", "After overhead", "After overhead %", "Sq ft / hour", "Gal / 1000 sq ft",
-    "Previously stained", "Fence age", "Wood", "Stain product", "Crew", "Open questions"];
+    "Previously stained", "Fence age", "Wood", "Stain product", "Opacity", "Solid upsell", "Crew", "Open questions"];
   const esc = (x: unknown) => { const s = x == null ? "" : String(x); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const rows = jobs.map((j) => [j.date, j.customer, j.status, j.package, j.sqft.value, j.sqft.tag, j.coats, j.revenue.value, j.revenue.tag,
     j.collected, j.labor.value, j.labor.tag, j.hours, j.stain.value, j.stain.tag, j.stain_gallons, j.bleach.value, j.fees.value, j.other,
     j.direct_cost, j.contribution, j.contribution_pct, j.overhead, j.ads, j.after_overhead, j.after_overhead_pct, j.sqft_per_hour,
-    j.gal_per_1000, j.previously_stained, j.fence_age, j.wood_type, j.stain_product, j.crew.join(" / "), j.questions.length]);
+    j.gal_per_1000, j.previously_stained, j.fence_age, j.wood_type, j.stain_product, j.opacity, j.solid_upsell ? "yes" : "", j.crew.join(" / "), j.questions.length]);
   const blob = new Blob([[head, ...rows].map((r) => r.map(esc).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -152,6 +152,7 @@ export default function JobMargins() {
                         <div className="min-w-0">
                           <p className="max-w-[170px] truncate font-medium">{j.customer || "—"}</p>
                           <p className="text-xs text-muted-foreground">{j.date} · {j.package || j.service}{j.status === "in progress" ? " · in progress" : ""}</p>
+                          {j.solid_upsell ? <SolidUpsell /> : null}
                         </div>
                       </div>
                     </td>
@@ -224,13 +225,24 @@ function Kpi({ label, value, sub, tone: t }: { label: string; value: string; sub
   );
 }
 
+/** A solid laid on a Signature sale: still Signature (they paid the
+ *  Signature price), marked so the data can split by opacity (Alan, 2026-11-22). */
+function SolidUpsell() {
+  return (
+    <span className="mt-0.5 inline-block rounded-full bg-gold/20 px-1.5 py-0.5 text-[11px] font-semibold text-bronze dark:text-gold"
+          title="Signature price, solid stain: the cleaner's solid upsell">
+      Solid upsell
+    </span>
+  );
+}
+
 function Detail({ j }: { j: MarginJob }) {
   return (
     <div className="grid gap-4 text-sm md:grid-cols-3">
       <div className="space-y-1">
         <p className="font-semibold">The job</p>
-        <p>Package: {j.package || "—"} · {j.coats} coats</p>
-        <p>Stain: {j.stain_product || "—"}</p>
+        <p>Package: {j.package || "—"} · {j.coats} coats{j.solid_upsell ? <> · <SolidUpsell /></> : null}</p>
+        <p>Stain: {j.stain_product || "—"}{j.opacity ? ` (${j.opacity})` : ""}</p>
         <p>Previously stained: {j.previously_stained || "unconfirmed"} · Wood: {j.wood_type || "unconfirmed"}</p>
         <p>Fence age: {j.fence_age || "unconfirmed"}</p>
         <p>Cleaning: {j.cleaning_days.join(", ") || "—"} · Staining: {j.staining_days.join(", ") || "—"}</p>

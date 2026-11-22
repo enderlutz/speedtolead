@@ -173,3 +173,31 @@ def test_overhead_is_the_last_30_days_only(db):
     db.commit()
     oh = jm.overhead_rates(db, date(2026, 11, 21))
     assert oh["breakdown"]["Software & subscriptions"] == 600.0
+
+
+def test_a_solid_on_a_signature_sale_is_marked_the_solid_upsell(db):
+    from database import CompanyCamJob
+    lid = _job(db, price=1289, crew=[{"username": "Chris", "date": DAY, "task": "cleaning", "pay_type": "flat", "pay": 73}])
+    j = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lid).first()
+    j.package, j.final_color = "signature", "October Brown · Valspar · Solid"
+    db.commit()
+    r, _ = _row(db, lid)
+    assert r["package"] == "signature" and r["opacity"] == "solid" and r["solid_upsell"] is True
+    # A semi-transparent Signature, and a Legacy solid, are not upsells.
+    j.final_color = "Simply Cedar · Valspar · Semi-transparent"
+    db.commit()
+    r, _ = _row(db, lid)
+    assert r["opacity"] == "semi-transparent" and r["solid_upsell"] is False
+    j.package, j.final_color = "legacy", "Pine Bark · Valspar · Solid"
+    db.commit()
+    r, _ = _row(db, lid)
+    assert r["opacity"] == "solid" and r["solid_upsell"] is False
+
+
+def test_opacity_reads_the_stain_text():
+    assert jm.opacity_of("Sherwin-Williams SW 3508 Covered Bridge · SuperDeck semi-solid") == "semi-solid"
+    assert jm.opacity_of("Valspar Pinebark semi_transparent") == "semi-transparent"
+    assert jm.opacity_of("Inside: October Brown · Valspar · Solid | Outside: Valspar Clear") == "solid"
+    assert jm.opacity_of("Valspar Clear Stain clear") == "clear"
+    assert jm.opacity_of("Ready Seal Pecan oil based") == "semi-transparent"
+    assert jm.opacity_of("Shown in person") == ""

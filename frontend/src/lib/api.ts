@@ -6933,6 +6933,8 @@ export interface MarginJob {
   lead_id: string; customer: string; status: "finished" | "in progress"; date: string; finished: string;
   service: string; package: string; cleaning_days: string[]; staining_days: string[]; crew: string[];
   coats: number; sqft: MarginValue; previously_stained: string; wood_type: string; fence_age: string; stain_product: string;
+  /** solid | semi-solid | semi-transparent | clear | "" (2026-11-22) */
+  opacity: string; solid_upsell: boolean;
   revenue: MarginValue; collected: number; outstanding: number | null;
   labor: MarginValue; hours: number;
   labor_lines: { who: string; date: string; task: string; kind: string; hours: number | null; rate: number | null; cost: number; tag: MarginTag; note: string }[];

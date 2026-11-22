@@ -82,6 +82,24 @@ def split_day(total_h: float, onsite: dict[str, float]) -> dict[str, float]:
     return {k: v + rest for k, v in onsite.items()}
 
 
+def opacity_of(*texts: str) -> str:
+    """The stain's opacity from its product/colour text: solid, semi-solid,
+    semi-transparent, clear, or "" when it doesn't say (Alan, 2026-11-22:
+    metrics and budgeted hours will be built per opacity). A job with a solid
+    and a clear side counts as solid: that's the paint on most of it."""
+    t = " ".join(x or "" for x in texts).lower().replace("_", " ").replace("-", " ")
+    if "semi solid" in t:
+        return "semi-solid"
+    if "solid" in t:
+        return "solid"
+    # Ready Seal / Cabot oil are semi-transparent toners.
+    if "semi transparent" in t or "semi trans" in t or " semi" in f" {t}" or "oil" in t:
+        return "semi-transparent"
+    if "clear" in t:
+        return "clear"
+    return ""
+
+
 def overhead_rates(db, today: date) -> dict:
     """Per-job overhead and ads from the bank's last 30 days over the jobs
     finished in the same 30 days (Alan, 2026-11-21: overhead is always the
@@ -354,8 +372,15 @@ def build(db, since: str = HISTORY_START, until: str = "", today: date | None = 
         stain_item = items.get(j.final_stain_id or "")
         cleaning = sorted({e["date"] for e in crew if e.get("task") == "cleaning" and e.get("date")})
         staining = sorted({e["date"] for e in crew if e.get("task") == "staining" and e.get("date")})
+        stain_text = (" ".join(x for x in (stain_item.brand, stain_item.color_name, stain_item.finish_type or "") if x)
+                      if stain_item else (j.final_color or j.color or ""))
+        opacity = opacity_of(stain_text, *(x["product"] for x in stain_lines))
         rows.append({
             "lead_id": j.lead_id, "customer": (lead.contact_name if lead else "") or "",
+            "opacity": opacity,
+            # A solid on a Signature sale stays Signature: the customer pays
+            # the Signature price, the crew lays a solid (Alan, 2026-11-22).
+            "solid_upsell": (j.package or "") == "signature" and opacity == "solid",
             "status": "finished" if done else "in progress", "date": day, "finished": done,
             "service": "pressure washing" if (j.pw_services_json or "[]") not in ("[]", "") and not staining else "staining",
             "package": j.package or "", "cleaning_days": cleaning, "staining_days": staining,
