@@ -207,7 +207,9 @@ function StripeForm({ token, pk, preview, amount, tipCents = 0, needEmail, bankF
         if (dead) return;
         express = checkout.createExpressCheckoutElement({
           buttonHeight: 52, buttonType: { applePay: "plain", googlePay: "plain" },
-          layout: { maxColumns: 1, maxRows: 3, overflow: "never" }, emailRequired: needEmail,
+          // No emailRequired: Stripe.js clover refuses it ("not an accepted
+          // parameter") and the whole form fell back to the plain button.
+          layout: { maxColumns: 1, maxRows: 3, overflow: "never" },
         });
         express.on("availablepaymentmethodschange", (e: never) => {
           const { paymentMethods } = e as unknown as { paymentMethods: Record<string, boolean> | undefined };
