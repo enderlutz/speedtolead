@@ -1936,6 +1936,18 @@ class CompanyCamJob(Base):
     measure_height = Column(Float, default=0.0)
     measure_confirmed_at = Column(Text, default="")
     measure_confirmed_by = Column(Text, default="")
+    # Per-run, per-face measurements on the confirmed job (services/job_runs.py):
+    # each physical run traced once (label, length, height), and for each
+    # face whether it's coated and with which exact product. "" / "[]" = this
+    # job only has the single total above, which keeps working as before.
+    # Verified (the cleaner checked the measurements on site) is kept apart
+    # from finish confirmed (every face has its product), so measuring can be
+    # finished before the customer picks a color.
+    runs_json = Column(Text, default="")
+    runs_verified_at = Column(Text, default="")
+    runs_verified_by = Column(Text, default="")
+    finishes_confirmed_at = Column(Text, default="")
+    finishes_confirmed_by = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
@@ -5269,6 +5281,12 @@ def _run_migrations():
             ("closed_how", "TEXT DEFAULT ''"),
             # The picket length the cleaner measured (Alan, 2026-10-27).
             ("picket_length_ft", "DOUBLE PRECISION DEFAULT 0"),
+            # Per-run, per-face measurements (services/job_runs.py).
+            ("runs_json", "TEXT DEFAULT ''"),
+            ("runs_verified_at", "TEXT DEFAULT ''"),
+            ("runs_verified_by", "TEXT DEFAULT ''"),
+            ("finishes_confirmed_at", "TEXT DEFAULT ''"),
+            ("finishes_confirmed_by", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

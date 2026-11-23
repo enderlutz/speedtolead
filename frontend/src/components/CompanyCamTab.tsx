@@ -16,6 +16,7 @@
 // scope is violet, before-cleaning amber, after-cleaning cyan, after-staining
 // green. Done is always green, missing is always amber, damage is always red.
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
+import JobRunsPanel, { MaterialsBrief } from "@/components/JobRunsPanel";
 import { LogReceiptForm } from "@/components/MaterialsPanels";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -29,7 +30,7 @@ import {
 import { toast } from "sonner";
 import {
   api, canSeeRevenue, getCurrentUser, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type BleachStats, type StainOption, type CompanyCamPhoto,
-  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow, type CrewPayHistoryRow,
+  type CompanyCamJob, type JobRun, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow, type CrewPayHistoryRow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
@@ -855,10 +856,27 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     try {
       const r = await api.updateCompanyCam(leadId, p);
       setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, crew_pay: r.crew_pay ?? d.crew_pay,
-                            pw_mode: r.pw_mode ?? d.pw_mode, pw_sections: r.pw_sections ?? d.pw_sections } : d));
+                            pw_mode: r.pw_mode ?? d.pw_mode, pw_sections: r.pw_sections ?? d.pw_sections,
+                            materials: r.materials ?? d.materials } : d));
     } catch (e) {
       toast.error(errMessage(e, tr("Couldn't save")));
       void load();
+    }
+  };
+
+  // Per-run measurements (confirmed jobs only). Not optimistic: the server
+  // decides which stamps a change clears, and says what's still missing.
+  const saveRuns = async (p: { runs?: JobRun[]; runs_verified?: boolean; finishes_confirmed?: boolean }) => {
+    try {
+      const r = await api.updateCompanyCam(leadId, p);
+      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, materials: r.materials ?? d.materials } : d));
+      toast.success(tr("Saved"));
+    } catch (e) {
+      // "400: {"detail": "Can't confirm the finishes yet: ..."}" -> just the reason.
+      const raw = errMessage(e, tr("Couldn't save"));
+      let msg = raw;
+      try { msg = JSON.parse(raw.replace(/^\d+:\s*/, "")).detail || raw; } catch { /* not JSON */ }
+      toast.error(msg, { duration: 10000 });
     }
   };
 
@@ -983,6 +1001,13 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const pwOptions = data.pw_service_options || [];
   const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
   const mixedPw = !pwMode && pwSecs.length > 0;
+  // Per-run, per-face measurements: confirmed jobs only, never at intake,
+  // estimating or booking. The office sees it under the measurement banner,
+  // the crew under their briefing (the cleaner verifies on site).
+  const runsPanel = data.job_confirmed && !pwMode ? (
+    <JobRunsPanel job={job} materials={data.materials} stainOptions={data.stain_options || []}
+                  startHeight={job.measure_height || data.measure_options?.height_ft || 6} onSave={saveRuns} />
+  ) : null;
   // Repairs go in on the staining day (Alan, 2026-11-03): a job with repairs
   // calls its staining steps "Before staining / repairs" and "After staining /
   // repairs"; a job without keeps the plain names.
@@ -1458,6 +1483,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           </div>
         )
       ) : null}
+      {manager && runsPanel}
 
       {/* Who's on this job (Alan, 2026-10-16): the crew sees only the jobs
           they're on, nothing else, even by searching. */}
@@ -1656,9 +1682,13 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             {/* Everything confirmed lands here on its own (Alan, 2026-11-12):
                 the color the office set, the confirmed measurement, the
                 gallons as buckets, and the repairs with the spare pickets. */}
-            <BriefRow icon="🎨" label={tr("Color")} value={(chosenStain || (job.final_color || job.color || "").trim())
-              ? `${chosenStain || (job.final_color || job.color)}${job.color_shown_at || job.color_confirmed ? " ✓" : ""}` : tr("Not picked yet")} />
+            {/* With per-run finishes the products are listed below, per face. */}
+            {data.materials?.has_runs ? null : <BriefRow icon="🎨" label={tr("Color")} value={(chosenStain || (job.final_color || job.color || "").trim())
+              ? `${chosenStain || (job.final_color || job.color)}${job.color_shown_at || job.color_confirmed ? " ✓" : ""}` : tr("Not picked yet")} />}
             <BriefRow icon="🧱" label={tr("Sides")} value={sidesLabel(estimate_sides) || tr("See the scope")} />
+            {/* Per-run measurements replace the single total on the card:
+                coated sq ft, then sq ft and gallons per product. */}
+            {data.materials?.has_runs ? <MaterialsBrief m={data.materials} /> : (<>
             <BriefRow icon="📏" label={tr("Measured")} value={job.measure_confirmed_at
               ? `${Math.round(job.measure_feet || 0)} ft × ${job.measure_height || 0} ft = ${Math.round(job.sqft || 0).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"} ✓`
               : tr("Not confirmed yet, ask the office")} />
@@ -1674,6 +1704,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               const unconfirmed = g && !job.measure_confirmed_at ? (es ? " · medida sin confirmar" : " · measurement not confirmed") : "";
               return <BriefRow icon="🪣" label={tr("Stain to bring")} value={`${v}${unconfirmed}`} />;
             })()}
+            </>)}
             {(() => {
               const fin = finalCount(job);
               const planned = fin || job.repairs || NO_REPAIRS;
@@ -1709,6 +1740,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           ) : null}
         </section>
       ) : null}
+
+      {!manager && runsPanel}
 
       {/* What still has to happen. A checklist, never a lock — a crew in
           somebody's garden must always be able to save what they have. */}

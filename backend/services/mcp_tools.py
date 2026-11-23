@@ -162,6 +162,23 @@ def call_transcript(db, lead_id: str, number: int = 0) -> dict:
             "transcript": (t.full_text if t else "") or "(not transcribed yet)"}
 
 
+def _per_finish(db, j) -> dict | None:
+    from services import job_runs
+    runs = job_runs.runs_of(j)
+    if not runs:
+        return None
+    m = job_runs.materials(j, job_runs.inventory_items(db, runs))
+    return {
+        "total_coated_sqft": m["total_sqft"],
+        "materials": [{"product": l["label"], "sqft": l["sqft"], "gallons": l["gallons"],
+                       "faces": l["faces"], "missing": l["missing"]} for l in m["lines"]],
+        "pending_faces": [p["face"] for p in m["pending"]],
+        "measurements_verified": (f"by {j.runs_verified_by} {j.runs_verified_at[:10]}" if j.runs_verified_at else ""),
+        "finishes_confirmed": (f"by {j.finishes_confirmed_by} {j.finishes_confirmed_at[:10]}" if j.finishes_confirmed_at else ""),
+        "ready_to_load": m["ready"], "missing": m["missing"],
+    }
+
+
 def job_card(db, lead_id: str) -> dict:
     """The crew's job record: size, package, color, gallons, sides notes, crew and pay."""
     from database import CompanyCamJob
@@ -178,6 +195,9 @@ def job_card(db, lead_id: str) -> dict:
             if j.measure_confirmed_at else ""),
         "package": j.package, "color": j.final_color or j.color,
         "color_confirmed": bool(j.color_confirmed),
+        # Per-run, per-face measurements (services/job_runs.py). None = this
+        # job only has the single total above.
+        "per_finish": _per_finish(db, j),
         "cleaning_notes": j.cleaning_notes or "", "staining_notes": j.staining_notes or "",
         "repairs": _json(j.extras_json, {}) or _json(j.repairs_json, {}),
         "crew": _json(j.crew_json, []),

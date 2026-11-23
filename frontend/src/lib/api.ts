@@ -4132,10 +4132,13 @@ export const api = {
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
       stainer_checklist?: string[];
+      /** Confirmed jobs only: the cleaner checked the runs on site / every face has its product. */
+      runs_verified?: boolean;
+      finishes_confirmed?: boolean;
     },
   ) =>
     request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[]; crew_pay?: Record<string, CrewPay>;
-              pw_mode?: boolean; pw_sections?: CompanyCamSection[] }>(`/api/company-cam/${leadId}`, {
+              pw_mode?: boolean; pw_sections?: CompanyCamSection[]; materials?: JobMaterials }>(`/api/company-cam/${leadId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
@@ -4424,6 +4427,10 @@ export interface CompanyCamJob {
   extras?: { counts: Record<string, number>; picket_type: string; post_type: string; prices?: Record<string, number>; mode?: string };
   extras_confirmed_at?: string; extras_confirmed_by?: string;
   measure_feet?: number; measure_height?: number; measure_confirmed_at?: string; measure_confirmed_by?: string;
+  /** Per-run, per-face measurements on a confirmed job. Empty = only the single total above. */
+  runs?: JobRun[];
+  runs_verified_at?: string; runs_verified_by?: string;
+  finishes_confirmed_at?: string; finishes_confirmed_by?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;
@@ -4448,6 +4455,44 @@ export interface CompanyCamJob {
 }
 
 export type PwFinishHow = "home_happy" | "called_sent_photos";
+
+/** One face of a fence run: coated with an exact product (a Stain Inventory
+ *  row), coated with the finish still pending, or not coated. */
+export type JobRunFace = { state: "coat" | "pending" | "excluded"; stain_id?: string };
+
+/** One physical fence run, traced once (backend services/job_runs.py). */
+export interface JobRun {
+  id: string;
+  label: string;
+  /** e.g. "Front": two runs can share a group and keep their own measurement. */
+  group: string;
+  length_ft: number;
+  height_ft: number;
+  /** A gate already counted in this length: don't add it again. */
+  includes_gate: boolean;
+  faces: { inside: JobRunFace; outside: JobRunFace };
+}
+
+/** The crew card's material list, one line per product/finish/color. */
+export interface JobMaterials {
+  has_runs: boolean;
+  runs: JobRun[];
+  /** Null when a length or height is missing. */
+  total_sqft: number | null;
+  lines: {
+    stain_id: string; label: string; color_name: string; brand: string; finish_type: string;
+    in_inventory: boolean; faces: string[];
+    sqft: number | null; sqft_per_gallon: number | null;
+    /** Null when anything it depends on is missing: never guessed. */
+    gallons: number | null;
+    missing: string[];
+  }[];
+  pending: { face: string; sqft: number | null }[];
+  missing: string[];
+  ready: boolean;
+  measurements_verified: boolean;
+  finishes_confirmed: boolean;
+}
 
 export interface CompanyCamSection {
   key: string;
@@ -4498,6 +4543,9 @@ export interface CompanyCamPayload {
   estimate_options?: { id: string; sent: boolean; sent_at: string; when: string; sqft: number; linear_feet: number | null; height: string }[];
   /** Feet traced on Measure & capture, and the fence height to start from. */
   measure_options?: { captures: { id: string; label: string; linear_feet: number }[]; height_ft: number };
+  /** Closed, deposit paid or waived, or paid: only then does the per-run step show. */
+  job_confirmed?: boolean;
+  materials?: JobMaterials;
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
   /** Every washing service the office can tick. */

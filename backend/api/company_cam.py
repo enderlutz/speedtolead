@@ -26,6 +26,8 @@ from database import (
     get_db,
 )
 from api.auth import get_current_user
+from services import job_runs
+from services.job_runs import runs_of
 from services.company_cam import (
     CLEANER_CHECKLIST,
     CREW_TASKS,
@@ -509,6 +511,11 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "measure_height": job.measure_height or 0,
         "measure_confirmed_at": job.measure_confirmed_at or "",
         "measure_confirmed_by": job.measure_confirmed_by or "",
+        "runs": runs_of(job),
+        "runs_verified_at": getattr(job, "runs_verified_at", "") or "",
+        "runs_verified_by": getattr(job, "runs_verified_by", "") or "",
+        "finishes_confirmed_at": getattr(job, "finishes_confirmed_at", "") or "",
+        "finishes_confirmed_by": getattr(job, "finishes_confirmed_by", "") or "",
         "extras_confirmed_by": job.extras_confirmed_by or "",
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
@@ -679,6 +686,10 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # Pay per person on the job: all of it for the office, yours only for crew.
             "crew_pay": _crew_pay(db, job, user),
             "measure_options": measure_options(db, lead_id),
+            # Per-run, per-face measurements: only on a confirmed job (closed,
+            # deposit paid or waived, or paid), never at intake or quoting.
+            "job_confirmed": job_runs.job_confirmed(db, lead),
+            "materials": _materials(db, job),
             "customer": {
                 "name": lead.contact_name or "",
                 "phone": lead.contact_phone or "",
@@ -697,8 +708,21 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
+def _materials(db, job: CompanyCamJob) -> dict:
+    return job_runs.materials(job, job_runs.inventory_items(db, runs_of(job)))
+
+
 class CompanyCamPatch(BaseModel):
     sqft: float | None = None
+    # Per-run, per-face measurements (services/job_runs.py), the whole list.
+    # Confirmed jobs only. Changing a length, height or which faces get
+    # coated clears "measurements verified"; changing a face's finish clears
+    # "finishes confirmed".
+    runs: list[dict] | None = None
+    # True: the cleaner checked the measurements on site. False: undo.
+    runs_verified: bool | None = None
+    # True: every coated face has its exact product. False: undo.
+    finishes_confirmed: bool | None = None
     # Sent with sqft by "Confirm real measurement": the traced feet and the
     # height, so the job says who confirmed it and when.
     measure_feet: float | None = None
@@ -774,6 +798,45 @@ class CompanyCamPatch(BaseModel):
     pw_items: list[dict] | None = None
 
 
+def _apply_runs(db, lead: Lead, job: CompanyCamJob, body: CompanyCamPatch, user: dict) -> None:
+    """Per-run measurements, verified and finish-confirmed stamps. Refused on
+    a job that isn't confirmed: this is the crew's step, not the estimate's."""
+    if not job_runs.job_confirmed(db, lead):
+        raise HTTPException(409, "Per-run measurements are for confirmed jobs only. "
+                                 "This job isn't closed or paid yet.")
+    before = runs_of(job)
+    after = before
+    if body.runs is not None:
+        after = job_runs.normalize_runs(body.runs)
+        job.runs_json = json.dumps(after) if after else ""
+        if job_runs.geometry_changed(before, after):
+            job.runs_verified_at = ""
+            job.runs_verified_by = ""
+        if job_runs.finishes_changed(before, after):
+            job.finishes_confirmed_at = ""
+            job.finishes_confirmed_by = ""
+    if body.runs_verified is True:
+        problems = job_runs.measurement_problems(after)
+        if problems:
+            raise HTTPException(400, "Can't mark the measurements verified yet: " + " ".join(problems))
+        job.runs_verified_at = _now()
+        job.runs_verified_by = _actor(user)
+    elif body.runs_verified is False:
+        job.runs_verified_at = ""
+        job.runs_verified_by = ""
+    if body.finishes_confirmed is True:
+        if not after:
+            raise HTTPException(400, "Can't confirm finishes: no fence runs traced yet.")
+        problems = job_runs.finish_problems(after, job_runs.inventory_items(db, after))
+        if problems:
+            raise HTTPException(400, "Can't confirm the finishes yet: " + " ".join(problems))
+        job.finishes_confirmed_at = _now()
+        job.finishes_confirmed_by = _actor(user)
+    elif body.finishes_confirmed is False:
+        job.finishes_confirmed_at = ""
+        job.finishes_confirmed_by = ""
+
+
 @router.patch("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
 def update_company_cam(
     lead_id: str, body: CompanyCamPatch, user: dict = Depends(get_current_user)
@@ -802,6 +865,8 @@ def update_company_cam(
                 job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
             job.measure_confirmed_at = _now()
             job.measure_confirmed_by = _actor(user)
+        if body.runs is not None or body.runs_verified is not None or body.finishes_confirmed is not None:
+            _apply_runs(db, lead, job, body, user)
         if body.gallons_needed is not None:
             job.gallons_needed = max(0.0, float(body.gallons_needed))
             job.gallons_edited = True
@@ -1086,6 +1151,7 @@ def update_company_cam(
         )
         return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos, bool(estimate_sides(db, lead))),
                 "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(db, job, user),
+                "materials": _materials(db, job),
                 # Ticking a service or a washing day can switch the screen.
                 "pw_mode": _pw_view(job, user), "pw_sections": job_pw_sections(job)}
     finally:
