@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type MeasurementPhoto } from "@/lib/api";
+import { api, type JobRun, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
 import Map3DView from "@/components/Map3DView";
 import { Button } from "@/components/ui/button";
@@ -105,7 +105,28 @@ const IS_TOUCH =
 const TAP_BTN = IS_TOUCH ? "h-11 w-11 p-0" : "h-6 w-6 p-0";
 
 type Pt = { lat: number; lng: number };
-type Run = { id: number; points: Pt[]; closed: boolean };
+// Which side of the yard each drawn piece is (Alan, 2026-11-23: "after
+// every single point I put, it has to ask me which side is this"). One entry
+// per leg: sides[i] is the leg from points[i] to points[i+1]; the closing leg
+// of a closed run is sides[points.length - 1]. "" = not answered yet.
+const SIDES = ["Front", "Left", "Back", "Right"] as const;
+type Side = (typeof SIDES)[number];
+type Run = { id: number; points: Pt[]; closed: boolean; sides?: (Side | "")[] };
+
+/** Every leg of a run with its footage and side, in drawing order. */
+function runLegs(run: Run): { idx: number; feet: number; side: Side | "" }[] {
+  const path = run.closed && run.points.length > 2 ? [...run.points, run.points[0]] : run.points;
+  const out: { idx: number; feet: number; side: Side | "" }[] = [];
+  for (let i = 1; i < path.length; i++) {
+    out.push({ idx: i - 1, feet: haversineFeet(path[i - 1], path[i]), side: run.sides?.[i - 1] || "" });
+  }
+  return out;
+}
+
+/** Drop side answers for legs that no longer exist (after an undo or opening a run). */
+function trimSides(sides: (Side | "")[] | undefined, legs: number): (Side | "")[] {
+  return (sides || []).slice(0, Math.max(0, legs));
+}
 
 /** The Maps namespace once the shared loader has injected the script, or
  *  null before that. Callers early-return rather than asserting, so a slow
@@ -406,6 +427,31 @@ export default function SatelliteMeasureCard({
   const [locateNote, setLocateNote] = useState("");
 
   const viewTotal = runs.reduce((s, r) => s + runFeet(r), 0);
+  // Only the office's job measurement asks for sides; the estimate tracing
+  // stays exactly as it was.
+  const askingSides = !forJob && closedJob && confirmMode;
+  const [askSide, setAskSide] = useState<{ runId: number; seg: number } | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  const sideTotals = useMemo(() => {
+    const t: Record<string, number> = {};
+    let unanswered = 0;
+    for (const r of runs) for (const leg of runLegs(r)) {
+      if (leg.side) t[leg.side] = (t[leg.side] || 0) + leg.feet;
+      else unanswered += 1;
+    }
+    return { t, unanswered };
+  }, [runs]);
+  function setLegSide(runId: number, seg: number, side: Side | "") {
+    setRuns((prev) => prev.map((r) => {
+      if (r.id !== runId) return r;
+      const sides = [...(r.sides || [])];
+      while (sides.length <= seg) sides.push("");
+      sides[seg] = side;
+      return { ...r, sides };
+    }));
+    setAskSide(null);
+  }
   useEffect(() => { onTraced?.(Math.round(viewTotal)); }, [viewTotal, onTraced]);
   // Every confirmed line adds straight into the estimate's Linear Feet
   // (Alan, 2026-10-30: "every time I confirm a line, one dot to another dot,
@@ -604,9 +650,14 @@ export default function SatelliteMeasureCard({
   }
 
   function addPoint(p: Pt) {
+    const cur = runsRef.current.find((r) => r.id === activeRunRef.current);
     setRuns((prev) => prev.map((r) =>
       r.id === activeRunRef.current ? { ...r, points: [...r.points, p] } : r,
     ));
+    // A new piece was drawn: ask which side it is.
+    if (askingSides && cur && cur.points.length >= 1 && !cur.closed) {
+      setAskSide({ runId: cur.id, seg: cur.points.length - 1 });
+    }
   }
 
   /** Phone: the point goes where the crosshair is — the map's centre. */
@@ -618,8 +669,10 @@ export default function SatelliteMeasureCard({
 
   function undoLastPoint() {
     setRuns((prev) => prev.map((r) =>
-      r.id === activeRunRef.current ? { ...r, points: r.points.slice(0, -1) } : r,
+      r.id === activeRunRef.current
+        ? { ...r, points: r.points.slice(0, -1), sides: trimSides(r.sides, r.points.length - 2) } : r,
     ));
+    setAskSide(null);
   }
 
   // One gesture layer for tap, drag, pinch and twist. A tap is a press that
@@ -962,7 +1015,9 @@ export default function SatelliteMeasureCard({
         if (feet < 3) continue;
         const u = pixelFromLatLng(center, z, { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 });
         const d = rotateOut(u.x, u.y);
-        out.push({ key: `${run.id}-${i}`, x: half.x + d.x, y: half.y + d.y, text: `${Math.round(feet)} ft` });
+        const side = run.sides?.[i - 1] || "";
+        const tag = side ? ` · ${side}` : askingSides ? " · ?" : "";
+        out.push({ key: `${run.id}-${i}`, x: half.x + d.x, y: half.y + d.y, text: `${Math.round(feet)} ft${tag}` });
       }
     });
     setLabels(out);
@@ -978,7 +1033,7 @@ export default function SatelliteMeasureCard({
     } else {
       setPreview(null);
     }
-  }, [runs, activeRun, status, tick, rot, frac]);
+  }, [runs, activeRun, status, tick, rot, frac, askingSides]);
 
   // Its own effect and its own ref: the run overlays are torn down on every
   // points change, and the pin must survive that.
@@ -1068,6 +1123,7 @@ export default function SatelliteMeasureCard({
   function resetRuns() {
     setRuns([{ id: 1, points: [], closed: false }]);
     setActiveRun(1);
+    setAskSide(null);
   }
 
   async function capture(replaceId?: string) {
@@ -1333,7 +1389,21 @@ export default function SatelliteMeasureCard({
             </div>
             {confirmMode ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <p className="w-full text-sm text-amber-900">Trace every side we stain (both sides of a run = trace it twice). This doesn't change the estimate.</p>
+                <p className="w-full text-sm text-amber-900">Trace each piece of fence once. After every piece it asks which side it is. Inside / outside and the color get picked in Runs and finishes. This doesn't change the estimate.</p>
+                {viewTotal > 0 ? (
+                  <div className="flex w-full flex-wrap gap-1.5">
+                    {SIDES.filter((sd) => sideTotals.t[sd]).map((sd) => (
+                      <span key={sd} className="rounded-full bg-background px-3 py-1 text-sm font-semibold ring-1 ring-amber-300 tabular-nums">
+                        {sd} {Math.round(sideTotals.t[sd])} ft
+                      </span>
+                    ))}
+                    {sideTotals.unanswered > 0 ? (
+                      <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-800 ring-1 ring-red-300">
+                        {sideTotals.unanswered} {sideTotals.unanswered === 1 ? "piece needs" : "pieces need"} a side
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <span className="text-base font-bold tabular-nums">{Math.round(viewTotal)} ft</span>
                 <span className="text-base">×</span>
                 <select value={confirmHeight} onChange={(e) => setConfirmHeight(Number(e.target.value))} aria-label="Fence height"
@@ -1341,13 +1411,40 @@ export default function SatelliteMeasureCard({
                   {[4, 5, 6, 6.5, 7, 8, 9, 10].map((h) => <option key={h} value={h}>{h} ft tall</option>)}
                 </select>
                 <span className="text-base font-extrabold tabular-nums">= {Math.round(viewTotal * confirmHeight).toLocaleString()} sq ft</span>
-                <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || viewTotal <= 0}
+                <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || viewTotal <= 0 || sideTotals.unanswered > 0}
                         onClick={async () => {
                           const feet = Math.round(viewTotal);
                           const sqft = Math.round(viewTotal * confirmHeight);
                           setConfirming(true);
                           try {
                             await api.updateCompanyCam(leadId, { sqft, measure_feet: feet, measure_height: confirmHeight });
+                            // Each traced piece becomes a run on the job's Runs and
+                            // finishes card. A run already there for the same side
+                            // (same order) keeps its name, gate and finishes.
+                            try {
+                              const existing = (await api.getCompanyCam(leadId)).runs?.runs || [];
+                              const seen: Record<string, number> = {};
+                              const pieces = runs.flatMap((r) => runLegs(r)).filter((l) => l.side && l.feet >= 1);
+                              const count: Record<string, number> = {};
+                              pieces.forEach((l) => { count[l.side] = (count[l.side] || 0) + 1; });
+                              const next: JobRun[] = pieces.map((l) => {
+                                const g = l.side as Side;
+                                const n = seen[g] = (seen[g] ?? -1) + 1;
+                                const old = existing.filter((x) => x.group === g)[n];
+                                return {
+                                  id: old?.id || `${g.toLowerCase()}-${n + 1}`,
+                                  label: old?.label || (count[g] > 1 ? `${g} ${n + 1}` : g),
+                                  group: g,
+                                  length_ft: Math.round(l.feet),
+                                  height_ft: confirmHeight,
+                                  gate_in_length: old?.gate_in_length ?? false,
+                                  faces: old?.faces || { inside: { state: "pending", stain_id: "" }, outside: { state: "skip", stain_id: "" } },
+                                };
+                              });
+                              if (next.length) await api.saveJobRuns(leadId, { runs: next });
+                            } catch (err) {
+                              toast.error(`Saved the total, but the sides didn't save to Runs and finishes: ${err instanceof Error ? err.message : "error"}`);
+                            }
                             setConfirmed({ feet, height: confirmHeight, by: "you", at: new Date().toISOString() });
                             setConfirmMode(false);
                             toast.success(`★ Job measurement confirmed: ${feet} ft × ${confirmHeight} ft = ${sqft.toLocaleString()} sq ft`);
@@ -1552,6 +1649,39 @@ export default function SatelliteMeasureCard({
           </div>
         ) : null}
 
+        {askingSides && askSide ? (() => {
+          const r = runs.find((x) => x.id === askSide.runId);
+          const leg = r ? runLegs(r).find((l) => l.idx === askSide.seg) : undefined;
+          if (!leg) return null;
+          return (
+            <div className="rounded-xl bg-amber-50 p-3 ring-2 ring-amber-400" role="dialog" aria-label="Which side is this?">
+              <p className="mb-2 text-base font-bold text-amber-950">Which side is this {Math.round(leg.feet)} ft?</p>
+              <div className="grid grid-cols-4 gap-2">
+                {SIDES.map((sd) => (
+                  <button key={sd} type="button" onClick={() => setLegSide(askSide.runId, askSide.seg, sd)}
+                          className={`min-h-11 rounded-lg text-base font-semibold ring-1 touch-manipulation ${leg.side === sd ? "bg-amber-500 text-white ring-amber-600" : "bg-white text-amber-950 ring-amber-300 hover:bg-amber-100"}`}>
+                    {sd}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => setAskSide(null)} className="mt-2 min-h-11 text-sm text-amber-900 underline">
+                Later
+              </button>
+            </div>
+          );
+        })() : null}
+
+        {askingSides && runs.some((r) => runLegs(r).length) ? (
+          <div className="flex flex-wrap gap-1.5">
+            {runs.flatMap((r) => runLegs(r).map((l) => (
+              <button key={`${r.id}-${l.idx}`} type="button" onClick={() => setAskSide({ runId: r.id, seg: l.idx })}
+                      className={`min-h-11 rounded-lg px-3 text-sm font-semibold ring-1 touch-manipulation tabular-nums ${l.side ? "bg-background ring-border" : "bg-red-50 text-red-800 ring-red-300"}`}>
+                {Math.round(l.feet)} ft · {l.side || "which side?"}
+              </button>
+            )))}
+          </div>
+        ) : null}
+
         {/* Each run, its footage, and which one clicks land on. */}
         <div className="space-y-1.5">
           {runs.map((run, idx) => {
@@ -1585,7 +1715,11 @@ export default function SatelliteMeasureCard({
                     onClick={(e) => {
                       e.stopPropagation();
                       setRuns((p) => p.map((r) =>
-                        r.id === run.id ? { ...r, closed: !r.closed } : r));
+                        r.id === run.id
+                          ? { ...r, closed: !r.closed, sides: r.closed ? trimSides(r.sides, r.points.length - 1) : r.sides }
+                          : r));
+                      if (!run.closed && askingSides) setAskSide({ runId: run.id, seg: run.points.length - 1 });
+                      else setAskSide(null);
                     }}
                     title="Count the leg back to the first point"
                   >
@@ -1598,7 +1732,9 @@ export default function SatelliteMeasureCard({
                     onClick={(e) => {
                       e.stopPropagation();
                       setRuns((p) => p.map((r) =>
-                        r.id === run.id ? { ...r, points: r.points.slice(0, -1) } : r));
+                        r.id === run.id
+                          ? { ...r, points: r.points.slice(0, -1), sides: trimSides(r.sides, r.points.length - 2) } : r));
+                      setAskSide(null);
                     }}
                     title="Undo last point"
                   >
