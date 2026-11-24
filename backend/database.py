@@ -1666,6 +1666,8 @@ class ScheduledJob(Base):
             from services.role_sanitizer import sanitize_for_worker
             base["job_description"] = sanitize_for_worker(base.get("job_description") or "")
             base["worker_notes"] = sanitize_for_worker(base.get("worker_notes") or "")
+            base["inspection_notes"] = sanitize_for_worker(base.get("inspection_notes") or "")
+            base["customer_question_notes"] = sanitize_for_worker(base.get("customer_question_notes") or "")
             return base  # workers see only what's needed to do the job
         # admin / va get everything (package_tier already in base now since
         # workers also see it; the other admin-only fields land here).

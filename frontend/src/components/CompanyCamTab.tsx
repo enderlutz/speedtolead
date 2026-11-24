@@ -763,6 +763,24 @@ function Checklist({
   );
 }
 
+/** Prices out of every piece of text, nested too: "$1,800", "$ 250.00 + tax",
+ *  a whole "Price: 1075.36" line, and proposal links. Numbers that aren't
+ *  text (the worker's own pay, repair counts) stay. Mirrors the server's
+ *  crew filter (services/role_sanitizer.py). */
+function crewSafe<T>(v: T): T {
+  if (typeof v === "string") {
+    if (!/\$|price|http/i.test(v)) return v;
+    return v
+      .replace(/^[ \t]*Price[ \t]*:.*$/gim, "")
+      .replace(/\$\s?\d+(?:,\d{3})*(?:\.\d+)?k?(?:\s*\+\s*tax\s*-?\s*)?/gi, "")
+      .replace(/https?:\/\/\S*proposal\S*|https?:\/\/\S+\/p\/\S*/gi, "")
+      .replace(/[ \t]{2,}/g, " ") as unknown as T;
+  }
+  if (Array.isArray(v)) return v.map((x) => crewSafe(x)) as unknown as T;
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, crewSafe(x)])) as T;
+  return v;
+}
+
 export default function CompanyCamTab({ leadId, profileLink = false }: { leadId: string; profileLink?: boolean }) {
   const [data, setData] = useState<CompanyCamPayload | null>(null);
   // The office's job measurement pop-up (Alan, 2026-10-18).
@@ -925,11 +943,14 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     );
   }
 
+  // The Employee view is exactly what the crew sees (Alan, 2026-11-23): the
+  // office's copy has prices in the notes, so take them out here the same
+  // way the server does for a crew login.
   const {
     job, sections, photos, upsell_options, blockers, customer,
     color_statuses, color_options, estimate_sides, cleaner_checklist, stainer_checklist,
     almost_done_default, cleaner_actions,
-  } = data;
+  } = manager ? data : { ...data, job: crewSafe(data.job), almost_done_default: crewSafe(data.almost_done_default), cleaner_actions: crewSafe(data.cleaner_actions) };
   const totalPhotos = Object.values(photos).reduce((n, arr) => n + arr.length, 0);
   const chosenStain = (data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || (job.final_stain_id ? job.final_color : "");
   const damage = Object.values(photos).flat().filter((p) => p.is_damage).length;

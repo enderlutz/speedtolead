@@ -494,7 +494,22 @@ def _no_money(d: dict) -> dict:
     sure none of my employees can see job costs"). Money fields are already
     left out; this catches a dollar figure typed into a note ("the customer
     agreed $400 for the repairs" sat in Jerry Tullos's repair notes)."""
-    return {k: (_MONEY.sub("[price hidden]", v) if isinstance(v, str) else v) for k, v in d.items()}
+    return {k: _crew_safe(v) for k, v in d.items()}
+
+
+def _crew_safe(v):
+    """Every piece of text the crew gets, nested ones too (the colour plan,
+    the washing notes), with prices, "Price:" lines and proposal links taken
+    out (Alan, 2026-11-23: "they shouldn't be able to see the price on any
+    notes"). Numbers that aren't text (their own pay, repair counts) pass."""
+    from services.role_sanitizer import sanitize_for_worker
+    if isinstance(v, str):
+        return sanitize_for_worker(_MONEY.sub("", v)) if ("$" in v or "rice" in v or "http" in v) else v
+    if isinstance(v, list):
+        return [_crew_safe(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _crew_safe(x) for k, x in v.items()}
+    return v
 
 
 def _job_dict(job: CompanyCamJob, per_gallon: float | None = None, user: dict | None = None) -> dict:
@@ -692,10 +707,10 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "estimate_sides": estimate_sides(db, lead),
             "cleaner_checklist": CLEANER_CHECKLIST,
             "stainer_checklist": STAINER_CHECKLIST,
-            "almost_done_default": _almost_done_text(job, lead),
+            "almost_done_default": _almost_done_text(job, lead) if _sees_all(user) else _crew_safe(_almost_done_text(job, lead)),
             # What the cleaner has to settle on site. Derived, never stored,
             # so it cannot drift from the plan it describes.
-            "cleaner_actions": cleaner_color_actions(_json_list(job.color_plan_json)),
+            "cleaner_actions": _crew_safe(cleaner_color_actions(_json_list(job.color_plan_json))) if not _sees_all(user) else cleaner_color_actions(_json_list(job.color_plan_json)),
             "blockers": _blockers(job, photos, bool(estimate_sides(db, lead))),
             # How old the fence is, from the estimate (read-only here), and
             # what a gallon has covered on our jobs, overall and on fences

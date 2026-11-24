@@ -9,6 +9,7 @@ The crew page is public (no auth) — same trust model as proposal pages: an
 unguessable per-worker token. PM/board endpoints are staff-gated.
 """
 from __future__ import annotations
+from services.role_sanitizer import sanitize_for_worker
 import re
 import logging
 import uuid
@@ -134,7 +135,8 @@ def _job_card(task: JobTask, job: ScheduledJob | None, lead: Lead | None, is_bac
         "sides": sides,
         "linear_feet": linear_feet,
         "height": height,
-        "pm_note": (job.worker_notes if job else "") or "",
+        # Prices never reach the crew, even typed into a note (Alan, 2026-11-23).
+        "pm_note": sanitize_for_worker((job.worker_notes if job else "") or ""),
         "budgeted_hours": float(task.budgeted_hours) if task.budgeted_hours is not None else None,
         "is_backup": is_backup,
         "wrapping_up_at": task.wrapping_up_at,

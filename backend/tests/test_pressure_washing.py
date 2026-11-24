@@ -199,7 +199,9 @@ def test_the_crew_never_sees_a_dollar_figure_in_a_note():
     """Alan, 2026-10-19: none of my employees can see job costs."""
     from api.company_cam import _no_money
     out = _no_money({"repair_notes": "the customer agreed $400 for the repairs, $1,250.50 total", "sqft": 900.0})
-    assert "$" not in out["repair_notes"] and "[price hidden]" in out["repair_notes"] and out["sqft"] == 900.0
+    # Taken out, not marked (Alan, 2026-11-23: "make sure that's removed").
+    assert "$" not in out["repair_notes"] and "400" not in out["repair_notes"] and "1,250" not in out["repair_notes"]
+    assert "the customer agreed" in out["repair_notes"] and out["sqft"] == 900.0
 
 
 def test_a_typed_service_and_a_note_reach_the_crew(db, wired):
