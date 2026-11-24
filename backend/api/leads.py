@@ -1443,6 +1443,19 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
 
         db.commit()
 
+        # A booked job's traced runs follow a scope change: a side added
+        # inside/outside counts that side again, a side taken off stops counting.
+        if "fence_sides" in body.form_data:
+            try:
+                from api.company_cam import sync_runs_to_sides
+                from database import CompanyCamJob
+                cj = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+                if cj and sync_runs_to_sides(db, cj, lead):
+                    db.commit()
+            except Exception:
+                logger.exception("runs follow sides failed for %s", lead_id)
+                db.rollback()
+
         # Phase 4: mirror estimate-input fields back to GHL custom fields
         _push_estimate_inputs_to_ghl(db, lead, merged)
 

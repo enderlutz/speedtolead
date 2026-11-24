@@ -167,3 +167,26 @@ def stain_lookup(db) -> dict[str, dict]:
     except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
         return {}
     return {r.id: {"label": stain_label(r), "finish_type": r.finish_type or ""} for r in rows}
+
+
+def apply_side_changes(runs: list[dict], before: list[str], now: list[str]) -> list[dict]:
+    """The scope's fence sides changed (Alan, 2026-11-23: measure each side
+    once, then the estimator's sides double it or take it away). A side face
+    added ("Outside Front") gets coated on every run of that side, finish not
+    picked yet; a side face taken away stops being coated. Faces whose side
+    didn't change keep whatever the office set, so a one-off (only two short
+    front pieces outside) survives until that side itself is toggled."""
+    added, removed = set(now) - set(before), set(before) - set(now)
+    if not added and not removed:
+        return runs
+    out = []
+    for r in runs:
+        r = {**r, "faces": {f: dict(v) for f, v in r["faces"].items()}}
+        for f in FACES:
+            key = f"{f.title()} {r['group']}"
+            if key in added and r["faces"][f]["state"] == "skip":
+                r["faces"][f] = {"state": "pending", "stain_id": ""}
+            elif key in removed and r["faces"][f]["state"] != "skip":
+                r["faces"][f] = {"state": "skip", "stain_id": ""}
+        out.append(r)
+    return out

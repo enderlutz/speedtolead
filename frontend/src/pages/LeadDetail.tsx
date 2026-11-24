@@ -1825,6 +1825,7 @@ export default function LeadDetail() {
             <SatelliteMeasureCard
               leadId={lead.id}
               closedJob={lead.status === "closed"}
+              fenceSides={fenceSides}
               collapsed={!isOpen("measure", true)}
               onToggle={() => toggle("measure", true)}
               lat={lead.lat || 0}

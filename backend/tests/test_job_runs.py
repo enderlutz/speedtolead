@@ -221,3 +221,42 @@ def test_single_total_job_keeps_working(env):
     p = cc._runs_payload(env, job, lead)
     assert p["runs"] == [] and p["summary"] is None and not p["ready_to_load"]
     assert json.loads(job.runs_json or "[]") == []
+
+
+# --- the estimator's sides double or drop a traced side ---
+
+def test_adding_outside_front_counts_the_front_twice():
+    from services.job_runs import apply_side_changes
+    ob = face("pending")
+    runs = normalize_runs([run("Front", "Front", 13, 6.5, ob, face()), run("Left", "Left", 101, 6.5, ob, face())])
+    inside = ["Inside Front", "Inside Left"]
+    new = apply_side_changes(runs, inside, inside + ["Outside Front"])
+    assert summarize(new, STAINS)["total_sqft"] == round((13 * 2 + 101) * 6.5)
+    # Taking the left off the scope stops counting it.
+    new = apply_side_changes(new, inside + ["Outside Front"], ["Inside Front", "Outside Front"])
+    assert summarize(new, STAINS)["total_sqft"] == round(13 * 2 * 6.5)
+
+
+def test_untouched_side_keeps_a_one_off():
+    from services.job_runs import apply_side_changes
+    # Outside front on only one of the two front pieces, set by the office.
+    runs = normalize_runs([run("Front 1", "Front", 7, 6, face("coat", "ob"), face("coat", "clr")),
+                           run("Front 2", "Front", 6, 6, face("coat", "ob"), face())])
+    new = apply_side_changes(runs, ["Inside Front", "Outside Front"], ["Inside Front", "Outside Front", "Inside Back"])
+    assert new[1]["faces"]["outside"]["state"] == "skip"
+    assert new[0]["faces"]["outside"] == {"state": "coat", "stain_id": "clr"}
+
+
+def test_scope_change_moves_the_job_sqft(env):
+    lead = _lead(env)
+    lead.form_data = json.dumps({"fence_sides": ["Inside Front", "Inside Left"]})
+    env.commit()
+    runs = [run("Front", "Front", 13, 6.5, face("pending"), face()), run("Left", "Left", 101, 6.5, face("pending"), face())]
+    cc.save_runs(lead.id, cc.RunsBody(runs=runs), user=ADMIN)
+    job = env.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert job.sqft == round(114 * 6.5)
+    lead.form_data = json.dumps({"fence_sides": ["Inside Front", "Inside Left", "Outside Front"]})
+    env.commit()
+    assert cc.sync_runs_to_sides(env, job, lead)
+    assert job.sqft == round(127 * 6.5)
+    assert not cc.sync_runs_to_sides(env, job, lead)  # nothing new

@@ -281,6 +281,45 @@ def _runs_payload(db, job: CompanyCamJob, lead: Lead) -> dict:
     }
 
 
+def sync_runs_to_sides(db, job: CompanyCamJob, lead: Lead) -> bool:
+    """Line the runs up with the scope's current fence sides. Inside + outside
+    on a side = that side's footage counted twice; a side taken off the scope
+    stops counting. The job's sq ft follows once every coated run is measured.
+    Returns True when something changed (the caller commits)."""
+    from services.company_cam import estimate_sides
+    from services.job_runs import apply_side_changes, finishes_of, stain_lookup, summarize
+    runs = _runs(job)
+    if not runs:
+        return False
+    now = sorted(estimate_sides(db, lead))
+    try:
+        basis = json.loads(job.runs_sides_basis) if job.runs_sides_basis else None
+    except (ValueError, TypeError):
+        basis = None
+    if basis is None:
+        # First look since runs existed: take today's sides as the starting point.
+        job.runs_sides_basis = json.dumps(now)
+        return True
+    if sorted(basis) == now:
+        return False
+    new = apply_side_changes(runs, basis, now)
+    if finishes_of(new) != finishes_of(runs):
+        job.runs_finish_confirmed_at = ""
+        job.runs_finish_confirmed_by = ""
+    job.runs_json = json.dumps(new)
+    job.runs_sides_basis = json.dumps(now)
+    summary = summarize(new, stain_lookup(db))
+    if summary["measured"] and summary["total_sqft"] > 0:
+        job.sqft = float(summary["total_sqft"])
+        job.sqft_edited = True
+        if job.measure_confirmed_at and job.measure_height:
+            job.measure_feet = round(summary["total_sqft"] / job.measure_height)
+    if summary["ready"] and not job.gallons_edited:
+        job.gallons_needed = summary["gallons_total"]
+    job.updated_at = _now()
+    return True
+
+
 def _gallons_now(db, job: CompanyCamJob) -> float:
     """Gallons that follow the footage. With runs: the sum per product once
     every input is in, otherwise what was there (never a single-rate guess
@@ -669,6 +708,8 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
                     job.color_plan_json = json.dumps(normalize_color_plan([{"area": "Every side", "sides": estimate_sides(db, lead),
                                                                              "status": "confirmed", "colors": [job.final_color]}]))
                 db.commit()
+        if sync_runs_to_sides(db, job, lead):
+            db.commit()
         if not job.gallons_edited and job.sqft:
             g = _gallons_now(db, job)
             if g != job.gallons_needed:
@@ -1095,6 +1136,7 @@ def update_company_cam(
                 fd = {}
             fd["fence_sides"] = normalize_sides(body.fence_sides)
             lead.form_data = json.dumps(fd)
+            sync_runs_to_sides(db, job, lead)
             # One stain on every side follows the new sides.
             if job.color_all_sides == "yes" and job.final_color:
                 job.color_plan_json = json.dumps(normalize_color_plan([{"area": "Every side", "sides": fd["fence_sides"],
@@ -1192,6 +1234,8 @@ def save_runs(lead_id: str, body: RunsBody, user: dict = Depends(get_current_use
                 job.runs_finish_confirmed_at = ""
                 job.runs_finish_confirmed_by = ""
             job.runs_json = json.dumps(runs)
+            from services.company_cam import estimate_sides
+            job.runs_sides_basis = json.dumps(sorted(estimate_sides(db, lead)))
         summary = summarize(runs, stain_lookup(db)) if runs else None
         if body.verify is not None:
             if body.verify:

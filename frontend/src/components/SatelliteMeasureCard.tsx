@@ -72,6 +72,10 @@ interface Props {
   /** Feet traced on the map right now, not saved yet (job mode: confirming
    *  the square footage needs no photo, Alan 2026-10-18). */
   onTraced?: (feet: number) => void;
+  /** The estimator's fence sides ("Inside Front", "Outside Front"…), live
+   *  from the picker. The job measurement counts each traced side once per
+   *  face picked: inside + outside front = the front footage twice. */
+  fenceSides?: string[];
 }
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
@@ -339,7 +343,7 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false, fenceSides = [],
 }: Props) {
   const forJob = purpose === "job";
   const navigate = useNavigate();
@@ -360,7 +364,9 @@ export default function SatelliteMeasureCard({
       if (j.measure_height) setConfirmHeight(j.measure_height);
     }).catch(() => { /* no job card yet: nothing confirmed */ });
     return () => { live = false; };
-  }, [leadId, forJob, closedJob]);
+    // Re-read when the sides change: a saved scope change moves the job's sq ft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId, forJob, closedJob, fenceSides.join(",")]);
   const mapDivRef = useRef<HTMLDivElement>(null);
   // The square the VA sees. The map div inside it is twice its size and
   // transformed; the overlay on top takes every gesture.
@@ -442,6 +448,11 @@ export default function SatelliteMeasureCard({
     }
     return { t, unanswered };
   }, [runs]);
+  // How many faces of each side get stained, from the estimator's sides.
+  const facesOf = (sd: Side) => ["Inside", "Outside"].filter((f) => fenceSides.includes(`${f} ${sd}`));
+  const stainedFeet = SIDES.reduce((sum, sd) => sum + (sideTotals.t[sd] || 0) * facesOf(sd).length, 0);
+  // A side the scope stains that wasn't traced: its footage would be missing.
+  const untraced = SIDES.filter((sd) => facesOf(sd).length && !sideTotals.t[sd]);
   function setLegSide(runId: number, seg: number, side: Side | "") {
     setRuns((prev) => prev.map((r) => {
       if (r.id !== runId) return r;
@@ -1389,12 +1400,25 @@ export default function SatelliteMeasureCard({
             </div>
             {confirmMode ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <p className="w-full text-sm text-amber-900">Trace each piece of fence once. After every piece it asks which side it is. Inside / outside and the color get picked in Runs and finishes. This doesn't change the estimate.</p>
+                <p className="w-full text-sm text-amber-900">Trace each piece of fence once and say which side it is. The fence sides below decide the rest: inside + outside on a side counts it twice. Change the sides later and the job's sq ft follows. This doesn't change the estimate.</p>
                 {viewTotal > 0 ? (
                   <div className="flex w-full flex-wrap gap-1.5">
-                    {SIDES.filter((sd) => sideTotals.t[sd]).map((sd) => (
-                      <span key={sd} className="rounded-full bg-background px-3 py-1 text-sm font-semibold ring-1 ring-amber-300 tabular-nums">
-                        {sd} {Math.round(sideTotals.t[sd])} ft
+                    {SIDES.filter((sd) => sideTotals.t[sd]).map((sd) => {
+                      const faces = facesOf(sd);
+                      const ft = Math.round(sideTotals.t[sd]);
+                      return (
+                        <span key={sd} className={`rounded-full px-3 py-1 text-sm font-semibold ring-1 tabular-nums ${faces.length ? "bg-background ring-amber-300" : "bg-muted text-muted-foreground line-through ring-border"}`}
+                              title={faces.length ? faces.join(" + ") : "Not in the fence sides"}>
+                          {sd} {ft} ft
+                          {faces.length === 2 ? <> × 2 = {ft * 2} ft <span className="font-normal">(in + out)</span></>
+                            : faces.length === 1 ? <span className="font-normal"> ({faces[0].toLowerCase()})</span>
+                            : <span className="font-normal"> (not stained)</span>}
+                        </span>
+                      );
+                    })}
+                    {untraced.map((sd) => (
+                      <span key={sd} className="rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-800 ring-1 ring-red-300">
+                        {sd} is in the fence sides but not traced
                       </span>
                     ))}
                     {sideTotals.unanswered > 0 ? (
@@ -1404,17 +1428,17 @@ export default function SatelliteMeasureCard({
                     ) : null}
                   </div>
                 ) : null}
-                <span className="text-base font-bold tabular-nums">{Math.round(viewTotal)} ft</span>
+                <span className="text-base font-bold tabular-nums">{Math.round(stainedFeet)} ft stained</span>
                 <span className="text-base">×</span>
                 <select value={confirmHeight} onChange={(e) => setConfirmHeight(Number(e.target.value))} aria-label="Fence height"
                         className="h-11 rounded-lg border border-border bg-background px-2 text-base font-semibold">
                   {[4, 5, 6, 6.5, 7, 8, 9, 10].map((h) => <option key={h} value={h}>{h} ft tall</option>)}
                 </select>
-                <span className="text-base font-extrabold tabular-nums">= {Math.round(viewTotal * confirmHeight).toLocaleString()} sq ft</span>
-                <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || viewTotal <= 0 || sideTotals.unanswered > 0}
+                <span className="text-base font-extrabold tabular-nums">= {Math.round(stainedFeet * confirmHeight).toLocaleString()} sq ft</span>
+                <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || stainedFeet <= 0 || sideTotals.unanswered > 0}
                         onClick={async () => {
-                          const feet = Math.round(viewTotal);
-                          const sqft = Math.round(viewTotal * confirmHeight);
+                          const feet = Math.round(stainedFeet);
+                          const sqft = Math.round(stainedFeet * confirmHeight);
                           setConfirming(true);
                           try {
                             await api.updateCompanyCam(leadId, { sqft, measure_feet: feet, measure_height: confirmHeight });
@@ -1438,7 +1462,16 @@ export default function SatelliteMeasureCard({
                                   length_ft: Math.round(l.feet),
                                   height_ft: confirmHeight,
                                   gate_in_length: old?.gate_in_length ?? false,
-                                  faces: old?.faces || { inside: { state: "pending", stain_id: "" }, outside: { state: "skip", stain_id: "" } },
+                                  // The estimator's sides decide which faces get
+                                  // stained; a face already set keeps its stain.
+                                  faces: {
+                                    inside: fenceSides.includes(`Inside ${g}`)
+                                      ? (old && old.faces.inside.state !== "skip" ? old.faces.inside : { state: "pending", stain_id: "" })
+                                      : { state: "skip", stain_id: "" },
+                                    outside: fenceSides.includes(`Outside ${g}`)
+                                      ? (old && old.faces.outside.state !== "skip" ? old.faces.outside : { state: "pending", stain_id: "" })
+                                      : { state: "skip", stain_id: "" },
+                                  },
                                 };
                               });
                               if (next.length) await api.saveJobRuns(leadId, { runs: next });
