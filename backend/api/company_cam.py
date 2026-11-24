@@ -257,6 +257,42 @@ def _actor(user: dict | None) -> str:
     return str(u.get("name") or u.get("sub") or "")
 
 
+def _runs(job: CompanyCamJob) -> list[dict]:
+    from services.job_runs import normalize_runs
+    return normalize_runs(_json_list(getattr(job, "runs_json", "") or "[]"))
+
+
+def _runs_payload(db, job: CompanyCamJob, lead: Lead) -> dict:
+    """The per-run measurements for the job page and the crew card. Only a
+    confirmed (booked) job gets them; `job_confirmed` False hides the editor."""
+    from services.job_runs import stain_lookup, summarize
+    runs = _runs(job)
+    summary = summarize(runs, stain_lookup(db)) if runs else None
+    finish_ok = bool(job.runs_finish_confirmed_at)
+    return {
+        "job_confirmed": (lead.status or "") == "closed",
+        "runs": runs,
+        "summary": summary,
+        "verified_at": job.runs_verified_at or "", "verified_by": job.runs_verified_by or "",
+        "finish_confirmed_at": job.runs_finish_confirmed_at or "", "finish_confirmed_by": job.runs_finish_confirmed_by or "",
+        # The material list is ready to load only when every input is in and
+        # the finish is confirmed.
+        "ready_to_load": bool(summary and summary["ready"] and finish_ok),
+    }
+
+
+def _gallons_now(db, job: CompanyCamJob) -> float:
+    """Gallons that follow the footage. With runs: the sum per product once
+    every input is in, otherwise what was there (never a single-rate guess
+    over mixed finishes). Without runs: the single total ÷ coverage, as before."""
+    runs = _runs(job)
+    if not runs:
+        return gallons_for(job.sqft, sqft_per_gallon(db, job))
+    from services.job_runs import stain_lookup, summarize
+    s = summarize(runs, stain_lookup(db))
+    return s["gallons_total"] if s["ready"] else float(job.gallons_needed or 0)
+
+
 def _lead_or_404(db, lead_id: str) -> Lead:
     lead = db.query(Lead).filter(Lead.id == lead_id).first()
     if not lead:
@@ -619,7 +655,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
                                                                              "status": "confirmed", "colors": [job.final_color]}]))
                 db.commit()
         if not job.gallons_edited and job.sqft:
-            g = gallons_for(job.sqft, sqft_per_gallon(db, job))
+            g = _gallons_now(db, job)
             if g != job.gallons_needed:
                 job.gallons_needed = g
                 db.commit()
@@ -679,6 +715,8 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # Pay per person on the job: all of it for the office, yours only for crew.
             "crew_pay": _crew_pay(db, job, user),
             "measure_options": measure_options(db, lead_id),
+            # Per-run, per-face measurements (confirmed jobs only).
+            "runs": _runs_payload(db, job, lead),
             "customer": {
                 "name": lead.contact_name or "",
                 "phone": lead.contact_phone or "",
@@ -792,14 +830,14 @@ def update_company_cam(
             # directly — otherwise correcting the footage would silently
             # leave the crew with the old stain order.
             if not job.gallons_edited:
-                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+                job.gallons_needed = _gallons_now(db, job)
         if body.measure_feet is not None and body.measure_height is not None and body.measure_feet > 0 and body.measure_height > 0:
             job.measure_feet = float(body.measure_feet)
             job.measure_height = float(body.measure_height)
             job.sqft = round(job.measure_feet * job.measure_height)
             job.sqft_edited = True
             if not job.gallons_edited:
-                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+                job.gallons_needed = _gallons_now(db, job)
             job.measure_confirmed_at = _now()
             job.measure_confirmed_by = _actor(user)
         if body.gallons_needed is not None:
@@ -807,7 +845,7 @@ def update_company_cam(
             job.gallons_edited = True
         if body.recalc_gallons:
             job.gallons_edited = False
-            job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+            job.gallons_needed = _gallons_now(db, job)
         if body.final_price is not None:
             job.final_price_cents = max(0, int(round(float(body.final_price) * 100)))
         if body.color_plan is not None:
@@ -865,7 +903,7 @@ def update_company_cam(
             job.final_stain_id = sid
             # Solid covers 175 sq ft a gallon, the rest 165: gallons follow.
             if not job.gallons_edited:
-                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+                job.gallons_needed = _gallons_now(db, job)
         if body.no_cleaning is not None:
             if not _sees_all(user):
                 raise HTTPException(403, "Only the office decides a fence doesn't need cleaning")
@@ -1088,6 +1126,88 @@ def update_company_cam(
                 "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(db, job, user),
                 # Ticking a service or a washing day can switch the screen.
                 "pw_mode": _pw_view(job, user), "pw_sections": job_pw_sections(job)}
+    finally:
+        db.close()
+
+
+class RunsBody(BaseModel):
+    # The whole list of runs (see services/job_runs.py). None = leave them.
+    runs: list[dict] | None = None
+    # True: the cleaner checked the measurements on site. False: un-verify.
+    verify: bool | None = None
+    # True: every face's product, finish and colour is settled (office only).
+    confirm_finish: bool | None = None
+
+
+@router.put("/company-cam/{lead_id}/runs", dependencies=[Depends(crew_guard)])
+def save_runs(lead_id: str, body: RunsBody, user: dict = Depends(get_current_user)):
+    """Per-run measurements on a confirmed job (Alan, 2026-11-23).
+
+    The office traces each run once and picks the stain per face; the cleaner
+    can correct lengths and heights on site and verify them, but only the
+    office changes a finish. Changing a measurement un-verifies; changing a
+    finish un-confirms the finish. Never touches the estimate or the price."""
+    from services.job_runs import FACES, finishes_of, measurements_of, normalize_runs, stain_lookup, summarize
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        if (lead.status or "") != "closed":
+            raise HTTPException(409, "Run measurements are only for a confirmed job")
+        job = _get_or_create(db, lead)
+        office = _sees_all(user)
+        before = _runs(job)
+        runs = before
+        if body.runs is not None:
+            runs = normalize_runs(body.runs)
+            if not office:
+                # The crew corrects measurements, never finishes.
+                old = {r["id"]: r for r in before}
+                for r in runs:
+                    o = old.get(r["id"])
+                    for f in FACES:
+                        if o is None:
+                            if r["faces"][f]["state"] == "coat":
+                                raise HTTPException(403, "Only the office picks the stain for a face")
+                        elif r["faces"][f] != o["faces"][f]:
+                            raise HTTPException(403, "Only the office changes which faces get coated or the stain")
+            if measurements_of(runs) != measurements_of(before):
+                job.runs_verified_at = ""
+                job.runs_verified_by = ""
+            if finishes_of(runs) != finishes_of(before):
+                job.runs_finish_confirmed_at = ""
+                job.runs_finish_confirmed_by = ""
+            job.runs_json = json.dumps(runs)
+        summary = summarize(runs, stain_lookup(db)) if runs else None
+        if body.verify is not None:
+            if body.verify:
+                if not summary or not summary["measured"]:
+                    raise HTTPException(400, "Every coated run needs a length and a height before it can be verified")
+                job.runs_verified_at = _now()
+                job.runs_verified_by = _actor(user)
+            else:
+                job.runs_verified_at = ""
+                job.runs_verified_by = ""
+        if body.confirm_finish is not None:
+            if not office:
+                raise HTTPException(403, "Only the office confirms the finish")
+            if body.confirm_finish:
+                if not summary or summary["pending"]["faces"] or not summary["materials"]:
+                    raise HTTPException(400, "Pick the stain for every coated face first")
+                job.runs_finish_confirmed_at = _now()
+                job.runs_finish_confirmed_by = _actor(user)
+            else:
+                job.runs_finish_confirmed_at = ""
+                job.runs_finish_confirmed_by = ""
+        # The job's footage follows the runs once every coated run is
+        # measured; gallons follow only when every input is in.
+        if summary and summary["measured"] and summary["total_sqft"] > 0:
+            job.sqft = float(summary["total_sqft"])
+            job.sqft_edited = True
+        if summary and summary["ready"] and not job.gallons_edited:
+            job.gallons_needed = summary["gallons_total"]
+        job.updated_at = _now()
+        db.commit()
+        return {"runs": _runs_payload(db, job, lead), "job": _job_dict(job, sqft_per_gallon(db, job), user)}
     finally:
         db.close()
 

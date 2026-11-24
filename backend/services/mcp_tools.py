@@ -182,7 +182,29 @@ def job_card(db, lead_id: str) -> dict:
         "repairs": _json(j.extras_json, {}) or _json(j.repairs_json, {}),
         "crew": _json(j.crew_json, []),
         "finished": _ct(j.completed_at or j.closed_at),
+        "runs": _runs_card(db, j),
     }}
+
+
+def _runs_card(db, j) -> dict | None:
+    """Per-run measurements (confirmed jobs): sq ft and gallons per stain,
+    what's still missing, and whether the cleaner verified the measurements
+    and the office confirmed the finish. None = the job uses the single total."""
+    from services.job_runs import normalize_runs, stain_lookup, summarize
+    runs = normalize_runs(_json(getattr(j, "runs_json", "") or "[]", []))
+    if not runs:
+        return None
+    s = summarize(runs, stain_lookup(db))
+    return {
+        "runs": [{"label": r["label"], "length_ft": r["length_ft"], "height_ft": r["height_ft"],
+                  "inside": r["faces"]["inside"]["state"], "outside": r["faces"]["outside"]["state"]} for r in runs],
+        "total_sqft": s["total_sqft"],
+        "materials": [{"stain": m["label"], "sqft": m["sqft"], "gallons": m["gallons"], "faces": m["faces"]} for m in s["materials"]],
+        "missing": s["missing"],
+        "measurements_verified": f"by {j.runs_verified_by} {j.runs_verified_at[:10]}" if j.runs_verified_at else "",
+        "finish_confirmed": f"by {j.runs_finish_confirmed_by} {j.runs_finish_confirmed_at[:10]}" if j.runs_finish_confirmed_at else "",
+        "ready_to_load": bool(s["ready"] and j.runs_finish_confirmed_at),
+    }
 
 
 def schedule(db, date: str = "") -> dict:

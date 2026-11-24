@@ -4110,6 +4110,9 @@ export const api = {
     request<{ lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
+  /** Save the runs, and/or verify the measurements / confirm the finish. */
+  saveJobRuns: (leadId: string, body: { runs?: JobRun[]; verify?: boolean; confirm_finish?: boolean }) =>
+    request<{ runs: JobRunsPayload; job: CompanyCamJob }>(`/api/company-cam/${leadId}/runs`, { method: "PUT", body: JSON.stringify(body) }),
   /** Every change to anyone's pay on this job, newest first (office only). */
   getCrewPayHistory: (leadId: string) =>
     request<{ history: CrewPayHistoryRow[] }>(`/api/company-cam/${leadId}/pay-history`),
@@ -4498,6 +4501,8 @@ export interface CompanyCamPayload {
   estimate_options?: { id: string; sent: boolean; sent_at: string; when: string; sqft: number; linear_feet: number | null; height: string }[];
   /** Feet traced on Measure & capture, and the fence height to start from. */
   measure_options?: { captures: { id: string; label: string; linear_feet: number }[]; height_ft: number };
+  /** Per-run, per-face measurements; only a confirmed job gets the editor. */
+  runs?: JobRunsPayload;
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
   /** Every washing service the office can tick. */
@@ -6529,6 +6534,24 @@ export interface ProposalLiveState {
 
 export type CoverageStats = { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null; match_jobs?: number; match_avg?: number | null };
 export type StainOption = { id: string; label: string; color_name: string; brand: string; finish_type: string; active: boolean };
+/** One physical fence run, traced once (Alan, 2026-11-23). */
+export type RunFaceState = "coat" | "pending" | "skip";
+export interface RunFace { state: RunFaceState; stain_id: string }
+export interface JobRun {
+  id: string; label: string; group: "Front" | "Back" | "Left" | "Right" | "Other";
+  length_ft: number; height_ft: number; gate_in_length: boolean;
+  faces: { inside: RunFace; outside: RunFace };
+}
+export interface RunMaterial { stain_id: string; label: string; finish: string; sqft: number; sqft_per_gallon: number | null; gallons: number | null; faces: string[] }
+export interface JobRunsSummary {
+  total_sqft: number; measured: boolean; materials: RunMaterial[];
+  pending: { sqft: number; faces: string[] }; missing: string[]; ready: boolean; gallons_total: number | null;
+}
+export interface JobRunsPayload {
+  job_confirmed: boolean; runs: JobRun[]; summary: JobRunsSummary | null;
+  verified_at: string; verified_by: string; finish_confirmed_at: string; finish_confirmed_by: string;
+  ready_to_load: boolean;
+}
 export type CoverageJob = { lead_id: string; name: string; sqft: number; gallons: number; sqft_per_gallon: number; color?: string };
 export interface BleachStats {
   all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null; min_jobs: number;

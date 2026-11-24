@@ -837,13 +837,23 @@ def site_extras(job) -> dict:
             "final": True, "final_cents": final_cents, "planned_cents": plan["total_cents"], "below": below}
 
 
+def per_gallon_for_finish(finish_type: str) -> float | None:
+    """Sq ft a gallon covers for one finish: 175 for a solid, 165 for every
+    other stain finish. None when the finish isn't known (or isn't a stain),
+    so callers show it as missing instead of guessing."""
+    ft = (finish_type or "").strip()
+    if not ft or ft == "bleach":
+        return None
+    return SQFT_PER_GALLON_SOLID if ft == "solid" else SQFT_PER_GALLON
+
+
 def sqft_per_gallon(db, job) -> float:
     """175 when the stain they went with is a solid, else 165."""
     if not (job.final_stain_id or ""):
         return SQFT_PER_GALLON
     from database import StainInventoryItem
     item = db.query(StainInventoryItem).filter(StainInventoryItem.id == job.final_stain_id).first()
-    return SQFT_PER_GALLON_SOLID if item and (item.finish_type or "") == "solid" else SQFT_PER_GALLON
+    return (per_gallon_for_finish(item.finish_type) if item else None) or SQFT_PER_GALLON
 
 
 # --- pressure washing ---

@@ -1936,6 +1936,16 @@ class CompanyCamJob(Base):
     measure_height = Column(Float, default=0.0)
     measure_confirmed_at = Column(Text, default="")
     measure_confirmed_by = Column(Text, default="")
+    # Per-run, per-face measurements on a confirmed job (Alan, 2026-11-23):
+    # each fence run traced once with its faces and the stain on each, see
+    # services/job_runs.py. Empty = the job still runs on the single total.
+    runs_json = Column(Text, default="[]")
+    # The cleaner checked the run measurements on site, separate from the
+    # customer's finish being settled, so measuring can finish first.
+    runs_verified_at = Column(Text, default="")
+    runs_verified_by = Column(Text, default="")
+    runs_finish_confirmed_at = Column(Text, default="")
+    runs_finish_confirmed_by = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
@@ -5251,6 +5261,11 @@ def _run_migrations():
             ("measure_height", "DOUBLE PRECISION DEFAULT 0"),
             ("measure_confirmed_at", "TEXT DEFAULT ''"),
             ("measure_confirmed_by", "TEXT DEFAULT ''"),
+            ("runs_json", "TEXT DEFAULT '[]'"),
+            ("runs_verified_at", "TEXT DEFAULT ''"),
+            ("runs_verified_by", "TEXT DEFAULT ''"),
+            ("runs_finish_confirmed_at", "TEXT DEFAULT ''"),
+            ("runs_finish_confirmed_by", "TEXT DEFAULT ''"),
             ("completed_at", "TEXT DEFAULT ''"),
             ("completed_by", "TEXT DEFAULT ''"),
             ("no_cleaning", "BOOLEAN DEFAULT FALSE"),

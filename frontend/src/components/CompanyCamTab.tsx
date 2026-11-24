@@ -16,6 +16,7 @@
 // scope is violet, before-cleaning amber, after-cleaning cyan, after-staining
 // green. Done is always green, missing is always amber, damage is always red.
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
+import JobRunsCard, { JobRunsSummaryView } from "@/components/JobRunsCard";
 import { LogReceiptForm } from "@/components/MaterialsPanels";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -29,7 +30,7 @@ import {
 import { toast } from "sonner";
 import {
   api, canSeeRevenue, getCurrentUser, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type BleachStats, type StainOption, type CompanyCamPhoto,
-  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow, type CrewPayHistoryRow,
+  type CompanyCamJob, type JobRunsPayload, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow, type CrewPayHistoryRow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
@@ -980,6 +981,10 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   // a job with no fence days at all.
   const hasFenceDays = (job.crew || []).some((c) => c.task === "cleaning" || c.task === "staining");
   const pwMode = !!data.pw_mode && !hasFenceDays;
+  // Per-run measurements replace the single total on the crew card.
+  const hasRuns = !!data.runs?.job_confirmed && !!data.runs.runs.length;
+  const reloadAfterRuns = (r: JobRunsPayload, j: CompanyCamJob) =>
+    setData((d) => (d ? { ...d, runs: r, job: j } : d));
   const pwOptions = data.pw_service_options || [];
   const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
   const mixedPw = !pwMode && pwSecs.length > 0;
@@ -1459,6 +1464,15 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         )
       ) : null}
 
+      {/* Per-run, per-face measurements (Alan, 2026-11-23): confirmed jobs
+          only, after booking. Optional: a job on the single total above
+          keeps working without it. */}
+      {manager && !pwMode && data.runs?.job_confirmed ? (
+        <JobRunsCard leadId={leadId} payload={data.runs} stains={data.stain_options || []} manager
+                     startHeight={job.measure_height || data.measure_options?.height_ft || 6}
+                     onSaved={reloadAfterRuns} />
+      ) : null}
+
       {/* Who's on this job (Alan, 2026-10-16): the crew sees only the jobs
           they're on, nothing else, even by searching. */}
       {manager ? (
@@ -1659,12 +1673,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             <BriefRow icon="🎨" label={tr("Color")} value={(chosenStain || (job.final_color || job.color || "").trim())
               ? `${chosenStain || (job.final_color || job.color)}${job.color_shown_at || job.color_confirmed ? " ✓" : ""}` : tr("Not picked yet")} />
             <BriefRow icon="🧱" label={tr("Sides")} value={sidesLabel(estimate_sides) || tr("See the scope")} />
-            <BriefRow icon="📏" label={tr("Measured")} value={job.measure_confirmed_at
+            {hasRuns ? null : <BriefRow icon="📏" label={tr("Measured")} value={job.measure_confirmed_at
               ? `${Math.round(job.measure_feet || 0)} ft × ${job.measure_height || 0} ft = ${Math.round(job.sqft || 0).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"} ✓`
-              : tr("Not confirmed yet, ask the office")} />
+              : tr("Not confirmed yet, ask the office")} />}
             {/* "1 bucket" could mean a 1-gallon can (Alan, 2026-11-12): say
                 five-gallon buckets, and what the job needs. */}
-            {(() => {
+            {hasRuns ? null : (() => {
               const g = job.gallons_needed || 0;
               const n = Math.ceil(g / 4.53);
               const es = isSpanish();
@@ -1674,6 +1688,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               const unconfirmed = g && !job.measure_confirmed_at ? (es ? " · medida sin confirmar" : " · measurement not confirmed") : "";
               return <BriefRow icon="🪣" label={tr("Stain to bring")} value={`${v}${unconfirmed}`} />;
             })()}
+            {hasRuns && data.runs ? (
+              <div className="py-2">
+                <p className="text-sm font-bold">📏 {tr("Measured")} · 🪣 {tr("Stain to bring")}</p>
+                <JobRunsSummaryView p={data.runs} />
+              </div>
+            ) : null}
             {(() => {
               const fin = finalCount(job);
               const planned = fin || job.repairs || NO_REPAIRS;
@@ -1708,6 +1728,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             </div>
           ) : null}
         </section>
+      ) : null}
+
+      {/* The cleaner checks the run measurements on site (Alan, 2026-11-23). */}
+      {!manager && !pwMode && hasRuns && data.runs ? (
+        <JobRunsCard leadId={leadId} payload={data.runs} stains={data.stain_options || []} manager={false}
+                     startHeight={job.measure_height || 6} onSaved={reloadAfterRuns} />
       ) : null}
 
       {/* What still has to happen. A checklist, never a lock — a crew in
