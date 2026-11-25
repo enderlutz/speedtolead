@@ -2001,13 +2001,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               <Ruler className="h-4 w-4" />{job.measure_confirmed_at ? tr("Re-confirm real measurement") : tr("Confirm real measurement")}
             </button>
             {measuring ? (
-              <JobMeasureDialog leadId={leadId} startHeight={job.measure_height || data.measure_options?.height_ft || 6} current={job.sqft}
-                                onClose={() => setMeasuring(false)}
-                                onUse={(v, feet, height) => {
-                                  setMeasuring(false);
-                                  void patch({ sqft: v, measure_feet: feet, measure_height: height });
-                                  toast.success(`Confirmed: ${feet.toLocaleString()} ft × ${height} ft = ${v.toLocaleString()} sq ft for this job`);
-                                }} />
+              <JobMeasureDialog leadId={leadId} onClose={() => setMeasuring(false)} onDone={() => { setMeasuring(false); void load(); }} />
             ) : null}
             </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
@@ -3389,19 +3383,20 @@ function PayHistory({ leadId, version }: { leadId: string; version: string }) {
  *  is traced twice), open Maps for Street View if the height needs checking,
  *  pick the height, and the total feet × height replaces the job's square
  *  footage. */
-function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
-  leadId: string; startHeight: number; current: number; onClose: () => void; onUse: (sqft: number, feet: number, height: number) => void;
+function JobMeasureDialog({ leadId, onClose, onDone }: {
+  leadId: string; onClose: () => void; onDone: () => void;
 }) {
-  const [lead, setLead] = useState<{ lat: number; lng: number; address: string; zip: string; name: string } | null>(null);
-  // Saved photos' feet plus what's traced on the map right now: confirming
-  // the square footage needs no photo (Alan, 2026-10-18).
-  const [savedFeet, setSavedFeet] = useState<number | null>(null);
-  const [traced, setTraced] = useState(0);
-  const feet = (savedFeet || 0) + traced || null;
-  const [height, setHeight] = useState(HEIGHTS.includes(startHeight) ? startHeight : 6);
+  // The same trace as the lead page's ★ Confirm for the job (Alan,
+  // 2026-11-24): every piece asks which side it is, the estimator's fence
+  // sides decide inside/outside, Confirm saves the sq ft and the runs.
+  const [lead, setLead] = useState<{ lat: number; lng: number; address: string; zip: string; name: string; sides: string[] } | null>(null);
   useEffect(() => {
     api.getLead(leadId)
-      .then((l) => setLead({ lat: l.lat || 0, lng: l.lng || 0, address: l.address || "", zip: l.zip_code || "", name: l.contact_name || "" }))
+      .then((l) => {
+        const raw = (l.form_data || {}).fence_sides as unknown;
+        const sides = Array.isArray(raw) ? (raw as string[]) : raw ? String(raw).split(",").map((x) => x.trim()).filter(Boolean) : [];
+        setLead({ lat: l.lat || 0, lng: l.lng || 0, address: l.address || "", zip: l.zip_code || "", name: l.contact_name || "", sides });
+      })
       .catch((e) => toast.error(errMessage(e, "Couldn't open the map")));
   }, [leadId]);
   useEffect(() => {
@@ -3409,7 +3404,6 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, []);
-  const sqft = feet ? Math.round(feet * height) : 0;
   return (
     <div className="fixed inset-0 z-50 bg-black/50 sm:p-4" role="dialog" aria-modal="true" aria-label="Measure this job">
       <div className="flex h-full flex-col overflow-hidden bg-background sm:mx-auto sm:max-w-5xl sm:rounded-2xl sm:shadow-2xl">
@@ -3417,39 +3411,15 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
           <Ruler className="h-5 w-5 text-primary" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold">Confirm real measurement{lead?.name ? `: ${lead.name}` : ""}</p>
-            <p className="truncate text-[11px] text-muted-foreground">Trace each side you stain (both sides of a run: trace it twice), pick the height, tap Use. A photo is optional.</p>
+            <p className="truncate text-sm text-muted-foreground">Trace each piece once and say which side it is, pick the height, Confirm.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"><X className="h-5 w-5" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 sm:p-3">
           {lead ? (
-            <SatelliteMeasureCard leadId={leadId} purpose="job" onTotal={setSavedFeet} onTraced={setTraced} onChange={() => {}}
+            <SatelliteMeasureCard leadId={leadId} purpose="job" jobConfirm fenceSides={lead.sides} onConfirmed={onDone} onChange={() => {}}
                                   lat={lead.lat} lng={lead.lng} address={lead.address} zipCode={lead.zip} collapsed={false} />
           ) : <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
-        </div>
-        <div className="border-t bg-card px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-semibold text-muted-foreground">Height</span>
-            {HEIGHTS.map((h) => (
-              <button key={h} type="button" onClick={() => setHeight(h)}
-                      className={cn("h-10 min-w-12 rounded-lg px-3 text-sm font-bold ring-1",
-                        height === h ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
-                {h} ft
-              </button>
-            ))}
-            <span className="text-[11px] text-muted-foreground">Not sure? Open Maps above for Street View.</span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm tabular-nums">
-              {feet ? <><span className="font-bold">{feet.toLocaleString()} ft</span> × {height} ft = <span className="text-base font-extrabold">{sqft.toLocaleString()} sq ft</span>
-                  {savedFeet && traced ? <span className="ml-1 text-sm text-muted-foreground">({traced} traced + {savedFeet} saved)</span> : null}</>
-                : <span className="text-muted-foreground">Trace the fence on the map. The feet show up here.</span>}
-              {current ? <span className="ml-2 text-sm text-muted-foreground">Now: {Math.round(current).toLocaleString()} sq ft</span> : null}
-            </p>
-            <Button disabled={!sqft} onClick={() => onUse(sqft, feet || 0, height)} className="min-h-11">
-              <Check className="mr-1 h-4 w-4" />Save {sqft ? `${sqft.toLocaleString()} sq ft` : ""} as the job measurement
-            </Button>
-          </div>
         </div>
       </div>
     </div>

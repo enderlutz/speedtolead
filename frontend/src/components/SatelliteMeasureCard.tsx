@@ -76,6 +76,11 @@ interface Props {
    *  from the picker. The job measurement counts each traced side once per
    *  face picked: inside + outside front = the front footage twice. */
   fenceSides?: string[];
+  /** Open straight into ★ Confirm for the job (the job page's Confirm real
+   *  measurement button, Alan 2026-11-24): every piece asks which side it is. */
+  jobConfirm?: boolean;
+  /** Called after the job measurement is confirmed and saved. */
+  onConfirmed?: () => void;
 }
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
@@ -343,19 +348,21 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false, fenceSides = [],
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false, fenceSides = [], jobConfirm = false, onConfirmed,
 }: Props) {
   const forJob = purpose === "job";
   const navigate = useNavigate();
   // ★ The real job measurement, right here (Alan, 2026-11-12): flip to
   // "Confirm for the job", trace, pick the height, Confirm. While it's on,
   // tracing never touches the estimate's linear feet.
-  const [confirmMode, setConfirmMode] = useState(false);
+  // The side-by-side confirm: a booked lead's measure tool, or the job page.
+  const sideMode = jobConfirm || (!forJob && closedJob);
+  const [confirmMode, setConfirmMode] = useState(jobConfirm);
   const [confirmHeight, setConfirmHeight] = useState(6);
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState<{ feet: number; height: number; by: string; at: string } | null>(null);
   useEffect(() => {
-    if (forJob || !closedJob || !leadId) return;
+    if (!sideMode || !leadId) return;
     let live = true;
     api.getCompanyCam(leadId).then((d) => {
       const j = d.job;
@@ -366,7 +373,7 @@ export default function SatelliteMeasureCard({
     return () => { live = false; };
     // Re-read when the sides change: a saved scope change moves the job's sq ft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadId, forJob, closedJob, fenceSides.join(",")]);
+  }, [leadId, sideMode, fenceSides.join(",")]);
   const mapDivRef = useRef<HTMLDivElement>(null);
   // The square the VA sees. The map div inside it is twice its size and
   // transformed; the overlay on top takes every gesture.
@@ -435,7 +442,7 @@ export default function SatelliteMeasureCard({
   const viewTotal = runs.reduce((s, r) => s + runFeet(r), 0);
   // Only the office's job measurement asks for sides; the estimate tracing
   // stays exactly as it was.
-  const askingSides = !forJob && closedJob && confirmMode;
+  const askingSides = sideMode && confirmMode;
   const [askSide, setAskSide] = useState<{ runId: number; seg: number } | null>(null);
   const runsRef = useRef(runs);
   runsRef.current = runs;
@@ -1378,10 +1385,10 @@ export default function SatelliteMeasureCard({
           </div>
         ) : null}
 
-        {!forJob && closedJob ? (
+        {sideMode ? (
           <div className={confirmMode ? "rounded-xl bg-amber-50 p-3 ring-2 ring-amber-300" : "rounded-xl bg-muted/40 p-2 ring-1 ring-border"}>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-lg bg-background p-1 ring-1 ring-border" role="tablist" aria-label="What this measuring is for">
+              {jobConfirm ? null : <div className="inline-flex rounded-lg bg-background p-1 ring-1 ring-border" role="tablist" aria-label="What this measuring is for">
                 <button type="button" role="tab" aria-selected={!confirmMode} onClick={() => setConfirmMode(false)}
                         className={`min-h-10 rounded-md px-3 text-sm font-semibold ${!confirmMode ? "bg-foreground text-background" : "text-muted-foreground"}`}>
                   For the estimate
@@ -1390,7 +1397,7 @@ export default function SatelliteMeasureCard({
                         className={`min-h-10 rounded-md px-3 text-sm font-semibold ${confirmMode ? "bg-amber-500 text-white" : "text-muted-foreground"}`}>
                   ★ Confirm for the job
                 </button>
-              </div>
+              </div>}
               {confirmed ? (
                 <span className="text-sm font-semibold text-emerald-800">
                   ★ Confirmed: {Math.round(confirmed.feet)} ft × {confirmed.height} ft = {Math.round(confirmed.feet * confirmed.height).toLocaleString()} sq ft
@@ -1400,6 +1407,11 @@ export default function SatelliteMeasureCard({
             </div>
             {confirmMode ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                {jobConfirm && !fenceSides.length ? (
+                  <p className="w-full rounded-lg bg-red-100 px-3 py-2 text-sm font-semibold text-red-800 ring-1 ring-red-300">
+                    No fence sides are picked for this customer yet, so nothing counts. Pick the sides (inside / outside) on the lead page's estimator first.
+                  </p>
+                ) : null}
                 <p className="w-full text-sm text-amber-900">Trace each piece of fence once and say which side it is. The fence sides below decide the rest: inside + outside on a side counts it twice. Change the sides later and the job's sq ft follows. This doesn't change the estimate.</p>
                 {viewTotal > 0 ? (
                   <div className="flex w-full flex-wrap gap-1.5">
@@ -1479,7 +1491,8 @@ export default function SatelliteMeasureCard({
                               toast.error(`Saved the total, but the sides didn't save to Runs and finishes: ${err instanceof Error ? err.message : "error"}`);
                             }
                             setConfirmed({ feet, height: confirmHeight, by: "you", at: new Date().toISOString() });
-                            setConfirmMode(false);
+                            if (!jobConfirm) setConfirmMode(false);
+                            onConfirmed?.();
                             toast.success(`★ Job measurement confirmed: ${feet} ft × ${confirmHeight} ft = ${sqft.toLocaleString()} sq ft`);
                           } catch (e) {
                             toast.error(e instanceof Error ? e.message : "Couldn't save the job measurement");
