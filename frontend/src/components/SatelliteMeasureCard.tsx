@@ -1705,6 +1705,7 @@ export default function SatelliteMeasureCard({
             <div className="absolute inset-0 z-20">
               <Map3DView
                 center={view3d}
+                pin={pin}
                 heading={rot}
                 lines={lines3d}
                 onPick={addPoint}

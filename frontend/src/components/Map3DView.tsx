@@ -15,8 +15,9 @@ import { ChevronDown, ChevronUp, RotateCcw, RotateCw } from "lucide-react";
 // a point. The buttons turn it 45° at a time for anyone who doesn't swipe.
 type Pt = { lat: number; lng: number };
 
-export default function Map3DView({ center, heading, lines, onPick }: {
+export default function Map3DView({ center, pin, heading, lines, onPick }: {
   center: Pt;
+  pin?: Pt | null;
   heading: number;
   lines: { path: Pt[]; color: string }[];
   onPick?: (p: Pt) => void;
@@ -43,7 +44,8 @@ export default function Map3DView({ center, heading, lines, onPick }: {
       if (cancelled || !boxRef.current) return;
       libRef.current = lib;
       const map = new lib.Map3DElement({
-        center: { lat: center.lat, lng: center.lng, altitude: 0 },
+        // Altitude is meters above the ground: aim at roof level.
+        center: { lat: center.lat, lng: center.lng, altitude: 4 },
         range: 110,
         tilt: 55,
         heading,
@@ -62,19 +64,21 @@ export default function Map3DView({ center, heading, lines, onPick }: {
       boxRef.current.appendChild(map);
       mapRef.current = map;
       setStatus("ready");
-      // The camera aims at a point in the air at "altitude 0", which in
-      // Houston sits under the 3D ground, so the picture opened on the
-      // house next door (Alan, 2026-11-25). Aim at the real ground height
-      // plus a few meters (roof level) so the house is in the middle.
-      try {
-        const svc = new maps.ElevationService();
-        svc.getElevationForLocations({ locations: [{ lat: center.lat, lng: center.lng }] },
-          (res: any, st: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-            if (cancelled || !mapRef.current) return;
-            const elev = st === "OK" && typeof res?.[0]?.elevation === "number" ? res[0].elevation : 15;
-            mapRef.current.center = { lat: center.lat, lng: center.lng, altitude: elev + 3 };
+      // The customer's house: a pin standing over the roof with a line
+      // down to the ground, so we always measure the right house (Alan,
+      // 2026-11-25).
+      if (pin) {
+        try {
+          const house = new lib.Marker3DElement({
+            position: { lat: pin.lat, lng: pin.lng, altitude: 18 },
+            altitudeMode: lib.AltitudeMode?.RELATIVE_TO_GROUND ?? "RELATIVE_TO_GROUND",
+            extruded: true,
+            drawsWhenOccluded: true,
+            label: "Customer",
           });
-      } catch { map.center = { lat: center.lat, lng: center.lng, altitude: 18 }; }
+          map.append(house);
+        } catch { /* the 3D still works without the pin */ }
+      }
     }).catch(() => { if (!cancelled) setStatus("error"); });
     return () => {
       cancelled = true;
