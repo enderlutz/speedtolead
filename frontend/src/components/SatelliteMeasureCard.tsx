@@ -1659,20 +1659,14 @@ export default function SatelliteMeasureCard({
                 {Math.round(rot)}°
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setRotation(viewRef.current.rot + 180)}
-              title="Flip the view around"
-              className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
-            >
-              180°
-            </button>
             {status === "ready" ? (
               <button
                 type="button"
                 onClick={() => {
+                  // Straight onto the customer's house (the pin); the map's
+                  // middle only when there's no pin.
                   const c = mapRef.current?.getCenter?.();
-                  setView3d(c ? { lat: c.lat(), lng: c.lng() } : pin);
+                  setView3d(pin || (c ? { lat: c.lat(), lng: c.lng() } : null));
                 }}
                 title="See the property in 3D and measure on an angle"
                 className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}

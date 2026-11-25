@@ -62,6 +62,19 @@ export default function Map3DView({ center, heading, lines, onPick }: {
       boxRef.current.appendChild(map);
       mapRef.current = map;
       setStatus("ready");
+      // The camera aims at a point in the air at "altitude 0", which in
+      // Houston sits under the 3D ground, so the picture opened on the
+      // house next door (Alan, 2026-11-25). Aim at the real ground height
+      // plus a few meters (roof level) so the house is in the middle.
+      try {
+        const svc = new maps.ElevationService();
+        svc.getElevationForLocations({ locations: [{ lat: center.lat, lng: center.lng }] },
+          (res: any, st: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (cancelled || !mapRef.current) return;
+            const elev = st === "OK" && typeof res?.[0]?.elevation === "number" ? res[0].elevation : 15;
+            mapRef.current.center = { lat: center.lat, lng: center.lng, altitude: elev + 3 };
+          });
+      } catch { map.center = { lat: center.lat, lng: center.lng, altitude: 18 }; }
     }).catch(() => { if (!cancelled) setStatus("error"); });
     return () => {
       cancelled = true;
@@ -186,10 +199,6 @@ export default function Map3DView({ center, heading, lines, onPick }: {
               {icon}
             </button>
           ))}
-          <button type="button" onClick={() => turn(180)} title="See the other side"
-            className="h-11 w-11 rounded-md bg-black/70 text-xs font-bold backdrop-blur-sm hover:bg-black/85">
-            180°
-          </button>
         </div>
       ) : null}
       {status === "loading" ? (
