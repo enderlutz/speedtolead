@@ -4397,6 +4397,8 @@ export interface CompanyCamJob {
    *  worth knowing — for pricing and for the stain inventory. */
   actual_sqft: number;
   stain_gallons_used: number;
+  /** Other stains used besides the main one: mixed in, or a different stain on part of the fence. */
+  extra_stains?: { stain_id: string; gallons: number }[];
   stain_gallons_bought: number;
   bleach_gallons_used: number;
   /** What the office wants the cleaner to bring. */

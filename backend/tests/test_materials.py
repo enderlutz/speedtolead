@@ -164,3 +164,42 @@ def test_crew_bleach_receipt_finds_the_bleach_item(db):
     bleach = _item(db, name="Bleach pails", finish="bleach")
     r = _buy("", 10, 40.0, category="bleach")
     assert r["stain_id"] == bleach.id and _fresh(db, bleach).gallons == 10
+
+
+CREW = {"sub": "jose", "name": "Jose", "role": "crew"}
+
+
+def test_other_stains_come_off_their_own_shelf(db):
+    """6 gal of the main colour, 1 gal of black mixed in and 1 gal of clear on
+    the front (Alan, 2026-11-24): each comes off its own shelf, the job's stain
+    cost counts all three, and changing a line moves the shelf to match."""
+    main = _item(db, name="October Brown", gallons=20, avg=27.0)
+    black = _item(db, name="Black", gallons=5, avg=30.0)
+    clear = _item(db, name="Clear", gallons=10, avg=22.0)
+    lead = _lead(db)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id=main.id, stain_gallons_used=6), user=ADMIN)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(extra_stains=[{"stain_id": black.id, "gallons": 1},
+                                                                    {"stain_id": clear.id, "gallons": 1}]), user=CREW)
+    assert (_fresh(db, main).gallons, _fresh(db, black).gallons, _fresh(db, clear).gallons) == (14, 4, 9)
+    db.expire_all()
+    assert db.query(CompanyCamJob).filter_by(lead_id=lead.id).first().stain_cost == 6 * 27 + 30 + 22
+
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(extra_stains=[{"stain_id": clear.id, "gallons": 2}]), user=CREW)
+    assert (_fresh(db, main).gallons, _fresh(db, black).gallons, _fresh(db, clear).gallons) == (14, 5, 8)
+
+
+def test_crew_can_log_a_stain_nobody_planned(db):
+    """No stain on the job: the stainer still logs what he used."""
+    clear = _item(db, name="Clear", gallons=10, avg=22.0)
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(extra_stains=[{"stain_id": clear.id, "gallons": 3}]), user=CREW)
+    assert r["job"]["extra_stains"] == [{"stain_id": clear.id, "gallons": 3.0}]
+    assert _fresh(db, clear).gallons == 7
+
+
+def test_other_stains_refuse_bleach_and_unknown(db):
+    bleach = _item(db, name="Bleach pails", finish="bleach", gallons=10, avg=4.0)
+    lead = _lead(db)
+    for bad in ({"stain_id": bleach.id, "gallons": 1}, {"stain_id": "nope", "gallons": 1}):
+        with pytest.raises(HTTPException):
+            cc.update_company_cam(lead.id, cc.CompanyCamPatch(extra_stains=[bad]), user=CREW)

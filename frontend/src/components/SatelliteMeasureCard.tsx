@@ -349,8 +349,24 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false, fenceSides = [], jobConfirm = false, onConfirmed,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced, closedJob = false, fenceSides: fenceSidesProp = [], jobConfirm = false, onConfirmed,
 }: Props) {
+  // The sides can be picked right here on the job page's confirm (Alan,
+  // 2026-11-24: going back to the estimator to pick them is a waste of time).
+  const [fenceSides, setFenceSides] = useState<string[]>(fenceSidesProp);
+  const sidesKey = fenceSidesProp.join(",");
+  useEffect(() => { setFenceSides(fenceSidesProp); }, [sidesKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [savingSide, setSavingSide] = useState("");
+  const toggleFace = async (face: string) => {
+    const next = fenceSides.includes(face) ? fenceSides.filter((x) => x !== face) : [...fenceSides, face];
+    setSavingSide(face);
+    try {
+      const r = await api.updateCompanyCam(leadId, { fence_sides: next });
+      setFenceSides(r.estimate_sides ?? next);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the sides");
+    } finally { setSavingSide(""); }
+  };
   const forJob = purpose === "job";
   const navigate = useNavigate();
   // ★ The real job measurement, right here (Alan, 2026-11-12): flip to
@@ -1410,10 +1426,30 @@ export default function SatelliteMeasureCard({
             </div>
             {confirmMode ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                {jobConfirm && !fenceSides.length ? (
-                  <p className="w-full rounded-lg bg-red-100 px-3 py-2 text-sm font-semibold text-red-800 ring-1 ring-red-300">
-                    No fence sides are picked for this customer yet, so nothing counts. Pick the sides (inside / outside) on the lead page's estimator first.
-                  </p>
+                {jobConfirm ? (
+                  <div className="w-full rounded-lg bg-background p-2.5 ring-1 ring-amber-300">
+                    <p className="text-sm font-bold">Sides to stain {fenceSides.length ? null : <span className="font-semibold text-red-700"> · pick at least one, or nothing counts</span>}</p>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {SIDES.map((sd) => (
+                        <div key={sd} className="rounded-lg bg-muted/40 p-1.5">
+                          <p className="text-sm font-semibold">{sd}</p>
+                          <div className="mt-1 flex gap-1">
+                            {["Inside", "Outside"].map((f) => {
+                              const face = `${f} ${sd}`;
+                              const on = fenceSides.includes(face);
+                              return (
+                                <button key={f} type="button" disabled={!!savingSide} onClick={() => void toggleFace(face)} aria-pressed={on}
+                                        className={`min-h-11 flex-1 rounded-md px-2 text-sm font-bold ring-1 touch-manipulation ${on ? "bg-amber-500 text-white ring-amber-500" : "bg-background ring-border"}`}>
+                                  {savingSide === face ? "…" : on ? `✓ ${f}` : f}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Saves to the customer right away. It doesn't change the price.</p>
+                  </div>
                 ) : null}
                 <p className="w-full text-sm text-amber-900">Trace each piece of fence once and say which side it is. The fence sides below decide the rest: inside + outside on a side counts it twice. Change the sides later and the job's sq ft follows. This doesn't change the estimate.</p>
                 {viewTotal > 0 ? (

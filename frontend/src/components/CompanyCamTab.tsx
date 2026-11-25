@@ -1263,7 +1263,10 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
             {sec.key === "stain_after" ? (
               <>
-                <StainUsedBox job={job} onSave={(v) => void patch({ stain_gallons_used: v })} />
+                <StainUsedBox job={job} hasMain={!!(job.final_stain_id || job.final_color || job.color)} onSave={(v) => void patch({ stain_gallons_used: v })} />
+                <OtherStainsBox lines={job.extra_stains || []} hasMain={!!(job.final_stain_id || job.final_color || job.color)}
+                                stains={(data.stain_options || []).filter((o) => o.active || (job.extra_stains || []).some((x) => x.stain_id === o.id)).map((o) => ({ id: o.id, label: o.label }))}
+                                onSave={(lines) => void patch({ extra_stains: lines })} />
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     {tr("Before you leave — stainer's checklist")}
@@ -2001,7 +2004,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               <Ruler className="h-4 w-4" />{job.measure_confirmed_at ? tr("Re-confirm real measurement") : tr("Confirm real measurement")}
             </button>
             {measuring ? (
-              <JobMeasureDialog leadId={leadId} onClose={() => setMeasuring(false)} onDone={() => { setMeasuring(false); void load(); }} />
+              <JobMeasureDialog leadId={leadId} estimateSides={data.estimate_sides || []} onClose={() => { setMeasuring(false); void load(); }} onDone={() => { setMeasuring(false); void load(); }} />
             ) : null}
             </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
@@ -3383,8 +3386,8 @@ function PayHistory({ leadId, version }: { leadId: string; version: string }) {
  *  is traced twice), open Maps for Street View if the height needs checking,
  *  pick the height, and the total feet × height replaces the job's square
  *  footage. */
-function JobMeasureDialog({ leadId, onClose, onDone }: {
-  leadId: string; onClose: () => void; onDone: () => void;
+function JobMeasureDialog({ leadId, estimateSides, onClose, onDone }: {
+  leadId: string; estimateSides: string[]; onClose: () => void; onDone: () => void;
 }) {
   // The same trace as the lead page's ★ Confirm for the job (Alan,
   // 2026-11-24): every piece asks which side it is, the estimator's fence
@@ -3393,12 +3396,10 @@ function JobMeasureDialog({ leadId, onClose, onDone }: {
   useEffect(() => {
     api.getLead(leadId)
       .then((l) => {
-        const raw = (l.form_data || {}).fence_sides as unknown;
-        const sides = Array.isArray(raw) ? (raw as string[]) : raw ? String(raw).split(",").map((x) => x.trim()).filter(Boolean) : [];
-        setLead({ lat: l.lat || 0, lng: l.lng || 0, address: l.address || "", zip: l.zip_code || "", name: l.contact_name || "", sides });
+        setLead({ lat: l.lat || 0, lng: l.lng || 0, address: l.address || "", zip: l.zip_code || "", name: l.contact_name || "", sides: estimateSides });
       })
       .catch((e) => toast.error(errMessage(e, "Couldn't open the map")));
-  }, [leadId]);
+  }, [leadId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -3431,7 +3432,76 @@ function JobMeasureDialog({ leadId, onClose, onDone }: {
  *  stainer couldn't find where to put the gallons he used; "it needs to be
  *  super clearly seen on the stainer's part"). Job done takes these off the
  *  shelf, so the number matters. */
-function StainUsedBox({ job, onSave }: { job: CompanyCamJob; onSave: (v: number) => void }) {
+/** Every other stain the stainer used, one line each: which stain and how
+ *  many gallons (Alan, 2026-11-24: "he used 6 gallons of October Brown but
+ *  mixed 1 gallon of black into it, or a gallon of clear on the front").
+ *  Works even when nobody planned the stain: the crew just logs what they
+ *  used. Each line comes off the shelf like the main stain. */
+function OtherStainsBox({ lines, stains, hasMain, onSave }: {
+  lines: { stain_id: string; gallons: number }[]; stains: { id: string; label: string }[]; hasMain: boolean;
+  onSave: (lines: { stain_id: string; gallons: number }[]) => void;
+}) {
+  const es = isSpanish();
+  const [rows, setRows] = useState(lines);
+  useEffect(() => { setRows(lines); }, [JSON.stringify(lines)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = (next: { stain_id: string; gallons: number }[]) => { setRows(next); onSave(next); };
+  const set = (i: number, p: Partial<{ stain_id: string; gallons: number }>) => save(rows.map((r, k) => (k === i ? { ...r, ...p } : r)));
+  const done = rows.filter((r) => r.stain_id && r.gallons > 0);
+  return (
+    <div className="rounded-2xl border-2 border-black/15 bg-white p-3.5">
+      <p className="text-lg font-black leading-snug">
+        🎨 {hasMain ? (es ? "¿Usaste otra pintura?" : "Did you use any other stain?") : (es ? "¿Qué pintura usaste?" : "What stain did you use?")}
+      </p>
+      <p className="text-[15px] text-black/60">
+        {hasMain
+          ? (es ? "Mezclada, o en otra parte de la cerca. Pon cada una." : "Mixed in, or on another part of the fence. Put each one.")
+          : (es ? "Pon cada pintura que usaste y cuántos galones." : "Put each stain you used and how many gallons.")}
+      </p>
+      <div className="mt-2 space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="rounded-xl bg-[#FBF3DF] p-2.5 ring-1 ring-black/10">
+            <div className="flex items-center gap-2">
+              <span className="text-base font-black">{i + 1}.</span>
+              <select value={r.stain_id} onChange={(e) => set(i, { stain_id: e.target.value })} aria-label={es ? "Pintura" : "Stain"}
+                      className="h-12 min-w-0 flex-1 rounded-lg border border-black/20 bg-white px-2 text-base font-semibold">
+                <option value="">{es ? "Toca para escoger la pintura" : "Tap to pick the stain"}</option>
+                {stains.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+              <button type="button" onClick={() => save(rows.filter((_, k) => k !== i))} aria-label={es ? "Quitar" : "Remove"}
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-xl font-bold ring-1 ring-black/15 touch-manipulation">✕</button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {[0.5, 1, 2, 3, 5].map((n) => (
+                <button key={n} type="button" onClick={() => set(i, { gallons: n })}
+                        className={cn("min-h-11 min-w-11 rounded-xl px-3 text-base font-bold ring-1 touch-manipulation",
+                                      r.gallons === n ? "bg-ink text-white ring-ink" : "bg-white ring-black/15")}>
+                  {n === 0.5 ? "½" : n}
+                </button>
+              ))}
+              <Input type="number" inputMode="decimal" step="0.5" min="0" placeholder={es ? "otro" : "other"}
+                     defaultValue={[0.5, 1, 2, 3, 5].includes(r.gallons) || !r.gallons ? "" : String(r.gallons)}
+                     key={`${i}-${r.gallons}`}
+                     onBlur={(e) => { const v = parseFloat(e.target.value || "0"); if (!Number.isNaN(v) && v > 0 && v !== r.gallons) set(i, { gallons: v }); }}
+                     className="h-11 w-20 bg-white text-base font-bold tabular-nums" />
+              <span className="text-base font-bold">{es ? "galones" : "gallons"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={() => setRows([...rows, { stain_id: "", gallons: 0 }])}
+              className="mt-2 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/25 text-base font-bold touch-manipulation">
+        + {rows.length ? (es ? "Otra pintura" : "Another stain") : (es ? "Agregar pintura" : "Add a stain")}
+      </button>
+      {done.length ? (
+        <p className="mt-2 text-base font-bold text-emerald-800">
+          ✓ {es ? "Guardado" : "Saved"}: {done.map((r) => `${r.gallons} ${es ? "gal" : "gal"} ${stains.find((o) => o.id === r.stain_id)?.label.split(" · ")[0] || ""}`).join(", ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function StainUsedBox({ job, hasMain, onSave }: { job: CompanyCamJob; hasMain: boolean; onSave: (v: number) => void }) {
   const saved = Number(job.stain_gallons_used || 0);
   const [val, setVal] = useState(saved ? String(saved) : "");
   useEffect(() => { setVal(saved ? String(saved) : ""); }, [saved]);
@@ -3440,6 +3510,8 @@ function StainUsedBox({ job, onSave }: { job: CompanyCamJob; onSave: (v: number)
     const v = parseFloat(raw || "0");
     if (!Number.isNaN(v) && v >= 0 && v !== saved) onSave(v);
   };
+  // No stain planned: the crew logs what they used in the box below.
+  if (!hasMain && !saved) return null;
   return (
     <div className={cn("rounded-2xl border-2 p-3.5", saved ? "border-emerald-500 bg-emerald-50" : "border-cedar bg-[#FBF3DF]")}>
       <p className="text-lg font-black leading-snug">🪣 {tr("How many gallons of stain did you use?")}</p>

@@ -82,6 +82,38 @@ def _sees_all(user: dict) -> bool:
         return False
 
 
+def extra_stains(job: CompanyCamJob | None) -> list[dict]:
+    """The other stains used on a job: [{"stain_id", "gallons"}]."""
+    try:
+        v = json.loads((job.extra_stains_json if job else "") or "[]")
+    except (ValueError, TypeError):
+        return []
+    return [{"stain_id": str(x.get("stain_id") or ""), "gallons": float(x.get("gallons") or 0)}
+            for x in (v if isinstance(v, list) else []) if isinstance(x, dict)]
+
+
+def clean_extra_stains(db, raw: list) -> list[dict]:
+    """Keep the lines with a real shelf stain (not bleach) and some gallons.
+    Picked but not filled in yet stays as a 0 line so the screen keeps it."""
+    from database import StainInventoryItem
+    ok = {i.id for i in db.query(StainInventoryItem).filter(StainInventoryItem.finish_type != "bleach").all()}
+    out = []
+    for x in raw or []:
+        if not isinstance(x, dict):
+            continue
+        sid = str(x.get("stain_id") or "")
+        try:
+            g = float(x.get("gallons") or 0)
+        except (TypeError, ValueError):
+            g = 0.0
+        if sid and sid not in ok:
+            raise HTTPException(400, "That stain isn't on the shelf list")
+        if g < 0 or g > 60:
+            raise HTTPException(400, "Gallons should be between 0 and 60")
+        out.append({"stain_id": sid, "gallons": round(g, 2)})
+    return out[:10]
+
+
 def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
     """[{"username": "ChrisMoran", "date": "2026-10-16", "task": "cleaning"}].
     Older rows hold bare usernames; they read as no day and no task yet."""
@@ -580,6 +612,7 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "upsell_notes": job.upsell_notes or "",
         "actual_sqft": float(job.actual_sqft or 0),
         "stain_gallons_used": float(job.stain_gallons_used or 0),
+        "extra_stains": extra_stains(job),
         "stain_gallons_bought": float(job.stain_gallons_bought or 0),
         "bleach_gallons_used": float(job.bleach_gallons_used or 0),
         "bleach_gallons_to_bring": float(job.bleach_gallons_to_bring or 0),
@@ -814,6 +847,8 @@ class CompanyCamPatch(BaseModel):
     color_plan: list[dict] | None = None
     actual_sqft: float | None = None
     stain_gallons_used: float | None = None
+    # [{"stain_id", "gallons"}]: other stains used besides the main one.
+    extra_stains: list[dict] | None = None
     stain_gallons_bought: float | None = None
     bleach_gallons_used: float | None = None
     bleach_gallons_to_bring: float | None = None
@@ -1159,8 +1194,10 @@ def update_company_cam(
         # at "Job done" (Alan, 2026-11-13: Brent typed 2 gal at Courtney's and
         # the shelf still said 5). Every later change re-syncs: what this job
         # took goes back, the new amount comes off, so 3 then 3.5 = 3.5 used.
+        if body.extra_stains is not None:
+            job.extra_stains_json = json.dumps(clean_extra_stains(db, body.extra_stains))
         if any(v is not None for v in (
-                body.stain_gallons_used, body.bleach_gallons_used, body.final_stain_id,
+                body.stain_gallons_used, body.extra_stains, body.bleach_gallons_used, body.final_stain_id,
                 body.final_color if job.stain_gallons_used else None)):
             from api.materials import apply_job_materials, reverse_job_materials
             reverse_job_materials(db, job, _actor(user))

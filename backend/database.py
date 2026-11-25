@@ -1951,6 +1951,10 @@ class CompanyCamJob(Base):
     # The fence sides the runs were last lined up with (JSON list), so a scope
     # change knows which side faces were added or taken away.
     runs_sides_basis = Column(Text, default="")
+    # Other stains the stainer used on this job, besides the main one: mixed
+    # in, or a different stain on part of the fence (Alan, 2026-11-24).
+    # [{"stain_id": "...", "gallons": 1.0}]. Comes off the shelf like the main one.
+    extra_stains_json = Column(Text, default="[]")
     extras_confirmed_by = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
@@ -5272,6 +5276,7 @@ def _run_migrations():
             ("runs_finish_confirmed_at", "TEXT DEFAULT ''"),
             ("runs_finish_confirmed_by", "TEXT DEFAULT ''"),
             ("runs_sides_basis", "TEXT DEFAULT ''"),
+            ("extra_stains_json", "TEXT DEFAULT '[]'"),
             ("completed_at", "TEXT DEFAULT ''"),
             ("completed_by", "TEXT DEFAULT ''"),
             ("no_cleaning", "BOOLEAN DEFAULT FALSE"),

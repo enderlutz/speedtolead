@@ -385,6 +385,18 @@ def apply_job_materials(db, job: CompanyCamJob, actor: str) -> None:
             stain_cost = used * unit
             _move(db, item=item, delta=-used, action="used", actor=actor, lead_id=who, unit_cost=unit,
                   note="Used on the job")
+    # The other stains the stainer logged: mixed in, or a different stain on
+    # part of the fence (Alan, 2026-11-24). Each comes off its own shelf.
+    from api.company_cam import extra_stains
+    for x in extra_stains(job):
+        if x["gallons"] <= 0 or not x["stain_id"]:
+            continue
+        item = db.query(StainInventoryItem).filter(StainInventoryItem.id == x["stain_id"]).first()
+        if item:
+            unit = float(item.avg_cost or 0)
+            stain_cost += x["gallons"] * unit
+            _move(db, item=item, delta=-x["gallons"], action="used", actor=actor, lead_id=who, unit_cost=unit,
+                  note="Also used on the job")
     bleach = float(job.bleach_gallons_used or 0)
     if bleach > 0:
         item = _bleach_item(db)
