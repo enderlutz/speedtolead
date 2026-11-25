@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type JobRun, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
+import StreetViewSheet from "@/components/StreetViewSheet";
 import Map3DView from "@/components/Map3DView";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/Panel";
@@ -416,6 +417,8 @@ export default function SatelliteMeasureCard({
   // The 3D look (2026-10-30): where the camera aims when it opens, or null
   // while measuring on the flat view.
   const [view3d, setView3d] = useState<Pt | null>(null);
+  // Street View over the whole screen, looking at the house (Alan, 2026-11-24).
+  const [streetAt, setStreetAt] = useState<Pt | null>(null);
   const pinOverlayRef = useRef<GMarker | null>(null);
   const [keyProblem, setKeyProblem] = useState("");
   const [diagnosing, setDiagnosing] = useState(false);
@@ -1624,7 +1627,21 @@ export default function SatelliteMeasureCard({
                 3D
               </button>
             ) : null}
+            {status === "ready" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const c = mapRef.current?.getCenter?.();
+                  setStreetAt(pin || (c ? { lat: c.lat(), lng: c.lng() } : null));
+                }}
+                title="See the house from the street (look only)"
+                className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} inline-flex items-center gap-1 rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
+              >
+                <span aria-hidden>🚶</span>Street
+              </button>
+            ) : null}
           </div>
+          {streetAt ? <StreetViewSheet at={streetAt} onClose={() => setStreetAt(null)} /> : null}
 
           {view3d ? (
             <div className="absolute inset-0 z-20">
