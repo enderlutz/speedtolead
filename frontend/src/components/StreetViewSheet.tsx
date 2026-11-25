@@ -7,7 +7,14 @@ import { Loader2, X } from "lucide-react";
  *  fence is from the street view"). Look only, no tracing. Closing drops
  *  you back on the measure screen exactly as it was: nothing under it is
  *  touched. Uses the Maps JavaScript key the measure tool already loaded. */
-export default function StreetViewSheet({ at, onClose }: { at: { lat: number; lng: number }; onClose: () => void }) {
+/** `at` = where to stand (a spot picked on the blue Street View lines);
+ *  `face` = the house to look at when it opens (the lead's pin). Without a
+ *  face it looks at `at` from the nearest street spot, as before. */
+export default function StreetViewSheet({ at, face, onClose }: {
+  at: { lat: number; lng: number };
+  face?: { lat: number; lng: number } | null;
+  onClose: () => void;
+}) {
   const divRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">("loading");
 
@@ -25,7 +32,8 @@ export default function StreetViewSheet({ at, onClose }: { at: { lat: number; ln
     if (!g || !divRef.current) { setState("none"); return; }
     let live = true;
     const svc = new g.StreetViewService();
-    svc.getPanorama({ location: at, radius: 120, preference: g.StreetViewPreference?.NEAREST, source: g.StreetViewSource?.OUTDOOR },
+    const target = face || at;
+    svc.getPanorama({ location: at, radius: face ? 50 : 120, preference: g.StreetViewPreference?.NEAREST, source: g.StreetViewSource?.OUTDOOR },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (data: any, status: string) => {
         if (!live || !divRef.current) return;
@@ -33,8 +41,8 @@ export default function StreetViewSheet({ at, onClose }: { at: { lat: number; ln
         const from = data.location.latLng;
         // Face the house from where the car stood.
         const toRad = (d: number) => (d * Math.PI) / 180;
-        const y = Math.sin(toRad(at.lng - from.lng())) * Math.cos(toRad(at.lat));
-        const x = Math.cos(toRad(from.lat())) * Math.sin(toRad(at.lat)) - Math.sin(toRad(from.lat())) * Math.cos(toRad(at.lat)) * Math.cos(toRad(at.lng - from.lng()));
+        const y = Math.sin(toRad(target.lng - from.lng())) * Math.cos(toRad(target.lat));
+        const x = Math.cos(toRad(from.lat())) * Math.sin(toRad(target.lat)) - Math.sin(toRad(from.lat())) * Math.cos(toRad(target.lat)) * Math.cos(toRad(target.lng - from.lng()));
         const heading = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
         new g.StreetViewPanorama(divRef.current, {
           pano: data.location.pano,
@@ -50,7 +58,7 @@ export default function StreetViewSheet({ at, onClose }: { at: { lat: number; ln
         setState("ready");
       });
     return () => { live = false; };
-  }, [at]);
+  }, [at, face]);
 
   return createPortal(
     <div className="fixed inset-0 z-[80] bg-black" role="dialog" aria-modal="true" aria-label="Street View">
@@ -60,7 +68,7 @@ export default function StreetViewSheet({ at, onClose }: { at: { lat: number; ln
       ) : null}
       {state === "none" ? (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-base font-semibold text-white">
-          Google has no Street View near this house.
+          {face ? "No Street View right there. Go back and pick a spot on a blue line." : "Google has no Street View near this house."}
         </div>
       ) : null}
       <button type="button" onClick={onClose}

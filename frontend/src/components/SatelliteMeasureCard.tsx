@@ -435,6 +435,22 @@ export default function SatelliteMeasureCard({
   const [view3d, setView3d] = useState<Pt | null>(null);
   // Street View over the whole screen, looking at the house (Alan, 2026-11-24).
   const [streetAt, setStreetAt] = useState<Pt | null>(null);
+  // Street button first shows Google's blue Street View lines on the map,
+  // like Google Maps, so you pick a spot the car actually drove (Alan,
+  // 2026-11-25). Picking a spot opens Street View standing there.
+  const [streetPick, setStreetPick] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coverageRef = useRef<any>(null);
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = (window as any).google?.maps;
+    if (!streetPick || !g || !mapRef.current) return;
+    if (!coverageRef.current) coverageRef.current = new g.StreetViewCoverageLayer();
+    coverageRef.current.setMap(mapRef.current);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setStreetPick(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { coverageRef.current?.setMap(null); window.removeEventListener("keydown", onKey); };
+  }, [streetPick]);
   const pinOverlayRef = useRef<GMarker | null>(null);
   const [keyProblem, setKeyProblem] = useState("");
   const [diagnosing, setDiagnosing] = useState(false);
@@ -805,7 +821,8 @@ export default function SatelliteMeasureCard({
     // phone the point goes where the crosshair is, via the button below.
     if (wasAlone && !g.moved && e.type === "pointerup" && e.pointerType !== "touch") {
       const p = pointFromFrame(e.clientX, e.clientY);
-      if (p) addPoint(p);
+      if (p && streetPick) { setStreetPick(false); setStreetAt(p); }
+      else if (p) addPoint(p);
     }
     // Lifting one finger of a pinch must not drop a point: forgetPointer
     // leaves `moved` set while a finger remains.
@@ -1666,18 +1683,29 @@ export default function SatelliteMeasureCard({
             {status === "ready" ? (
               <button
                 type="button"
-                onClick={() => {
-                  const c = mapRef.current?.getCenter?.();
-                  setStreetAt(pin || (c ? { lat: c.lat(), lng: c.lng() } : null));
-                }}
-                title="See the house from the street (look only)"
-                className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} inline-flex items-center gap-1 rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
+                onClick={() => setStreetPick((v) => !v)}
+                title="Show where Street View can look from, then pick a spot"
+                aria-pressed={streetPick}
+                className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} inline-flex items-center gap-1 rounded-md font-bold backdrop-blur-sm ${streetPick ? "bg-sky-500 text-white ring-2 ring-white/80" : "bg-black/60 hover:bg-black/75"}`}
               >
                 <span aria-hidden>🚶</span>Street
               </button>
             ) : null}
           </div>
-          {streetAt ? <StreetViewSheet at={streetAt} onClose={() => setStreetAt(null)} /> : null}
+          {streetPick ? (
+            <div className="absolute inset-x-2 top-2 z-10 flex items-center gap-2 rounded-lg bg-sky-600/95 px-3 py-2 text-sm font-semibold text-white shadow-lg sm:right-auto sm:max-w-md">
+              <span className="flex-1">
+                {IS_TOUCH
+                  ? "Blue lines = where Street View can look from. Put the crosshair on a blue line, then tap Look from here."
+                  : "Blue lines = where Street View can look from. Click a blue line."}
+              </span>
+              <button type="button" onClick={() => setStreetPick(false)}
+                className="min-h-11 shrink-0 rounded-md bg-white/20 px-3 font-bold touch-manipulation hover:bg-white/30">
+                Cancel
+              </button>
+            </div>
+          ) : null}
+          {streetAt ? <StreetViewSheet at={streetAt} face={pin} onClose={() => setStreetAt(null)} /> : null}
 
           {view3d ? (
             <div className="absolute inset-0 z-20">
@@ -1729,10 +1757,23 @@ export default function SatelliteMeasureCard({
             the map itself — drop a point, take one back, turn the view. */}
         {IS_TOUCH ? (
           <div className="flex gap-2">
+            {streetPick ? (
+              <Button
+                onClick={() => {
+                  const c = mapRef.current?.getCenter?.();
+                  if (!c) return;
+                  setStreetPick(false);
+                  setStreetAt({ lat: c.lat(), lng: c.lng() });
+                }}
+                className="h-12 flex-1 rounded-xl bg-sky-600 text-sm font-bold text-white shadow-md hover:bg-sky-700"
+              >
+                🚶 Look from here
+              </Button>
+            ) : null}
             <Button
               onClick={addPointAtCrosshair}
-              disabled={status !== "ready"}
-              className="h-12 flex-1 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60"
+              disabled={status !== "ready" || streetPick}
+              className={`${streetPick ? "hidden " : ""}h-12 flex-1 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60`}
             >
               <Crosshair className="h-4 w-4 mr-2" /> {preview ? `Add point · ${Math.round(preview.feet)} ft` : "Add point at crosshair"}
             </Button>
