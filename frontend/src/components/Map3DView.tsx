@@ -34,6 +34,8 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
   // When the last drag ended: Google may still read the press as a tap, and
   // a turn must never drop a point.
   const draggedAtRef = useRef(0);
+  // The aim height (sea level + ground + roof), once known.
+  const groundRef = useRef(15);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,8 +46,11 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
       if (cancelled || !boxRef.current) return;
       libRef.current = lib;
       const map = new lib.Map3DElement({
-        // Altitude is meters above the ground: aim at roof level.
-        center: { lat: center.lat, lng: center.lng, altitude: 4 },
+        // Google's 3D measures this height from SEA LEVEL, so a fixed
+        // number aims underground on higher ground (77077 is ~25 m up) and
+        // the house slides off the middle. Start here, then fix it with the
+        // real ground height below.
+        center: { lat: center.lat, lng: center.lng, altitude: groundRef.current },
         range: 110,
         tilt: 55,
         heading,
@@ -64,6 +69,25 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
       boxRef.current.appendChild(map);
       mapRef.current = map;
       setStatus("ready");
+      // Real ground height at the house (meters above sea level) + roof
+      // level: Google's elevation first, the USGS map as a backup.
+      const aimAt = (elev: number) => {
+        if (cancelled || !mapRef.current || !Number.isFinite(elev)) return;
+        groundRef.current = elev + 3;
+        mapRef.current.center = { lat: center.lat, lng: center.lng, altitude: groundRef.current };
+      };
+      const usgs = () => {
+        fetch(`https://epqs.nationalmap.gov/v1/json?x=${center.lng}&y=${center.lat}&units=Meters&wkid=4326`)
+          .then((r) => r.json()).then((d) => aimAt(Number(d?.value))).catch(() => {});
+      };
+      try {
+        new maps.ElevationService().getElevationForLocations(
+          { locations: [{ lat: center.lat, lng: center.lng }] },
+          (res: any, st: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (st === "OK" && typeof res?.[0]?.elevation === "number") aimAt(res[0].elevation);
+            else usgs();
+          });
+      } catch { usgs(); }
       // The customer's house: a pin standing over the roof with a line
       // down to the ground, so we always measure the right house (Alan,
       // 2026-11-25).
@@ -156,20 +180,20 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
     const c = map.center;
     const lat0 = typeof c?.lat === "function" ? c.lat() : c?.lat ?? center.lat;
     const lng0 = typeof c?.lng === "function" ? c.lng() : c?.lng ?? center.lng;
-    let next = { lat: lat0, lng: lng0, altitude: 4 };
-    if (home) next = { lat: (pin || center).lat, lng: (pin || center).lng, altitude: 4 };
+    const alt = groundRef.current;
+    let next = { lat: lat0, lng: lng0, altitude: alt };
+    if (home) next = { lat: (pin || center).lat, lng: (pin || center).lng, altitude: alt };
     else if (fwd || right) {
       const step = range * 0.22, h = (heading * Math.PI) / 180;
       const north = (fwd * Math.cos(h) - right * Math.sin(h)) * step;
       const east = (fwd * Math.sin(h) + right * Math.cos(h)) * step;
-      next = { lat: lat0 + north / 111320, lng: lng0 + east / (111320 * Math.cos((lat0 * Math.PI) / 180)), altitude: 4 };
+      next = { lat: lat0 + north / 111320, lng: lng0 + east / (111320 * Math.cos((lat0 * Math.PI) / 180)), altitude: alt };
     }
-    if (typeof map.flyCameraTo === "function") {
-      map.flyCameraTo({ endCamera: { center: next, range, heading, tilt }, durationMillis: 350 });
-    } else {
-      map.center = next;
-      map.range = range;
-    }
+    // Set straight on the camera (no fly-to arc): one tap, one small step.
+    map.center = next;
+    map.range = range;
+    map.heading = heading;
+    map.tilt = tilt;
   };
   const flyRef = useRef(fly);
   flyRef.current = fly;
