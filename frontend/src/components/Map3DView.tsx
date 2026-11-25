@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, RotateCcw, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Home, Minus, Plus, RotateCcw, RotateCw } from "lucide-react";
 
 // The property in Google's photoreal 3D (Alan, 2026-10-30: "enable 3d
 // rendering on this… make it so that I can measure when I'm on angle").
@@ -143,6 +143,55 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
     };
   }, [status]);
 
+  // Fly the drone: slide the spot it looks at forward/back/left/right
+  // (as seen on screen), zoom in/out, or jump back over the house
+  // (Alan, 2026-11-25: "how we can actually move around the house").
+  // Steps scale with the zoom, so a step is always about a fifth of the view.
+  const fly = (fwd: number, right: number, zoom = 1, home = false) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const range = Math.max(25, Math.min(800, (Number(map.range) || 110) * zoom));
+    const heading = Number(map.heading) || 0;
+    const tilt = Number(map.tilt) || 55;
+    const c = map.center;
+    const lat0 = typeof c?.lat === "function" ? c.lat() : c?.lat ?? center.lat;
+    const lng0 = typeof c?.lng === "function" ? c.lng() : c?.lng ?? center.lng;
+    let next = { lat: lat0, lng: lng0, altitude: 4 };
+    if (home) next = { lat: (pin || center).lat, lng: (pin || center).lng, altitude: 4 };
+    else if (fwd || right) {
+      const step = range * 0.22, h = (heading * Math.PI) / 180;
+      const north = (fwd * Math.cos(h) - right * Math.sin(h)) * step;
+      const east = (fwd * Math.sin(h) + right * Math.cos(h)) * step;
+      next = { lat: lat0 + north / 111320, lng: lng0 + east / (111320 * Math.cos((lat0 * Math.PI) / 180)), altitude: 4 };
+    }
+    if (typeof map.flyCameraTo === "function") {
+      map.flyCameraTo({ endCamera: { center: next, range, heading, tilt }, durationMillis: 350 });
+    } else {
+      map.center = next;
+      map.range = range;
+    }
+  };
+  const flyRef = useRef(fly);
+  flyRef.current = fly;
+  // Laptop: arrow keys move, + / - zoom, H goes back to the house.
+  useEffect(() => {
+    if (status !== "ready") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const k: Record<string, () => void> = {
+        ArrowUp: () => flyRef.current(1, 0), ArrowDown: () => flyRef.current(-1, 0),
+        ArrowLeft: () => flyRef.current(0, -1), ArrowRight: () => flyRef.current(0, 1),
+        "+": () => flyRef.current(0, 0, 0.7), "=": () => flyRef.current(0, 0, 0.7),
+        "-": () => flyRef.current(0, 0, 1.4), h: () => flyRef.current(0, 0, 1, true),
+      };
+      const fn = k[e.key];
+      if (fn) { e.preventDefault(); e.stopPropagation(); fn(); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [status]);
+
   // The buttons: a smooth turn around the same spot.
   const turn = (dHeading: number, dTilt = 0) => {
     const map = mapRef.current;
@@ -201,6 +250,38 @@ export default function Map3DView({ center, pin, heading, lines, onPick }: {
             <button key={label} type="button" onClick={fn} title={label} aria-label={label}
               className="flex h-11 w-11 items-center justify-center rounded-md bg-black/70 backdrop-blur-sm hover:bg-black/85">
               {icon}
+            </button>
+          ))}
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            <button type="button" onClick={() => fly(0, 0, 0.7)} title="Zoom in (+)" aria-label="Zoom in"
+              className="flex h-11 w-11 items-center justify-center rounded-md bg-black/70 backdrop-blur-sm hover:bg-black/85">
+              <Plus className="h-5 w-5" />
+            </button>
+            <button type="button" onClick={() => fly(0, 0, 1.4)} title="Zoom out (-)" aria-label="Zoom out"
+              className="flex h-11 w-11 items-center justify-center rounded-md bg-black/70 backdrop-blur-sm hover:bg-black/85">
+              <Minus className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {status === "ready" ? (
+        // Move pad: slide the view like walking the drone; the middle
+        // button flies back over the customer's house.
+        <div className="absolute bottom-16 left-2 grid grid-cols-3 gap-1 text-white" aria-label="Move the view">
+          {([
+            [null],
+            ["Move forward (↑)", () => fly(1, 0), <ArrowUp key="f" className="h-5 w-5" />],
+            [null],
+            ["Move left (←)", () => fly(0, -1), <ArrowLeft key="l" className="h-5 w-5" />],
+            ["Back over the house (H)", () => fly(0, 0, 1, true), <Home key="h" className="h-5 w-5" />],
+            ["Move right (→)", () => fly(0, 1), <ArrowRight key="r" className="h-5 w-5" />],
+            [null],
+            ["Move back (↓)", () => fly(-1, 0), <ArrowDown key="b" className="h-5 w-5" />],
+            [null],
+          ] as const).map((b, i) => b[0] === null ? <span key={i} /> : (
+            <button key={i} type="button" onClick={b[1]} title={b[0]} aria-label={b[0]}
+              className={`flex h-11 w-11 items-center justify-center rounded-md backdrop-blur-sm touch-manipulation ${i === 4 ? "bg-red-600/85 hover:bg-red-600" : "bg-black/70 hover:bg-black/85"}`}>
+              {b[2]}
             </button>
           ))}
         </div>
