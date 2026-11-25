@@ -22,7 +22,7 @@ import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSe
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, CalendarRange, Clock, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera } from "lucide-react";
+import { CalendarDays, CalendarRange, Clock, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, MessageSquare, Plus, RefreshCw, Search, ShoppingCart, Wrench, X, Camera, ChevronDown } from "lucide-react";
 import GoogleCalendar from "@/pages/Calendar";
 import { api, type CrewDayTask, type FixJob, type PmDay, type PmNeedsDay, type PmOff, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -342,17 +342,34 @@ function OffMark({ username, date }: { username: string; date: string }) {
 function NeedsDayPanel({ items, crew, canEdit, today, onChange }: {
   items: PmNeedsDay[]; crew: { username: string; name: string }[]; canEdit: boolean; today: string; onChange: () => void;
 }) {
+  // Closed by default, a drop-down: tap the header to open it (Alan,
+  // 2026-11-24). The choice is remembered on this device.
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem("pm-needs-day-open") === "1"; } catch { return false; }
+  });
+  const toggle = () => setOpen((v) => {
+    try { localStorage.setItem("pm-needs-day-open", v ? "0" : "1"); } catch { /* fine */ }
+    return !v;
+  });
   if (!items.length) return null;
   const n = items.length;
   return (
     <div className="rounded-2xl border-2 border-rose-400/70 bg-card p-3">
-      <p className="flex items-center gap-2 text-[16px] font-bold text-rose-700">
-        <CalendarDays className="h-5 w-5" />{n} paid job{n === 1 ? "" : "s"} need{n === 1 ? "s" : ""} a day
-      </p>
-      <p className="text-sm text-muted-foreground">Every paid job needs a cleaning day and a stain day, the stain at least a day after the cleaning. They stay here until both are set.</p>
-      <ul className="mt-2 grid gap-2 lg:grid-cols-2">
-        {items.map((it) => <NeedsDayCard key={it.lead_id} it={it} crew={crew} canEdit={canEdit} today={today} onChange={onChange} />)}
-      </ul>
+      <button type="button" onClick={toggle} aria-expanded={open}
+              className="flex min-h-11 w-full items-center gap-2 text-left text-[16px] font-bold text-rose-700 touch-manipulation">
+        <CalendarDays className="h-5 w-5 shrink-0" />
+        <span className="flex-1">{n} paid job{n === 1 ? "" : "s"} need{n === 1 ? "s" : ""} a day</span>
+        <span className="text-sm font-semibold text-muted-foreground">{open ? "Hide" : "Show"}</span>
+        <ChevronDown className={cn("h-5 w-5 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <>
+          <p className="text-sm text-muted-foreground">Every paid job needs a cleaning day and a stain day, the stain at least a day after the cleaning. They stay here until both are set.</p>
+          <ul className="mt-2 grid gap-2 lg:grid-cols-2">
+            {items.map((it) => <NeedsDayCard key={it.lead_id} it={it} crew={crew} canEdit={canEdit} today={today} onChange={onChange} />)}
+          </ul>
+        </>
+      ) : null}
     </div>
   );
 }
