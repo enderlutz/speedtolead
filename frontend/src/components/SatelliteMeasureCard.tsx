@@ -121,6 +121,7 @@ type Pt = { lat: number; lng: number };
 // of a closed run is sides[points.length - 1]. "" = not answered yet.
 const SIDES = ["Front", "Left", "Back", "Right"] as const;
 type Side = (typeof SIDES)[number];
+const FENCE_HEIGHTS = [4, 5, 6, 6.5, 7, 8, 9, 10];
 type Run = { id: number; points: Pt[]; closed: boolean; sides?: (Side | "")[] };
 
 /** Every leg of a run with its footage and side, in drawing order. */
@@ -391,6 +392,32 @@ export default function SatelliteMeasureCard({
     // Re-read when the sides change: a saved scope change moves the job's sq ft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId, sideMode, fenceSides.join(",")]);
+  // Fix just the height on a confirmed measurement (Alan, 2026-11-26: put 6 ft,
+  // it's 6.5). Same feet, new sq ft, and every run on the job takes the height.
+  const [editHeight, setEditHeight] = useState<string | null>(null);
+  const [savingHeight, setSavingHeight] = useState(false);
+  const saveNewHeight = async (h: number) => {
+    if (!confirmed || !leadId) return;
+    const feet = Math.round(confirmed.feet);
+    const sqft = Math.round(feet * h);
+    setSavingHeight(true);
+    try {
+      await api.updateCompanyCam(leadId, { sqft, measure_feet: feet, measure_height: h });
+      try {
+        const existing = (await api.getCompanyCam(leadId)).runs?.runs || [];
+        if (existing.length) await api.saveJobRuns(leadId, { runs: existing.map((r) => ({ ...r, height_ft: h })) });
+      } catch (err) {
+        toast.error(`Saved the sq ft, but the runs kept the old height: ${err instanceof Error ? err.message : "error"}`);
+      }
+      setConfirmed({ ...confirmed, height: h });
+      setConfirmHeight(h);
+      setEditHeight(null);
+      onConfirmed?.();
+      toast.success(`Height changed: ${feet} ft × ${h} ft = ${sqft.toLocaleString()} sq ft`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change the height");
+    } finally { setSavingHeight(false); }
+  };
   const mapDivRef = useRef<HTMLDivElement>(null);
   // The square the VA sees. The map div inside it is twice its size and
   // transformed; the overlay on top takes every gesture.
@@ -915,6 +942,24 @@ export default function SatelliteMeasureCard({
   const aimedRef = useRef("");
   const hasPointsRef = useRef(false);
   useEffect(() => { hasPointsRef.current = runs.some((r) => r.points.length > 0); }, [runs]);
+  // A trace in progress is kept on this device per customer (Alan,
+  // 2026-11-26: went to look at the cleaner's photos mid-trace, came back,
+  // had to redraw every line). Capture or Reset clears it; a week old is dropped.
+  const draftKey = `sterling-measure-draft:${leadId}:${purpose || "estimate"}`;
+  const draftReadyRef = useRef("");
+  useEffect(() => {
+    if (draftReadyRef.current !== draftKey) return;   // not restored yet: don't wipe it
+    try {
+      if (runs.some((r) => r.points.length > 0)) {
+        const c = mapRef.current?.getCenter?.();
+        localStorage.setItem(draftKey, JSON.stringify({
+          at: Date.now(), runs, activeRun,
+          center: c ? { lat: c.lat(), lng: c.lng() } : null,
+          zoom: mapRef.current?.getZoom?.() ?? null,
+        }));
+      } else localStorage.removeItem(draftKey);
+    } catch { /* storage blocked: tracing still works, just isn't kept */ }
+  }, [runs, activeRun, draftKey]);
   useEffect(() => {
     if (status !== "ready" || !mapRef.current) return;
     const g = mapsNS();
@@ -934,9 +979,24 @@ export default function SatelliteMeasureCard({
     setPin(null);
 
     resetView();
+    // Bring back a trace left half-done on this device.
+    let draft: { at: number; runs: Run[]; activeRun: number; center: Pt | null; zoom: number | null } | null = null;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      const d = raw ? JSON.parse(raw) : null;
+      if (d && Array.isArray(d.runs) && Date.now() - (d.at || 0) < 7 * 864e5
+          && d.runs.some((r: Run) => r.points?.length > 0)) draft = d;
+      else if (raw) localStorage.removeItem(draftKey);
+    } catch { /* nothing kept */ }
+    draftReadyRef.current = draftKey;
+    if (draft) {
+      setRuns(draft.runs);
+      setActiveRun(draft.runs.some((r) => r.id === draft!.activeRun) ? draft.activeRun : draft.runs[draft.runs.length - 1].id);
+      toast.info("Picked up your lines where you left off", { duration: 4000 });
+    }
     if (lat && lng) {
-      mapRef.current.setCenter({ lat, lng });
-      mapRef.current.setZoom(DEFAULT_ZOOM);
+      mapRef.current.setCenter(draft?.center || { lat, lng });
+      mapRef.current.setZoom(draft?.zoom || DEFAULT_ZOOM);
       setPin({ lat, lng });
     } else if (address && address.trim()) {
       // Most leads aren't geocoded — the background map loop only covers
@@ -945,8 +1005,8 @@ export default function SatelliteMeasureCard({
       try {
         locateProperty(g, address, zipCode || "", (p, note) => {
           if (cancelled) return;
-          mapRef.current?.setCenter(p);
-          mapRef.current?.setZoom(DEFAULT_ZOOM);
+          mapRef.current?.setCenter(draft?.center || p);
+          mapRef.current?.setZoom(draft?.zoom || DEFAULT_ZOOM);
           setPin(p);
           if (note) setLocateNote(note);
         }, (note) => { if (!cancelled) setLocateNote(note); });
@@ -955,6 +1015,7 @@ export default function SatelliteMeasureCard({
       }
     }
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId, lat, lng, address, zipCode, status, resetView]);
 
   // The click handler is registered once, so it closes over the first
@@ -1436,10 +1497,25 @@ export default function SatelliteMeasureCard({
               </div>}
               {confirmed ? (
                 <span className="text-sm font-semibold text-emerald-800">
-                  ★ Confirmed: {Math.round(confirmed.feet)} ft × {confirmed.height} ft = {Math.round(confirmed.feet * confirmed.height).toLocaleString()} sq ft
+                  ★ Confirmed: {Math.round(confirmed.feet)} ft ×{" "}
+                  <select value={editHeight ?? String(confirmed.height)} onChange={(e) => setEditHeight(e.target.value === String(confirmed.height) ? null : e.target.value)}
+                          aria-label="Change the confirmed fence height" title="Change the height"
+                          className="h-11 cursor-pointer rounded-md border border-emerald-600/60 bg-background px-1.5 text-sm font-semibold text-emerald-800 underline decoration-dotted underline-offset-2">
+                    {(FENCE_HEIGHTS.includes(confirmed.height) ? FENCE_HEIGHTS : [confirmed.height, ...FENCE_HEIGHTS]).map((h) => <option key={h} value={String(h)}>{h} ft</option>)}
+                  </select>
+                  {" "}= {Math.round(confirmed.feet * Number(editHeight ?? confirmed.height)).toLocaleString()} sq ft
                   <span className="font-normal text-muted-foreground"> · {confirmed.by || "office"}, {new Date(confirmed.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                  {editHeight !== null ? (
+                    <span className="ml-2 inline-flex items-center gap-1.5 align-middle">
+                      <Button size="sm" className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={savingHeight}
+                              onClick={() => void saveNewHeight(Number(editHeight))}>
+                        {savingHeight ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save height"}
+                      </Button>
+                      <button type="button" onClick={() => setEditHeight(null)} className="min-h-11 px-2 text-sm text-muted-foreground">Cancel</button>
+                    </span>
+                  ) : null}
                 </span>
-              ) : <span className="text-sm text-muted-foreground">Job measurement not confirmed yet</span>}
+              ) :<span className="text-sm text-muted-foreground">Job measurement not confirmed yet</span>}
             </div>
             {confirmMode ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1500,7 +1576,7 @@ export default function SatelliteMeasureCard({
                 <span className="text-base">×</span>
                 <select value={confirmHeight} onChange={(e) => setConfirmHeight(Number(e.target.value))} aria-label="Fence height"
                         className="h-11 rounded-lg border border-border bg-background px-2 text-base font-semibold">
-                  {[4, 5, 6, 6.5, 7, 8, 9, 10].map((h) => <option key={h} value={h}>{h} ft tall</option>)}
+                  {FENCE_HEIGHTS.map((h) => <option key={h} value={h}>{h} ft tall</option>)}
                 </select>
                 <span className="text-base font-extrabold tabular-nums">= {Math.round(stainedFeet * confirmHeight).toLocaleString()} sq ft</span>
                 <Button className="min-h-11 bg-amber-600 text-white hover:bg-amber-700" disabled={confirming || stainedFeet <= 0 || sideTotals.unanswered > 0}
