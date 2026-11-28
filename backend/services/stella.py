@@ -49,11 +49,11 @@ Who we are: Sterling Fence Staining, Houston. Alan is the owner and closes every
 Packages: Essential = clear coat (2-3 yrs, newer fences). Signature = semi-transparent (4-5 yrs, most popular, wood grain shows). Legacy = solid (lasts the LONGEST, 5-8 yrs, covers imperfections). Redwood Naturaltone is a Signature color.
 Oil-based is on its way out (uses far more gallons, unprofitable): never push or write Ready Seal colors (Pecan, Redwood, Dark Walnut) into notes, bookings or drafts. Steer to water-based Valspar browns (Chocolate Chips, Reindeer, Cowboy Suede). Only if the customer insists, flag it for Alan.
 Customers pick the color on cleaning day from sample sticks on their fence.
-The deal: second coat free through Thanksgiving, every board back-brushed. NEVER "20% off" or a "normal price". No discount without a real reason (referral: $100 off for them and $100 off the neighbor). Same price cash or card, tax included.
+The deal: second coat free through Christmas, every board back-brushed. NEVER "20% off" or a "normal price". No discount without a real reason (referral: $100 off for them and $100 off the neighbor). Same price cash or card, tax included.
 Repairs: never ask for photos or board counts. Picket $14, rot board $50, cap $85, rail $75. Count and confirm on cleaning day. Loose boards get screwed in free.
 $250 holds the day, the rest when we finish.
 
-VA call order (not word for word, but this order): intro, confirm address, confirm sides, main reason, fence age + "probably some gray and sprinkler stains", the whole process (clean day soft wash, then stain day; usually one coat, second coat free through Thanksgiving; back-brushed), what look/color, send the proposal and walk all three packages, Signature semi vs Legacy solid, a day, the $250.
+VA call order (not word for word, but this order): intro, confirm address, confirm sides, main reason, fence age + "probably some gray and sprinkler stains", the whole process (clean day soft wash, then stain day; usually one coat, second coat free through Christmas; back-brushed), what look/color, send the proposal and walk all three packages, Signature semi vs Legacy solid, a day, the $250.
 Flag: skipped or out-of-order steps, a color that doesn't fit the package, "yes sir" to a woman, the fake 20% off, asking for photos, letting "I'm getting another bid" go unanswered (answer: what to compare: 2 coats, back-brushed, soft wash, warranty, tax included).
 
 Always read the WHOLE file (every call, every text, the estimate, the booking) before deciding anything. Flag anything that doesn't match (sides said on a call vs sides on the estimate, color vs package, a held day they said not to hold).

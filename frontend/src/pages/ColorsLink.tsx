@@ -18,13 +18,17 @@ const PHONE = "(346) 589-7877";
 // /colors/signature for the semi-transparent line. A few plain lines on what
 // the package is, then only its colors. Still no prices.
 type Line = "legacy" | "signature";
+// The free second coat runs through Christmas (Alan, 2026-11-27): we usually
+// put on one coat, so the page says so plainly. No "lasts X years" line here.
+const SECOND_COAT =
+  "We usually put on one coat of stain. Right now, through Christmas, every package gets a second coat of stain for FREE, and we back-brush every board by hand so the stain soaks in.";
 const LINES: Record<Line, { finish: BoardColor["finish"]; title: string; what: string[] }> = {
   legacy: {
     finish: "solid",
     title: "Legacy colors",
     what: [
       "The Legacy is our longest-lasting finish. It's a solid stain: more color and sealer in every coat, so it covers the wood evenly and hides the small marks and knots.",
-      "Two coats, every board brushed in by hand. It usually lasts 5 to 8 years.",
+      SECOND_COAT,
     ],
   },
   signature: {
@@ -32,7 +36,7 @@ const LINES: Record<Line, { finish: BoardColor["finish"]; title: string; what: s
     title: "Signature colors",
     what: [
       "The Signature is our most popular finish. It's a semi-transparent stain: it adds color and protection and still lets the wood grain show through.",
-      "Two coats, every board brushed in by hand. It usually lasts 4 to 5 years.",
+      SECOND_COAT,
     ],
   },
 };
