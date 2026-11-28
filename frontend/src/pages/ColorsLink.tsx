@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { COLOR_BOARD, type BoardColor } from "@/content/stain-colors";
+import { API_BASE } from "@/lib/apiBase";
 
 const PHONE = "(346) 589-7877";
 
@@ -45,6 +46,19 @@ export default function ColorsLink({ embedded = false, line }: { embedded?: bool
   const [open, setOpen] = useState<BoardColor | null>(null);
   const pick = line ? LINES[line] : null;
   const colors = pick ? COLOR_BOARD.filter((c) => c.finish === pick.finish) : COLOR_BOARD;
+
+  // ?c=<lead id> on a texted link (Alan, 2026-11-27): tell the server this
+  // customer opened the photos, so Alan gets a fire text and calls them.
+  useEffect(() => {
+    if (embedded) return;
+    const c = new URLSearchParams(window.location.search).get("c");
+    if (!c) return;
+    fetch(`${API_BASE}/api/colors-opened`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ c }),
+    }).catch(() => {});
+  }, [embedded]);
 
   useEffect(() => {
     if (embedded) return;

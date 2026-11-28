@@ -567,3 +567,56 @@ def backfill_proposal_pages_to_storage(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+class ColorsOpened(BaseModel):
+    c: str = ""
+
+
+@router.post("/colors-opened")
+def colors_opened(body: ColorsOpened, request: Request):
+    """The colours link with ?c=<lead id> (Alan, 2026-11-27): when a customer
+    opens the Legacy photos we texted them, Alan gets a fire text with their
+    name, because looking at photos means they're interested and that's when
+    we call. The page fires this from the browser, so link-preview bots that
+    never run the page don't count; staff and bot browsers are skipped too.
+    One text per customer every 6 hours."""
+    lead_id = (body.c or "").strip()
+    if not lead_id or len(lead_id) > 64:
+        return {"ok": False}
+    if _is_bot_view(request.headers.get("user-agent", "")) or _is_internal_user(request):
+        return {"ok": False, "skipped": True}
+    from database import AutomationLog
+    from datetime import timedelta
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            return {"ok": False}
+        since = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+        seen = (
+            db.query(AutomationLog)
+            .filter(AutomationLog.lead_id == lead.id,
+                    AutomationLog.event_type == "colors_link_opened",
+                    AutomationLog.created_at >= since)
+            .first()
+        )
+        log_event(lead.id, "colors_link_opened", "Customer opened the colors photos link")
+        if seen:
+            return {"ok": True, "texted": False}
+        try:
+            s = get_settings()
+            alan_id = (s.owner_ghl_contact_id or "").strip()
+            if alan_id:
+                customer = (lead.contact_name or "A customer").strip()
+                lead_url = f"{s.frontend_url.rstrip('/')}/leads/{lead.id}"
+                send_sms(
+                    alan_id,
+                    f"🔥 {customer} just opened the Legacy photos link. They're interested, call them now.\n{lead_url}",
+                    location_id=lead.ghl_location_id,
+                )
+        except Exception as e:
+            logger.warning(f"colors_opened SMS to owner failed (non-fatal): {e}")
+        return {"ok": True, "texted": True}
+    finally:
+        db.close()
